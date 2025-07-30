@@ -140,3 +140,50 @@ export type Widget = {
   data?: any
   settings?: any
 }
+
+export type MapLayer = {
+  id: string
+  name: string
+  visible: boolean
+  color: string
+  icon: LucideIcon
+}
+
+export type MapZone = {
+  id: string
+  name: string
+  type: "potrero" | "cultivo" | "infraestructura" | "agua"
+  coordinates: { lat: number; lng: number }[]
+  center: { lat: number; lng: number }
+  area: number // hectáreas
+  status: "bueno" | "regular" | "malo" | "critico"
+  details: {
+    ganado?: number
+    cultivo?: string
+    estado?: string
+    ultimaInspeccion?: string
+    responsable?: string
+  }
+}
+
+export type MapMarker = {
+  id: string
+  name: string
+  type: "vehiculo" | "sensor" | "infraestructura" | "alerta" | "agua"
+  coordinates: { lat: number; lng: number }
+  status: "activo" | "inactivo" | "alerta" | "mantenimiento"
+  details: any
+  icon: LucideIcon
+}
+
+export type WeatherStation = {
+  id: string
+  name: string
+  coordinates: { lat: number; lng: number }
+  temperature: number
+  humidity: number
+  windSpeed: number
+  rainfall: number
+  soilMoisture: number
+  lastUpdate: string
+}

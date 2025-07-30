@@ -6,13 +6,14 @@ import "./globals.css"
 import { cn } from "@/lib/utils"
 import { AppShell } from "@/components/layout/app-shell"
 import { ThemeProvider } from "@/components/theme-provider"
+import { Ticker } from "@/components/layout/ticker"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
 
 export const metadata: Metadata = {
-  title: "Agri-Platform",
-  description: "Smart Farming Management System",
-    generator: 'v0.dev'
+  title: "AgroMonitor - Plataforma de Agricultura Inteligente",
+  description: "Sistema de gestión integral para fincas y agricultura inteligente",
+  generator: "v0.dev",
 }
 
 export default async function RootLayout({
@@ -44,12 +45,17 @@ export default async function RootLayout({
   }
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="es" suppressHydrationWarning>
       <body className={cn("min-h-screen bg-background font-sans antialiased", inter.variable)}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <AppShell defaultLayout={defaultLayout} defaultCollapsed={defaultCollapsed} navCollapsedSize={4}>
-            {children}
-          </AppShell>
+          <div className="flex flex-col min-h-screen">
+            <Ticker />
+            <div className="flex-1">
+              <AppShell defaultLayout={defaultLayout} defaultCollapsed={defaultCollapsed} navCollapsedSize={4}>
+                {children}
+              </AppShell>
+            </div>
+          </div>
         </ThemeProvider>
       </body>
     </html>

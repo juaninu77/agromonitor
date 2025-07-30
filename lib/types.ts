@@ -5,6 +5,7 @@ export type NavItem = {
   href: string
   icon: LucideIcon
   label?: string
+  badge?: number
 }
 
 export type KpiCardData = {
@@ -14,6 +15,8 @@ export type KpiCardData = {
   changeType: "increase" | "decrease"
   description: string
   icon: LucideIcon
+  trend?: number[]
+  target?: string
 }
 
 export type AlertData = {
@@ -21,12 +24,119 @@ export type AlertData = {
   title: string
   description: string
   timestamp: string
-  type: "alert" | "warn" | "info"
+  type: "alert" | "warn" | "info" | "success"
   read: boolean
+  priority: "low" | "medium" | "high" | "critical"
+  category: string
+  actionRequired?: boolean
 }
 
 export type Company = {
   id: string
   name: string
   logo: string
+}
+
+export type Vehicle = {
+  id: string
+  name: string
+  type: "tractor" | "harvester" | "truck" | "sprayer"
+  status: "active" | "inactive" | "maintenance" | "emergency"
+  location: string
+  coordinates?: { lat: number; lng: number }
+  fuelLevel: number
+  lastMaintenance: string
+  nextMaintenance: string
+  hoursWorked: number
+  maxHours: number
+  driver: string
+  issues: string[]
+  efficiency?: number
+  costPerHour?: number
+}
+
+export type BiblicalVerse = {
+  text: string
+  reference: string
+}
+
+export type Task = {
+  id: string
+  title: string
+  description: string
+  priority: "low" | "medium" | "high" | "urgent"
+  status: "pending" | "in-progress" | "completed" | "overdue"
+  assignedTo: string
+  dueDate: string
+  category: string
+  location?: string
+  estimatedHours?: number
+  completedAt?: string
+}
+
+export type WeatherData = {
+  temperature: number
+  condition: string
+  humidity: number
+  windSpeed: number
+  windDirection: string
+  visibility: number
+  uvIndex: number
+  pressure: number
+  forecast: {
+    day: string
+    high: number
+    low: number
+    condition: string
+    precipitation: number
+  }[]
+}
+
+export type InventoryItem = {
+  id: string
+  name: string
+  category: string
+  quantity: number
+  unit: string
+  minStock: number
+  maxStock: number
+  cost: number
+  supplier: string
+  lastRestocked: string
+  location: string
+  expiryDate?: string
+}
+
+export type FinancialData = {
+  totalRevenue: number
+  totalExpenses: number
+  netProfit: number
+  cashFlow: number
+  monthlyData: {
+    month: string
+    revenue: number
+    expenses: number
+    profit: number
+  }[]
+}
+
+export type Notification = {
+  id: string
+  title: string
+  message: string
+  type: "info" | "success" | "warning" | "error"
+  timestamp: string
+  read: boolean
+  actionUrl?: string
+  actionText?: string
+}
+
+export type Widget = {
+  id: string
+  title: string
+  type: "kpi" | "chart" | "list" | "map" | "weather" | "tasks"
+  size: "small" | "medium" | "large"
+  position: { x: number; y: number }
+  data?: any
+  settings?: any
 }

@@ -24,7 +24,7 @@ export function Nav({ links, isCollapsed }: NavProps) {
 
   return (
     <TooltipProvider>
-      <div data-collapsed={isCollapsed} className="group flex flex-col gap-4 py-2 data-[collapsed=true]:py-2">
+      <div data-collapsed={isCollapsed} className="group flex flex-col gap-2 py-2 data-[collapsed=true]:py-2">
         <nav className="grid gap-1 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
           {links.map((link, index) => {
             const isActive = pathname === link.href
@@ -35,8 +35,8 @@ export function Nav({ links, isCollapsed }: NavProps) {
                     href={link.href}
                     className={cn(
                       buttonVariants({ variant: isActive ? "default" : "ghost", size: "icon" }),
-                      "h-9 w-9",
-                      isActive && "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
+                      "h-10 w-10 rounded-xl",
+                      isActive && "shadow-md",
                     )}
                   >
                     <link.icon className="h-4 w-4" />
@@ -53,17 +53,25 @@ export function Nav({ links, isCollapsed }: NavProps) {
                 key={index}
                 href={link.href}
                 className={cn(
-                  "group flex items-center rounded-md px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground",
-                  isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+                  "group flex items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 hover:bg-accent hover:text-accent-foreground relative overflow-hidden",
+                  isActive
+                    ? "bg-primary text-primary-foreground shadow-md"
+                    : "text-muted-foreground hover:text-foreground",
                   "justify-start",
                 )}
               >
-                <div
-                  className={cn("absolute left-0 h-6 w-1 rounded-r-full", isActive ? "bg-primary" : "bg-transparent")}
-                />
-                <link.icon className="mr-4 h-5 w-5" />
-                {link.title}
-                {link.label && <span className="ml-auto">{link.label}</span>}
+                {isActive && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-primary to-primary/80 rounded-xl" />
+                )}
+                <div className="relative flex items-center gap-3">
+                  <link.icon className="h-5 w-5" />
+                  <span>{link.title}</span>
+                </div>
+                {link.label && (
+                  <span className="ml-auto relative text-xs bg-background/20 px-2 py-0.5 rounded-full">
+                    {link.label}
+                  </span>
+                )}
               </Link>
             )
           })}

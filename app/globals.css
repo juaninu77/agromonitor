@@ -4,58 +4,120 @@
 
 @layer base {
   :root {
+    /* Base colors - Light theme optimized */
     --background: 0 0% 100%;
-    --foreground: 224 71.4% 4.1%;
+    --foreground: 222 84% 4.9%;
     --card: 0 0% 100%;
-    --card-foreground: 224 71.4% 4.1%;
+    --card-foreground: 222 84% 4.9%;
     --popover: 0 0% 100%;
-    --popover-foreground: 224 71.4% 4.1%;
-    --primary: 220.9 39.3% 11%;
-    --primary-foreground: 210 20% 98%;
-    --secondary: 220 14.3% 95.9%;
-    --secondary-foreground: 220.9 39.3% 11%;
-    --muted: 220 14.3% 95.9%;
-    --muted-foreground: 220 8.9% 46.1%;
-    --accent: 220 14.3% 95.9%;
-    --accent-foreground: 220.9 39.3% 11%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 20% 98%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 224 71.4% 4.1%;
-    --radius: 0.5rem;
-    /* Custom Status Colors */
-    --status-ok: 122 60% 35%;
-    --status-alert: 0 72% 51%;
-    --status-water: 211 76% 48%;
-    --status-warn: 45 93% 47%;
+    --popover-foreground: 222 84% 4.9%;
+
+    /* Primary - Modern blue with excellent contrast */
+    --primary: 221 83% 53%;
+    --primary-foreground: 210 40% 98%;
+
+    /* Secondary - Soft neutral with warmth */
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 84% 4.9%;
+
+    /* Muted - Subtle background variations */
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    /* Accent - Complementary to primary */
+    --accent: 210 40% 94%;
+    --accent-foreground: 222 84% 4.9%;
+
+    /* Destructive - Refined red */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    /* Borders and inputs - More visible borders */
+    --border: 214 32% 80%;
+    --input: 214 32% 85%;
+    --ring: 221 83% 53%;
+    --radius: 0.75rem;
+
+    /* Custom Status Colors - Refined for better UX */
+    --status-ok: 142 76% 36%;
+    --status-alert: 0 84% 60%;
+    --status-water: 199 89% 48%;
+    --status-warn: 38 92% 50%;
+
+    /* Chart colors - Harmonious palette */
+    --chart-1: 221 83% 53%;
+    --chart-2: 142 76% 36%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 271 81% 56%;
+    --chart-5: 0 84% 60%;
+
+    /* Sidebar - Clean and modern */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 84% 4.9%;
+    --sidebar-primary: 221 83% 53%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 210 40% 96%;
+    --sidebar-accent-foreground: 222 84% 4.9%;
+    --sidebar-border: 214 32% 80%;
+    --sidebar-ring: 221 83% 53%;
   }
 
   .dark {
-    --background: 224 71.4% 4.1%;
-    --foreground: 210 20% 98%;
-    --card: 224 71.4% 4.1%;
-    --card-foreground: 210 20% 98%;
-    --popover: 224 71.4% 4.1%;
-    --popover-foreground: 210 20% 98%;
-    --primary: 210 20% 98%;
-    --primary-foreground: 220.9 39.3% 11%;
-    --secondary: 215 27.9% 16.9%;
-    --secondary-foreground: 210 20% 98%;
-    --muted: 215 27.9% 16.9%;
-    --muted-foreground: 217.9 10.6% 64.9%;
-    --accent: 215 27.9% 16.9%;
-    --accent-foreground: 210 20% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 20% 98%;
-    --border: 215 27.9% 16.9%;
-    --input: 215 27.9% 16.9%;
-    --ring: 216 12.2% 83.9%;
-    /* Custom Status Colors */
-    --status-ok: 122 40% 45%;
-    --status-alert: 0 62% 60%;
-    --status-water: 211 66% 58%;
-    --status-warn: 45 83% 57%;
+    /* Base colors - Dark theme */
+    --background: 222 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    /* Primary - Adjusted for dark theme */
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 84% 4.9%;
+
+    /* Secondary - Dark theme neutrals */
+    --secondary: 217 32% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    /* Muted - Dark theme variations */
+    --muted: 217 32% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    /* Accent - Dark theme accent */
+    --accent: 217 32% 17%;
+    --accent-foreground: 210 40% 98%;
+
+    /* Destructive - Dark theme red */
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 210 40% 98%;
+
+    /* Borders and inputs - More visible in dark theme */
+    --border: 217 32% 30%;
+    --input: 217 32% 25%;
+    --ring: 217 91% 60%;
+
+    /* Custom Status Colors - Dark theme optimized */
+    --status-ok: 142 71% 45%;
+    --status-alert: 0 91% 71%;
+    --status-water: 199 89% 64%;
+    --status-warn: 38 92% 64%;
+
+    /* Chart colors - Dark theme */
+    --chart-1: 217 91% 60%;
+    --chart-2: 142 71% 45%;
+    --chart-3: 38 92% 64%;
+    --chart-4: 271 91% 65%;
+    --chart-5: 0 91% 71%;
+
+    /* Sidebar - Dark theme */
+    --sidebar-background: 222 84% 4.9%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 222 84% 4.9%;
+    --sidebar-accent: 217 32% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 32% 30%;
+    --sidebar-ring: 217 91% 60%;
   }
 }
 
@@ -63,7 +125,108 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Enhanced focus states */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Smooth transitions for theme switching */
+  * {
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+  }
+}
+
+/* Custom scrollbar for better UX */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground));
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--foreground));
+  }
+
+  /* Pulse animation for live data */
+  .pulse-dot {
+    animation: pulse-dot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  /* Marquee animation for ticker */
+  .animate-marquee {
+    animation: marquee 60s linear infinite;
+  }
+
+  @keyframes marquee {
+    0% {
+      transform: translateX(100%);
+    }
+    100% {
+      transform: translateX(-100%);
+    }
+  }
+}
+
+/* Enhanced card shadows for depth */
+@layer components {
+  .card-shadow {
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  }
+
+  .card-shadow-lg {
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  }
+
+  /* Status indicators */
+  .status-indicator {
+    @apply inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium border-2;
+  }
+
+  .status-online {
+    @apply bg-status-ok/10 text-status-ok border-status-ok/30;
+  }
+
+  .status-offline {
+    @apply bg-muted text-muted-foreground border-border;
+  }
+
+  .status-warning {
+    @apply bg-status-warn/10 text-status-warn border-status-warn/30;
+  }
+
+  .status-critical {
+    @apply bg-status-alert/10 text-status-alert border-status-alert/30;
   }
 }

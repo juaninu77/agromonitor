@@ -1,120 +1,75 @@
 "use client"
 
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
 import { Activity, Zap, Droplets, Thermometer } from "lucide-react"
 
 const metrics = [
   {
-    name: "Sensores Activos",
-    value: 24,
-    total: 28,
-    percentage: 86,
-    status: "normal",
+    title: "Sensores Activos",
+    value: "47/52",
     icon: Activity,
-    unit: "dispositivos",
+    status: "Normal",
+    color: "text-green-600",
+    bgColor: "bg-green-50",
+    statusColor: "bg-green-600",
   },
   {
-    name: "Uso de Energía",
-    value: 78,
-    total: 100,
-    percentage: 78,
-    status: "alto",
+    title: "Uso de Energía",
+    value: "2.4 kW",
     icon: Zap,
-    unit: "kW",
+    status: "Alto",
+    color: "text-yellow-600",
+    bgColor: "bg-yellow-50",
+    statusColor: "bg-yellow-600",
   },
   {
-    name: "Flujo de Agua",
-    value: 1250,
-    total: 2000,
-    percentage: 63,
-    status: "normal",
+    title: "Flujo de Agua",
+    value: "156 L/min",
     icon: Droplets,
-    unit: "L/min",
+    status: "Normal",
+    color: "text-blue-600",
+    bgColor: "bg-blue-50",
+    statusColor: "bg-green-600",
   },
   {
-    name: "Temp. Promedio",
-    value: 24,
-    total: 35,
-    percentage: 69,
-    status: "crítico",
+    title: "Temp. Promedio",
+    value: "24.5°C",
     icon: Thermometer,
-    unit: "°C",
+    status: "Crítico",
+    color: "text-red-600",
+    bgColor: "bg-red-50",
+    statusColor: "bg-red-600",
   },
 ]
 
-const getStatusColor = (status: string) => {
-  switch (status) {
-    case "normal":
-      return "text-green-600"
-    case "alto":
-      return "text-yellow-600"
-    case "crítico":
-      return "text-red-600"
-    default:
-      return "text-gray-600"
-  }
-}
-
-const getStatusBadge = (status: string) => {
-  switch (status) {
-    case "normal":
-      return (
-        <Badge variant="default" className="bg-green-100 text-green-800">
-          Normal
-        </Badge>
-      )
-    case "alto":
-      return (
-        <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-          Alto
-        </Badge>
-      )
-    case "crítico":
-      return <Badge variant="destructive">Crítico</Badge>
-    default:
-      return <Badge variant="outline">Desconocido</Badge>
-  }
-}
-
 export function LiveMetrics() {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span>Métricas en Vivo</span>
-          <Badge variant="outline" className="animate-pulse">
-            <div className="h-2 w-2 bg-green-500 rounded-full mr-2" />
+    <Card className="bg-white">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg font-semibold">Métricas en Vivo</CardTitle>
+          <Badge variant="outline" className="gap-1">
+            <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
             Tiempo real
           </Badge>
-        </CardTitle>
-        <CardDescription>Monitoreo continuo de parámetros operativos</CardDescription>
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-2 gap-4">
           {metrics.map((metric, index) => (
-            <div key={index} className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <metric.icon className={`h-4 w-4 ${getStatusColor(metric.status)}`} />
-                  <span className="font-medium">{metric.name}</span>
+            <div key={index} className="p-3 rounded-lg border bg-gray-50/50">
+              <div className="flex items-center justify-between mb-2">
+                <div className={`p-2 rounded-lg ${metric.bgColor}`}>
+                  <metric.icon className={`h-4 w-4 ${metric.color}`} />
                 </div>
-                {getStatusBadge(metric.status)}
+                <Badge variant="outline" className={`text-xs ${metric.statusColor} text-white border-0`}>
+                  {metric.status}
+                </Badge>
               </div>
-
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span>
-                    {metric.value} {metric.unit}
-                  </span>
-                  <span className="text-muted-foreground">{metric.percentage}%</span>
-                </div>
-                <Progress value={metric.percentage} className="h-2" />
-              </div>
-
-              <div className="text-xs text-muted-foreground">
-                Máximo: {metric.total} {metric.unit}
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">{metric.title}</p>
+                <p className="text-lg font-semibold">{metric.value}</p>
               </div>
             </div>
           ))}

@@ -1,95 +1,38 @@
 "use client"
 
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Plus, AlertTriangle, Camera, FileText, Calendar, MapPin, Cpu, Settings } from "lucide-react"
+import { Plus, AlertTriangle, Camera, FileText, Settings, Zap, Calendar, MapPin } from "lucide-react"
 
 const quickActions = [
-  {
-    title: "Agregar Animal",
-    description: "Registrar nuevo ganado",
-    icon: Plus,
-    color: "bg-green-500 hover:bg-green-600",
-    href: "/ganado/nuevo",
-  },
-  {
-    title: "Reportar Problema",
-    description: "Crear reporte de incidencia",
-    icon: AlertTriangle,
-    color: "bg-red-500 hover:bg-red-600",
-    href: "/reportes/nuevo",
-  },
-  {
-    title: "Tomar Foto",
-    description: "Capturar evidencia visual",
-    icon: Camera,
-    color: "bg-blue-500 hover:bg-blue-600",
-    href: "/fotos/nueva",
-  },
-  {
-    title: "Nuevo Reporte",
-    description: "Generar reporte de campo",
-    icon: FileText,
-    color: "bg-purple-500 hover:bg-purple-600",
-    href: "/reportes/campo",
-  },
-  {
-    title: "Programar Tarea",
-    description: "Agendar actividad",
-    icon: Calendar,
-    color: "bg-orange-500 hover:bg-orange-600",
-    href: "/tareas/nueva",
-  },
-  {
-    title: "Verificar Ubicación",
-    description: "Revisar coordenadas GPS",
-    icon: MapPin,
-    color: "bg-teal-500 hover:bg-teal-600",
-    href: "/mapa",
-  },
-  {
-    title: "Control IoT",
-    description: "Gestionar sensores",
-    icon: Cpu,
-    color: "bg-indigo-500 hover:bg-indigo-600",
-    href: "/iot",
-  },
-  {
-    title: "Configuración",
-    description: "Ajustar parámetros",
-    icon: Settings,
-    color: "bg-gray-500 hover:bg-gray-600",
-    href: "/configuracion",
-  },
+  { icon: Plus, label: "Agregar Animal", color: "text-status-ok", bg: "bg-status-ok/10" },
+  { icon: AlertTriangle, label: "Reportar Problema", color: "text-status-alert", bg: "bg-status-alert/10" },
+  { icon: Camera, label: "Tomar Foto", color: "text-primary", bg: "bg-primary/10" },
+  { icon: FileText, label: "Nuevo Reporte", color: "text-muted-foreground", bg: "bg-muted" },
+  { icon: Calendar, label: "Programar Tarea", color: "text-status-warn", bg: "bg-status-warn/10" },
+  { icon: MapPin, label: "Verificar Ubicación", color: "text-status-water", bg: "bg-status-water/10" },
+  { icon: Zap, label: "Control IoT", color: "text-chart-4", bg: "bg-chart-4/10" },
+  { icon: Settings, label: "Configuración", color: "text-muted-foreground", bg: "bg-muted" },
 ]
 
 export function QuickActions() {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
-          Acciones Rápidas
-        </CardTitle>
-        <CardDescription>Accesos directos a funciones principales</CardDescription>
+    <Card className="border-2 bg-white">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg font-semibold">Acciones Rápidas</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           {quickActions.map((action, index) => (
             <Button
               key={index}
-              variant="outline"
-              className={`h-auto p-4 flex flex-col items-center gap-2 hover:scale-105 transition-all duration-200 ${action.color} text-white border-0`}
-              onClick={() => {
-                // Aquí iría la navegación o acción correspondiente
-                console.log(`Navegando a: ${action.href}`)
-              }}
+              variant="ghost"
+              className="h-auto p-3 flex flex-col items-center gap-2 hover:scale-105 transition-transform border border-transparent hover:border-border/50"
             >
-              <action.icon className="h-6 w-6" />
-              <div className="text-center">
-                <div className="font-medium text-sm">{action.title}</div>
-                <div className="text-xs opacity-90">{action.description}</div>
+              <div className={`p-2 rounded-lg ${action.bg}`}>
+                <action.icon className={`h-4 w-4 ${action.color}`} />
               </div>
+              <span className="text-xs font-medium">{action.label}</span>
             </Button>
           ))}
         </div>

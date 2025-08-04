@@ -1,113 +1,104 @@
 "use client"
 
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { CheckCircle, AlertTriangle, XCircle, Clock } from "lucide-react"
+import { Wifi, Database, Shield, Server, Cpu } from "lucide-react"
 
 const systemComponents = [
   {
     name: "Red de la Granja",
-    status: "online",
-    uptime: "99.9%",
-    lastCheck: "hace 30s",
+    status: "en línea",
+    icon: Wifi,
+    color: "text-green-600",
+    bgColor: "bg-green-50",
   },
   {
     name: "Sensores IoT",
-    status: "warning",
-    uptime: "98.5%",
-    lastCheck: "hace 1m",
+    status: "advertencia",
+    icon: Cpu,
+    color: "text-yellow-600",
+    bgColor: "bg-yellow-50",
   },
   {
     name: "Base de Datos",
-    status: "online",
-    uptime: "100%",
-    lastCheck: "hace 15s",
+    status: "en línea",
+    icon: Database,
+    color: "text-green-600",
+    bgColor: "bg-green-50",
   },
   {
     name: "Sistema de Seguridad",
-    status: "online",
-    uptime: "99.8%",
-    lastCheck: "hace 45s",
+    status: "en línea",
+    icon: Shield,
+    color: "text-green-600",
+    bgColor: "bg-green-50",
   },
   {
     name: "Servidor Principal",
-    status: "offline",
-    uptime: "95.2%",
-    lastCheck: "hace 5m",
+    status: "en línea",
+    icon: Server,
+    color: "text-green-600",
+    bgColor: "bg-green-50",
   },
 ]
 
-const getStatusIcon = (status: string) => {
-  switch (status) {
-    case "online":
-      return <CheckCircle className="h-4 w-4 text-green-500" />
-    case "warning":
-      return <AlertTriangle className="h-4 w-4 text-yellow-500" />
-    case "offline":
-      return <XCircle className="h-4 w-4 text-red-500" />
-    default:
-      return <Clock className="h-4 w-4 text-gray-500" />
-  }
-}
-
-const getStatusText = (status: string) => {
-  switch (status) {
-    case "online":
-      return "en línea"
-    case "warning":
-      return "advertencia"
-    case "offline":
-      return "desconectado"
-    default:
-      return "desconocido"
-  }
-}
-
-const getOverallStatus = () => {
-  const onlineCount = systemComponents.filter((c) => c.status === "online").length
-  const warningCount = systemComponents.filter((c) => c.status === "warning").length
-  const offlineCount = systemComponents.filter((c) => c.status === "offline").length
-
-  if (offlineCount > 0) {
-    return { text: "Problemas Detectados", variant: "destructive" as const }
-  } else if (warningCount > 0) {
-    return { text: "Advertencias Menores", variant: "secondary" as const }
-  } else {
-    return { text: "Todos los Sistemas Operativos", variant: "default" as const }
-  }
-}
-
 export function SystemStatus() {
-  const overallStatus = getOverallStatus()
+  const onlineCount = systemComponents.filter((c) => c.status === "en línea").length
+  const warningCount = systemComponents.filter((c) => c.status === "advertencia").length
+  const offlineCount = systemComponents.filter((c) => c.status === "desconectado").length
+
+  const getStatusBadge = () => {
+    if (offlineCount > 0) {
+      return <Badge variant="destructive">Problemas Detectados</Badge>
+    } else if (warningCount > 0) {
+      return <Badge variant="secondary">Advertencias Menores</Badge>
+    } else {
+      return (
+        <Badge variant="default" className="bg-green-600">
+          Todos los Sistemas Operativos
+        </Badge>
+      )
+    }
+  }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span>Estado del Sistema</span>
-          <Badge variant={overallStatus.variant}>{overallStatus.text}</Badge>
-        </CardTitle>
-        <CardDescription>Monitoreo en tiempo real de componentes críticos</CardDescription>
+    <Card className="bg-white">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg font-semibold">Estado del Sistema</CardTitle>
+          {getStatusBadge()}
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
+        <div className="space-y-3">
           {systemComponents.map((component, index) => (
-            <div key={index} className="flex items-center justify-between p-3 rounded-lg border">
+            <div key={index} className="flex items-center justify-between p-2 rounded-lg border">
               <div className="flex items-center gap-3">
-                {getStatusIcon(component.status)}
-                <div>
-                  <div className="font-medium">{component.name}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {getStatusText(component.status)} • {component.lastCheck}
-                  </div>
+                <div className={`p-2 rounded-lg ${component.bgColor}`}>
+                  <component.icon className={`h-4 w-4 ${component.color}`} />
                 </div>
+                <span className="font-medium text-sm">{component.name}</span>
               </div>
-              <div className="text-right">
-                <div className="text-sm font-medium">Tiempo Activo:</div>
-                <div className="text-sm text-muted-foreground">{component.uptime}</div>
-              </div>
+              <Badge
+                variant={
+                  component.status === "en línea"
+                    ? "default"
+                    : component.status === "advertencia"
+                      ? "secondary"
+                      : "destructive"
+                }
+                className={component.status === "en línea" ? "bg-green-600" : ""}
+              >
+                {component.status}
+              </Badge>
             </div>
           ))}
+        </div>
+        <div className="mt-4 pt-3 border-t">
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>Tiempo Activo:</span>
+            <span className="font-medium">99.8%</span>
+          </div>
         </div>
       </CardContent>
     </Card>

@@ -21,7 +21,13 @@ Contabilidad, costos y análisis económico.
 ### 5. **iot** - Esquema IoT
 Dispositivos, sensores y datos en tiempo real.
 
-### 6. **audit** - Esquema de Auditoría
+### 6. **tasks** - Esquema de Tareas
+Gestión de actividades, asignaciones y seguimiento.
+
+### 7. **market** - Esquema de Mercado
+Precios y tendencias de insumos, productos y activos.
+
+### 8. **audit** - Esquema de Auditoría
 Trazabilidad y logs del sistema.
 
 ---
@@ -512,6 +518,70 @@ CREATE TABLE iot.device_commands (
 );
 \`\`\`
 
+### ESQUEMA: tasks (NUEVO)
+
+\`\`\`sql
+-- Tareas
+CREATE TABLE tasks.tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES core.organizations(id),
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    status VARCHAR(50) NOT NULL DEFAULT 'pending', -- 'pending', 'in-progress', 'completed', 'overdue'
+    priority VARCHAR(50) NOT NULL DEFAULT 'medium', -- 'low', 'medium', 'high', 'urgent'
+    category VARCHAR(100),
+    due_date TIMESTAMP WITH TIME ZONE,
+    assigned_to_id UUID REFERENCES core.users(id),
+    location_id UUID REFERENCES core.locations(id),
+    estimated_hours DECIMAL(5,2),
+    completed_at TIMESTAMP WITH TIME ZONE,
+    created_by_id UUID NOT NULL REFERENCES core.users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Comentarios en tareas
+CREATE TABLE tasks.task_comments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID NOT NULL REFERENCES tasks.tasks(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES core.users(id),
+    comment TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Dependencias entre tareas
+CREATE TABLE tasks.task_dependencies (
+    task_id UUID NOT NULL REFERENCES tasks.tasks(id) ON DELETE CASCADE,
+    depends_on_task_id UUID NOT NULL REFERENCES tasks.tasks(id) ON DELETE CASCADE,
+    PRIMARY KEY (task_id, depends_on_task_id)
+);
+\`\`\`
+
+### ESQUEMA: market (NUEVO)
+
+\`\`\`sql
+-- Productos del mercado (commodities, insumos, etc.)
+CREATE TABLE market.products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    category VARCHAR(100) NOT NULL, -- 'Granos', 'Insumos', 'Ganado', 'Maquinaria'
+    unit VARCHAR(50) NOT NULL, -- 'tonelada', 'kg', 'saco', 'unidad'
+    source VARCHAR(255), -- 'Mercado de Rosario', 'AgroInsumos SA'
+    is_active BOOLEAN DEFAULT true,
+    UNIQUE(name, category, unit)
+);
+
+-- Historial de precios de mercado
+CREATE TABLE market.price_history (
+    id BIGSERIAL PRIMARY KEY,
+    product_id UUID NOT NULL REFERENCES market.products(id),
+    timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+    price DECIMAL(12, 2) NOT NULL,
+    volume BIGINT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+\`\`\`
+
 ### ESQUEMA: audit
 
 \`\`\`sql
@@ -582,6 +652,14 @@ CREATE INDEX idx_plantings_location ON crops.plantings(location_id);
 CREATE INDEX idx_sensor_data_device_time ON iot.sensor_data(device_id, timestamp DESC);
 CREATE INDEX idx_transactions_org_date ON finance.transactions(organization_id, transaction_date DESC);
 
+-- Índices para Tareas (NUEVO)
+CREATE INDEX idx_tasks_org_status ON tasks.tasks(organization_id, status);
+CREATE INDEX idx_tasks_assigned_to ON tasks.tasks(assigned_to_id);
+CREATE INDEX idx_tasks_due_date ON tasks.tasks(due_date);
+
+-- Índices para Mercado (NUEVO)
+CREATE INDEX idx_price_history_product_time ON market.price_history(product_id, timestamp DESC);
+
 -- Índices geoespaciales
 CREATE INDEX idx_locations_geometry ON core.locations USING GIST(geometry);
 CREATE INDEX idx_devices_coordinates ON iot.devices USING GIST(coordinates);
@@ -589,6 +667,7 @@ CREATE INDEX idx_devices_coordinates ON iot.devices USING GIST(coordinates);
 -- Índices para búsqueda de texto
 CREATE INDEX idx_animals_search ON livestock.animals USING GIN(to_tsvector('spanish', name || ' ' || tag_number));
 CREATE INDEX idx_plantings_search ON crops.plantings USING GIN(to_tsvector('spanish', COALESCE(notes, '')));
+CREATE INDEX idx_tasks_search ON tasks.tasks USING GIN(to_tsvector('spanish', title || ' ' || description));
 \`\`\`
 
 ### Vistas Materializadas
@@ -646,26 +725,35 @@ CREATE UNIQUE INDEX ON crops.active_plantings_summary(id);
 ALTER TABLE core.organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE livestock.animals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE crops.plantings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tasks.tasks ENABLE ROW LEVEL SECURITY; -- NUEVO
 
 -- Políticas de seguridad
 CREATE POLICY org_isolation ON core.organizations
-    FOR ALL TO authenticated
+    FOR ALL
     USING (id IN (
         SELECT organization_id FROM core.users 
         WHERE id = auth.uid()
     ));
 
 CREATE POLICY animals_org_policy ON livestock.animals
-    FOR ALL TO authenticated
+    FOR ALL
     USING (organization_id IN (
         SELECT organization_id FROM core.users 
         WHERE id = auth.uid()
     ));
 
 CREATE POLICY plantings_org_policy ON crops.plantings
-    FOR ALL TO authenticated
+    FOR ALL
     USING (organization_id IN (
         SELECT organization_id FROM core.users 
+        WHERE id = auth.uid()
+    ));
+
+-- Política para Tareas (NUEVO)
+CREATE POLICY tasks_org_policy ON tasks.tasks
+    FOR ALL
+    USING (organization_id IN (
+        SELECT organization_id FROM core.users
         WHERE id = auth.uid()
     ));
 \`\`\`
@@ -676,33 +764,26 @@ CREATE POLICY plantings_org_policy ON crops.plantings
 -- Función genérica de auditoría
 CREATE OR REPLACE FUNCTION audit.audit_trigger_function()
 RETURNS TRIGGER AS $$
+DECLARE
+    user_id_var UUID;
 BEGIN
+    BEGIN
+        user_id_var := current_setting('app.current_user_id')::UUID;
+    EXCEPTION WHEN OTHERS THEN
+        user_id_var := NULL;
+    END;
+
     IF TG_OP = 'DELETE' THEN
-        INSERT INTO audit.audit_log (
-            table_name, record_id, operation, old_values, user_id, timestamp
-        ) VALUES (
-            TG_TABLE_NAME, OLD.id, TG_OP, row_to_json(OLD), 
-            COALESCE(current_setting('app.current_user_id', true)::uuid, NULL),
-            NOW()
-        );
+        INSERT INTO audit.audit_log (table_name, record_id, operation, old_values, user_id)
+        VALUES (TG_TABLE_NAME, OLD.id, TG_OP, row_to_json(OLD), user_id_var);
         RETURN OLD;
     ELSIF TG_OP = 'UPDATE' THEN
-        INSERT INTO audit.audit_log (
-            table_name, record_id, operation, old_values, new_values, user_id, timestamp
-        ) VALUES (
-            TG_TABLE_NAME, NEW.id, TG_OP, row_to_json(OLD), row_to_json(NEW),
-            COALESCE(current_setting('app.current_user_id', true)::uuid, NULL),
-            NOW()
-        );
+        INSERT INTO audit.audit_log (table_name, record_id, operation, old_values, new_values, user_id)
+        VALUES (TG_TABLE_NAME, NEW.id, TG_OP, row_to_json(OLD), row_to_json(NEW), user_id_var);
         RETURN NEW;
     ELSIF TG_OP = 'INSERT' THEN
-        INSERT INTO audit.audit_log (
-            table_name, record_id, operation, new_values, user_id, timestamp
-        ) VALUES (
-            TG_TABLE_NAME, NEW.id, TG_OP, row_to_json(NEW),
-            COALESCE(current_setting('app.current_user_id', true)::uuid, NULL),
-            NOW()
-        );
+        INSERT INTO audit.audit_log (table_name, record_id, operation, new_values, user_id)
+        VALUES (TG_TABLE_NAME, NEW.id, TG_OP, row_to_json(NEW), user_id_var);
         RETURN NEW;
     END IF;
     RETURN NULL;
@@ -717,6 +798,11 @@ CREATE TRIGGER audit_animals_trigger
 CREATE TRIGGER audit_plantings_trigger
     AFTER INSERT OR UPDATE OR DELETE ON crops.plantings
     FOR EACH ROW EXECUTE FUNCTION audit.audit_trigger_function();
+
+-- Trigger para Tareas (NUEVO)
+CREATE TRIGGER audit_tasks_trigger
+    AFTER INSERT OR UPDATE OR DELETE ON tasks.tasks
+    FOR EACH ROW EXECUTE FUNCTION audit.audit_trigger_function();
 \`\`\`
 
 ---
@@ -727,14 +813,14 @@ CREATE TRIGGER audit_plantings_trigger
 
 \`\`\`sql
 -- Calcular días en leche
-CREATE OR REPLACE FUNCTION livestock.calculate_days_in_milk(animal_id UUID)
+CREATE OR REPLACE FUNCTION livestock.calculate_days_in_milk(p_animal_id UUID)
 RETURNS INTEGER AS $$
 DECLARE
     last_calving_date DATE;
 BEGIN
     SELECT MAX(event_date) INTO last_calving_date
     FROM livestock.reproductive_events
-    WHERE animal_id = $1 AND event_type = 'calving';
+    WHERE animal_id = p_animal_id AND event_type = 'calving';
     
     IF last_calving_date IS NULL THEN
         RETURN NULL;
@@ -746,7 +832,7 @@ $$ LANGUAGE plpgsql;
 
 -- Calcular unidades térmicas acumuladas
 CREATE OR REPLACE FUNCTION crops.calculate_thermal_units(
-    planting_id UUID,
+    p_planting_id UUID,
     base_temp DECIMAL DEFAULT 10.0
 ) RETURNS INTEGER AS $$
 DECLARE
@@ -755,7 +841,7 @@ DECLARE
     daily_temp RECORD;
 BEGIN
     SELECT p.planting_date INTO planting_date
-    FROM crops.plantings p WHERE p.id = $1;
+    FROM crops.plantings p WHERE p.id = p_planting_id;
     
     -- Aquí se calcularían las unidades térmicas basadas en datos climáticos
     -- Por simplicidad, retornamos un cálculo estimado
@@ -805,6 +891,7 @@ $$;
 ### Particionamiento
 - **sensor_data**: Particionada por mes para optimizar consultas temporales
 - **audit_log**: Particionada por trimestre para gestión eficiente de logs
+- **price_history**: Se puede particionar por mes/trimestre si el volumen es alto.
 
 ### Estrategias de Indexación
 - Índices compuestos para consultas frecuentes

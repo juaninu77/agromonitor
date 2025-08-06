@@ -478,6 +478,146 @@ Este documento detalla los datos específicos que se muestran en cada sección d
 
 ---
 
+## 📈 Módulo de Mercado (NUEVO)
+
+### Dashboard de Mercado
+\`\`\`json
+{
+  "kpis_mercado": {
+    "items_monitoreados": 45,
+    "items_alza": 28,
+    "items_baja": 17,
+    "cambio_promedio": "+1.2%"
+  },
+  "top_movers": [
+    {
+      "id": "fertilizante-npk",
+      "nombre": "Fertilizante NPK 20-20-20",
+      "cambio": "+5.32%",
+      "tipo_cambio": "increase"
+    },
+    {
+      "id": "semilla-maiz",
+      "nombre": "Semilla Maíz Híbrido DK390",
+      "cambio": "-3.91%",
+      "tipo_cambio": "decrease"
+    }
+  ]
+}
+\`\`\`
+
+### Precios de Productos
+\`\`\`json
+{
+  "productos_mercado": [
+    {
+      "id": "maiz-grano",
+      "nombre": "Maíz Grano",
+      "categoria": "Granos",
+      "precio_actual": 185.50,
+      "precio_anterior": 182.30,
+      "cambio_porcentaje": 1.75,
+      "tipo_cambio": "increase",
+      "unidad": "por tonelada",
+      "fuente": "Mercado de Rosario",
+      "tendencia_7d": [180, 182, 184, 183, 185, 186, 185.5],
+      "volumen": 2500,
+      "ultima_actualizacion": "2024-08-06T14:15:00Z"
+    },
+    {
+      "id": "novillo-gordo",
+      "nombre": "Novillo Gordo 400-450kg",
+      "categoria": "Ganado",
+      "precio_actual": 2.85,
+      "precio_anterior": 2.78,
+      "cambio_porcentaje": 2.52,
+      "tipo_cambio": "increase",
+      "unidad": "por kg vivo",
+      "fuente": "Mercado de Liniers",
+      "tendencia_7d": [2.7, 2.75, 2.78, 2.8, 2.82, 2.84, 2.85],
+      "volumen": 3200,
+      "ultima_actualizacion": "2024-08-06T13:45:00Z"
+    }
+  ]
+}
+\`\`\`
+
+---
+
+## 📋 Módulo de Tareas (NUEVO)
+
+### Dashboard de Tareas
+\`\`\`json
+{
+  "estadisticas_tareas": {
+    "total": 25,
+    "pendientes": 8,
+    "en_progreso": 5,
+    "completadas": 10,
+    "vencidas": 2,
+    "progreso_general": 40
+  }
+}
+\`\`\`
+
+### Vista Kanban
+\`\`\`json
+{
+  "kanban_board": {
+    "pending": [
+      { "id": "t003", "title": "Siembra de Maíz", "priority": "medium", "dueDate": "2024-08-15", "assignedTo": "Ana García" }
+    ],
+    "in-progress": [
+      { "id": "t002", "title": "Reparar Cerca Eléctrica", "priority": "high", "dueDate": "2024-08-10", "assignedTo": "Carlos Mendoza" }
+    ],
+    "completed": [
+      { "id": "t001", "title": "Vacunación Ganado Sector A", "priority": "urgent", "dueDate": "2024-08-01", "assignedTo": "Dr. Roberto Silva" }
+    ],
+    "overdue": [
+      { "id": "t004", "title": "Mantenimiento Tractor #3", "priority": "high", "dueDate": "2024-07-25", "assignedTo": "Miguel Torres" }
+    ]
+  }
+}
+\`\`\`
+
+### Detalle de Tarea
+\`\`\`json
+{
+  "tarea_detalle": {
+    "id": "t002",
+    "title": "Reparar Cerca Eléctrica",
+    "description": "Reparar cerca caída en potrero #14 reportada por sensor G-45. Se necesita alambre y aisladores.",
+    "status": "in-progress",
+    "priority": "high",
+    "category": "Mantenimiento",
+    "dueDate": "2024-08-10T17:00:00Z",
+    "assignedTo": {
+      "id": "user_002",
+      "name": "Carlos Mendoza",
+      "avatar": "/placeholder-user.jpg"
+    },
+    "location": {
+      "id": "loc_014",
+      "name": "Potrero #14"
+    },
+    "estimatedHours": 2.5,
+    "completedAt": null,
+    "createdBy": "Sistema (Alerta Automática)",
+    "createdAt": "2024-08-05T09:00:00Z",
+    "comments": [
+      {
+        "user": "Carlos Mendoza",
+        "comment": "Iniciando la tarea. El daño es mayor de lo esperado.",
+        "timestamp": "2024-08-06T10:15:00Z"
+      }
+    ],
+    "dependencies": []
+  }
+}
+\`\`\`
+
+---
+
 ## 🌐 Módulo IoT y Sensores
 
 ### Estado de Dispositivos
@@ -669,10 +809,6 @@ Este documento detalla los datos específicos que se muestran en cada sección d
 - **Dashboard ejecutivo** con KPIs principales
 - **Reportes de producción** y eficiencia
 - **Análisis de rentabilidad** por actividad
-- **Planificación** de actividades
-- **Supervisión** de equipos y personal
-
-###  por actividad
 - **Planificación** de actividades
 - **Supervisión** de equipos y personal
 

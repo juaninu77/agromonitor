@@ -12,7 +12,7 @@ importers:
         specifier: ^3.9.1
         version: 3.9.1(react-hook-form@7.61.1(react@19.0.0))
       '@prisma/client':
-        specifier: ^6.19.0
+        specifier: ^6.4.1
         version: 6.19.0(prisma@6.19.0(typescript@5.9.3))(typescript@5.9.3)
       '@radix-ui/react-accordion':
         specifier: latest
@@ -134,9 +134,6 @@ importers:
       next-themes:
         specifier: latest
         version: 0.4.6(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
-      prisma:
-        specifier: ^6.19.0
-        version: 6.19.0(typescript@5.9.3)
       react:
         specifier: ^19
         version: 19.0.0
@@ -195,6 +192,9 @@ importers:
       postcss:
         specifier: ^8.5
         version: 8.5.0
+      prisma:
+        specifier: ^6.4.1
+        version: 6.19.0(typescript@5.9.3)
       tailwindcss:
         specifier: ^3.4.17
         version: 3.4.17

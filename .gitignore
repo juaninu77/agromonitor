@@ -2,6 +2,11 @@
 
 # dependencies
 /node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
 
 # next.js
 /.next/
@@ -10,14 +15,24 @@
 # production
 /build
 
+# misc
+.DS_Store
+*.pem
+
 # debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
 
-# env files
-.env*
+# local env files - NUNCA commitear credenciales
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
 
 # vercel
 .vercel
@@ -25,3 +40,27 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# prisma
+/prisma/migrations
+
+# backups
+/backups
+*.sql
+*.backup
+
+# analysis files
+*.json
+!package.json
+!package-lock.json
+!pnpm-lock.yaml
+!tsconfig.json
+sample_data_analysis.json
+detailed_analysis.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

@@ -1,0 +1,1149 @@
+// ============================================
+// SCHEMA GANADERO v2 - AgroMonitor ERP
+// ============================================
+// Modelo completo con:
+// - Event Sourcing
+// - Catálogos normalizados
+// - Ciclo reproductivo completo
+// - Alimentación híbrida (lote + individual)
+// - Soporte RFID y Cabaña
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================
+// AUTENTICACIÓN (sin cambios)
+// ============================================
+
+model Usuario {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  emailVerificado DateTime? @map("email_verified")
+  passwordHash    String    @map("password_hash")
+  nombre          String
+  apellido        String
+  telefono        String?
+  avatar          String?
+  rol             String    @default("usuario")
+  esActivo        Boolean   @default(true) @map("es_activo")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  sessions        Session[]
+  accounts        Account[]
+  membresias      Membresia[]
+  
+  // Eventos realizados por este usuario
+  eventosRegistrados EventoBase[]
+
+  @@map("usuarios")
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String  @map("user_id")
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id                   String   @id @default(cuid())
+  sessionToken         String   @unique @map("session_token")
+  userId               String   @map("user_id")
+  expires              DateTime
+  organizacionActivaId String?  @map("organizacion_activa_id")
+  campoActivoId        String?  @map("campo_activo_id")
+
+  user Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================
+// MULTI-TENANCY (sin cambios mayores)
+// ============================================
+
+model Organizacion {
+  id          String   @id @default(cuid())
+  nombre      String
+  slug        String   @unique
+  logo        String?
+  descripcion String?
+  email       String?
+  telefono    String?
+  direccion   String?
+  timezone    String   @default("America/Argentina/Buenos_Aires")
+  moneda      String   @default("ARS")
+  esActivo    Boolean  @default(true) @map("es_activo")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  membresias   Membresia[]
+  campos       Campo[]
+  // Catálogos personalizados por organización
+  razas        Raza[]
+  proveedores  Proveedor[]
+  clientes     Cliente[]
+
+  @@map("organizaciones")
+  @@index([slug])
+}
+
+model Membresia {
+  id              String    @id @default(cuid())
+  rol             String    @default("operario")
+  permisos        Json      @default("[]")
+  esActivo        Boolean   @default(true) @map("es_activo")
+  fechaInvitacion DateTime? @map("fecha_invitacion")
+  fechaAceptacion DateTime? @map("fecha_aceptacion")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  usuarioId      String       @map("usuario_id")
+  usuario        Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  organizacionId String       @map("organizacion_id")
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, organizacionId])
+  @@map("membresias")
+  @@index([usuarioId])
+  @@index([organizacionId])
+}
+
+// ============================================
+// CATÁLOGOS NORMALIZADOS
+// ============================================
+
+// Razas por especie (personalizables por organización)
+model Raza {
+  id             String  @id @default(cuid())
+  nombre         String
+  especie        String  // 'bovino' | 'ovino'
+  descripcion    String?
+  esGlobal       Boolean @default(false) @map("es_global") // true = catálogo base
+  
+  organizacionId String? @map("organizacion_id")
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+
+  bovinos Bovino[]
+  ovinos  Ovino[]
+
+  @@unique([organizacionId, nombre, especie])
+  @@map("razas")
+  @@index([especie])
+  @@index([organizacionId])
+}
+
+// Categorías con lógica de transición
+model Categoria {
+  id             String  @id @default(cuid())
+  nombre         String  // 'ternero', 'ternera', 'novillito', 'vaquillona', etc.
+  especie        String  // 'bovino' | 'ovino'
+  sexo           String? // 'M' | 'H' | null (ambos)
+  edadMinMeses   Int?    @map("edad_min_meses")
+  edadMaxMeses   Int?    @map("edad_max_meses")
+  orden          Int     @default(0) // Para ordenar en UI
+  descripcion    String?
+  
+  bovinos Bovino[]
+  ovinos  Ovino[]
+
+  @@unique([nombre, especie])
+  @@map("categorias")
+  @@index([especie])
+}
+
+// Estados fisiológicos (reproductivos)
+model EstadoFisiologico {
+  id          String   @id @default(cuid())
+  nombre      String   // 'vacia', 'preñada', 'lactando', 'seca', 'en_servicio'
+  especie     String   // 'bovino' | 'ovino'
+  aplicaA     String[] // ['vaca', 'vaquillona'] - categorías a las que aplica
+  descripcion String?
+  color       String?  // Para UI
+
+  bovinos Bovino[]
+  ovinos  Ovino[]
+
+  @@unique([nombre, especie])
+  @@map("estados_fisiologicos")
+}
+
+// Causas de baja
+model CausaBaja {
+  id          String @id @default(cuid())
+  nombre      String // 'venta', 'faena', 'muerte_natural', 'muerte_accidente', 'robo', 'descarte'
+  tipo        String // 'venta' | 'muerte' | 'perdida'
+  descripcion String?
+
+  eventosVenta EventoVentaBaja[]
+
+  @@unique([nombre])
+  @@map("causas_baja")
+}
+
+// Motivos de movimiento
+model MotivoMovimiento {
+  id              String  @id @default(cuid())
+  nombre          String  // 'rotacion_pastoreo', 'cambio_rodeo', 'apartado', 'encierre', 'traslado'
+  requiereDestino Boolean @default(true) @map("requiere_destino")
+  descripcion     String?
+
+  eventosMovimiento EventoMovimiento[]
+
+  @@unique([nombre])
+  @@map("motivos_movimiento")
+}
+
+// ============================================
+// PRODUCTOS SANITARIOS
+// ============================================
+
+model ProductoSanitario {
+  id               String  @id @default(cuid())
+  nombre           String
+  tipo             String  // 'vacuna' | 'antiparasitario' | 'antibiotico' | 'antiinflamatorio' | 'vitamina' | 'mineral'
+  principioActivo  String? @map("principio_activo")
+  laboratorio      String?
+  diasCarencia     Int     @default(0) @map("dias_carencia") // Días de retiro para faena
+  viasAplicacion   String[] @default([]) @map("vias_aplicacion") // ['subcutanea', 'intramuscular', 'oral']
+  dosisReferencia  String?  @map("dosis_referencia") // "1ml cada 50kg"
+  temperatura      String?  // Condiciones de almacenamiento
+
+  eventosSanidad EventoSanidad[]
+  lotes          LoteProductoSanitario[]
+
+  @@map("productos_sanitarios")
+  @@index([tipo])
+}
+
+// Lotes de productos (trazabilidad)
+model LoteProductoSanitario {
+  id              String    @id @default(cuid())
+  productoId      String    @map("producto_id")
+  producto        ProductoSanitario @relation(fields: [productoId], references: [id])
+  numeroLote      String    @map("numero_lote")
+  fechaVencimiento DateTime @map("fecha_vencimiento")
+  proveedorId     String?   @map("proveedor_id")
+  fechaCompra     DateTime? @map("fecha_compra")
+  cantidad        Float?
+  unidad          String?
+  costoTotal      Float?    @map("costo_total")
+
+  eventosSanidad EventoSanidad[]
+
+  @@map("lotes_productos_sanitarios")
+  @@index([productoId])
+  @@index([fechaVencimiento])
+}
+
+// ============================================
+// MAESTROS DEL CAMPO
+// ============================================
+
+model Campo {
+  id             String   @id @default(cuid())
+  nombre         String
+  hectareas      Float
+  tipo           String   // 'propio' | 'arrendado' | 'compartido'
+  renspa         String?  // SENASA
+  provincia      String?
+  localidad      String?
+  coordenadas    Json?    // { lat, lng }
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organizacionId String       @map("organizacion_id")
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+
+  // Subdivisiones
+  potreros       Potrero[]
+  corrales       Corral[]
+  
+  // Animales
+  bovinos        Bovino[]
+  ovinos         Ovino[]
+  
+  // Rodeos/Lotes
+  rodeos         Rodeo[]
+  
+  // Stocks
+  stockAlimentos StockAlimento[]
+  
+  // Documentos
+  documentosTransito DocumentoTransito[]
+
+  @@unique([organizacionId, nombre])
+  @@map("campos")
+  @@index([organizacionId])
+}
+
+// Potrero - Unidad de pastoreo
+model Potrero {
+  id              String   @id @default(cuid())
+  nombre          String
+  hectareas       Float
+  tipoPastura     String?  @map("tipo_pastura") // 'natural' | 'implantada' | 'verdeo'
+  especiePastura  String?  @map("especie_pastura") // 'alfalfa', 'festuca', etc.
+  capacidadCabezas Int?    @map("capacidad_cabezas") // Carga animal estimada
+  estado          String   @default("activo") // 'activo' | 'descanso' | 'recuperacion'
+  aguada          Boolean  @default(false) // Tiene bebedero/aguada
+  sombra          Boolean  @default(false) // Tiene monte/sombra
+  observaciones   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  campoId String @map("campo_id")
+  campo   Campo  @relation(fields: [campoId], references: [id], onDelete: Cascade)
+
+  // Animales actualmente en este potrero
+  bovinos Bovino[]
+  ovinos  Ovino[]
+  
+  // Rodeos en este potrero
+  rodeos  Rodeo[]
+  
+  // Eventos de movimiento
+  movimientosOrigen  EventoMovimiento[] @relation("PotreroOrigen")
+  movimientosDestino EventoMovimiento[] @relation("PotreroDestino")
+
+  @@unique([campoId, nombre])
+  @@map("potreros")
+  @@index([campoId])
+  @@index([estado])
+}
+
+// Corral - Para manejo (manga, encierre, etc.)
+model Corral {
+  id           String   @id @default(cuid())
+  nombre       String
+  tipo         String   // 'manga' | 'corral_encierre' | 'embarcadero' | 'balanza' | 'enfermeria'
+  capacidad    Int?
+  tieneTecho   Boolean  @default(false) @map("tiene_techo")
+  tieneBalanza Boolean  @default(false) @map("tiene_balanza")
+  observaciones String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  campoId String @map("campo_id")
+  campo   Campo  @relation(fields: [campoId], references: [id], onDelete: Cascade)
+
+  @@unique([campoId, nombre])
+  @@map("corrales")
+  @@index([campoId])
+}
+
+// Proveedor (insumos, compra de hacienda)
+model Proveedor {
+  id             String   @id @default(cuid())
+  nombre         String
+  cuit           String?
+  tipo           String[] // ['insumos', 'hacienda', 'servicios', 'alimentos']
+  contactoNombre String?  @map("contacto_nombre")
+  contactoTel    String?  @map("contacto_tel")
+  contactoEmail  String?  @map("contacto_email")
+  direccion      String?
+  notas          String?
+  esActivo       Boolean  @default(true) @map("es_activo")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organizacionId String       @map("organizacion_id")
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+
+  // Compras realizadas
+  compras        Compra[]
+  // Animales comprados a este proveedor
+  bovinosComprados Bovino[]
+
+  @@map("proveedores")
+  @@index([organizacionId])
+}
+
+// Cliente (venta de hacienda)
+model Cliente {
+  id             String   @id @default(cuid())
+  nombre         String
+  cuit           String?
+  tipo           String[] // ['invernador', 'frigorifico', 'consignatario', 'particular']
+  renspa         String?  // Si es establecimiento
+  contactoNombre String?  @map("contacto_nombre")
+  contactoTel    String?  @map("contacto_tel")
+  contactoEmail  String?  @map("contacto_email")
+  direccion      String?
+  notas          String?
+  esActivo       Boolean  @default(true) @map("es_activo")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organizacionId String       @map("organizacion_id")
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+
+  // Ventas realizadas
+  eventosVenta EventoVentaBaja[]
+
+  @@map("clientes")
+  @@index([organizacionId])
+}
+
+// ============================================
+// RODEO / LOTE - Agrupación de animales
+// ============================================
+
+model Rodeo {
+  id           String   @id @default(cuid())
+  nombre       String   // "Rodeo Cría Norte", "Lote Engorde 2024-1"
+  tipo         String   // 'cria' | 'recria' | 'engorde' | 'reproductores' | 'descarte'
+  especie      String   // 'bovino' | 'ovino'
+  objetivo     String?  // "Venta marzo 2025", "Servicio octubre"
+  fechaInicio  DateTime @map("fecha_inicio")
+  fechaFin     DateTime? @map("fecha_fin")
+  estado       String   @default("activo") // 'activo' | 'finalizado'
+  observaciones String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  campoId   String  @map("campo_id")
+  campo     Campo   @relation(fields: [campoId], references: [id])
+  potreroId String? @map("potrero_id")
+  potrero   Potrero? @relation(fields: [potreroId], references: [id])
+
+  // Animales en este rodeo
+  bovinos Bovino[]
+  ovinos  Ovino[]
+  
+  // Plan de alimentación del rodeo
+  planesAlimentacion PlanAlimentacion[]
+  
+  // Eventos de alimentación
+  eventosAlimentacion EventoAlimentacion[]
+  
+  // Servicios reproductivos (para rodeo de cría)
+  toradas Torada[]
+
+  @@map("rodeos")
+  @@index([campoId])
+  @@index([estado])
+  @@index([tipo])
+}
+
+// ============================================
+// ANIMAL - BOVINO (Modelo Completo)
+// ============================================
+
+model Bovino {
+  id                String    @id @default(cuid())
+  
+  // ========== IDENTIFICACIÓN ==========
+  cuig              String?   @unique  // Código Único de Identificación Ganadera
+  caravanaVisual    String?   @map("caravana_visual") // Número de caravana visible
+  caravanaRfid      String?   @unique @map("caravana_rfid") // Chip RFID
+  numeroInterno     String    @map("numero_interno") // Tu numeración interna
+  subNumero         Int?      @map("sub_numero")
+  marcaFuego        String?   @map("marca_fuego")
+  nombreApodo       String?   @map("nombre_apodo") // Opcional, para reproductores
+  
+  // ========== DEMOGRÁFICOS ==========
+  sexo              String    // 'M' | 'H'
+  fechaNacimiento   DateTime? @map("fecha_nacimiento")
+  fechaNacimientoEstimada Boolean @default(false) @map("fecha_nacimiento_estimada")
+  origen            String    @default("cria_propia") // 'cria_propia' | 'compra' | 'donacion'
+  
+  razaId            String?   @map("raza_id")
+  raza              Raza?     @relation(fields: [razaId], references: [id])
+  razaTexto         String?   @map("raza_texto") // Fallback si no hay catálogo
+  
+  proveedorId       String?   @map("proveedor_id") // Si fue comprado
+  proveedor         Proveedor? @relation(fields: [proveedorId], references: [id])
+  fechaCompra       DateTime? @map("fecha_compra")
+  precioCompra      Float?    @map("precio_compra")
+  
+  // ========== CLASIFICACIÓN ==========
+  categoriaId       String?   @map("categoria_id")
+  categoria         Categoria? @relation(fields: [categoriaId], references: [id])
+  categoriaTexto    String?   @map("categoria_texto") // Fallback
+  
+  dientes           String?   // '2D', '4D', '6D', 'BL' (boca llena)
+  
+  estadoVital       String    @default("activo") @map("estado_vital") 
+                              // 'activo' | 'vendido' | 'faenado' | 'muerto' | 'perdido'
+  fechaBaja         DateTime? @map("fecha_baja")
+  
+  estadoFisiologicoId String? @map("estado_fisiologico_id")
+  estadoFisiologico   EstadoFisiologico? @relation(fields: [estadoFisiologicoId], references: [id])
+  
+  // ========== UBICACIÓN ACTUAL (Snapshot) ==========
+  campoId           String    @map("campo_id")
+  campo             Campo     @relation(fields: [campoId], references: [id])
+  
+  potreroId         String?   @map("potrero_id")
+  potrero           Potrero?  @relation(fields: [potreroId], references: [id])
+  
+  rodeoId           String?   @map("rodeo_id")
+  rodeo             Rodeo?    @relation(fields: [rodeoId], references: [id])
+  
+  // ========== ESTADO FÍSICO ACTUAL (Snapshots) ==========
+  pesoActual        Float?    @map("peso_actual")
+  fechaUltimoPeso   DateTime? @map("fecha_ultimo_peso")
+  ccActual          Float?    @map("cc_actual") // Condición corporal 1-9
+  fechaUltimaCC     DateTime? @map("fecha_ultima_cc")
+  
+  // ========== ESTADO SANITARIO (Snapshot) ==========
+  estadoSanitario   String    @default("ok") @map("estado_sanitario") 
+                              // 'ok' | 'en_tratamiento' | 'cuarentena' | 'carencia'
+  fechaFinCarencia  DateTime? @map("fecha_fin_carencia")
+  
+  // ========== GENEALOGÍA ==========
+  padreId           String?   @map("padre_id")
+  padre             Bovino?   @relation("PadreHijos", fields: [padreId], references: [id], onDelete: SetNull)
+  hijosComoPadre    Bovino[]  @relation("PadreHijos")
+  
+  madreId           String?   @map("madre_id")
+  madre             Bovino?   @relation("MadreHijos", fields: [madreId], references: [id], onDelete: SetNull)
+  hijosComoMadre    Bovino[]  @relation("MadreHijos")
+  
+  padreExterno      String?   @map("padre_externo") // Si no está en BD
+  madreExterna      String?   @map("madre_externa")
+  
+  // ========== REPRODUCTIVO (Solo hembras) ==========
+  numeroPartos      Int       @default(0) @map("numero_partos")
+  fechaUltimoParto  DateTime? @map("fecha_ultimo_parto")
+  fechaUltimoServicio DateTime? @map("fecha_ultimo_servicio")
+  fechaProbableParto DateTime? @map("fecha_probable_parto")
+  
+  // ========== GENÉTICA / CABAÑA ==========
+  esReproductor     Boolean   @default(false) @map("es_reproductor")
+  registroCabana    String?   @map("registro_cabana") // Número de registro HBA, AAA, etc.
+  valorGenetico     Float?    @map("valor_genetico")
+  depsJson          Json?     @map("deps_json") // DEPs si es cabaña
+  
+  // ========== ECONÓMICO ==========
+  valorMercado      Float?    @map("valor_mercado")
+  
+  // ========== METADATA ==========
+  fotoUri           String?   @map("foto_uri")
+  observaciones     String?
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  
+  // ========== EVENTOS (Historial) ==========
+  eventosPesada     EventoPesada[]
+  eventosSanidad    EventoSanidad[]
+  eventosMovimiento EventoMovimiento[]
+  // Eventos reproductivos como hembra
+  serviciosComoHembra EventoServicio[] @relation("ServicioHembra")
+  tactosRecibidos     EventoTacto[]
+  partosComoMadre     EventoParto[] @relation("PartoMadre")
+  // Eventos reproductivos como macho
+  serviciosComoMacho  EventoServicio[] @relation("ServicioMacho")
+  partosComoPadre     EventoParto[] @relation("PartoPadre")
+  // Cría (si nació de un parto registrado)
+  nacimiento          EventoParto? @relation("PartoCria", fields: [nacimientoEventoId], references: [id])
+  nacimientoEventoId  String? @unique @map("nacimiento_evento_id")
+  // Destete
+  destete             EventoDestete?
+  // Venta/Baja
+  eventoVentaBaja     EventoVentaBaja?
+
+  @@map("bovinos")
+  @@index([campoId])
+  @@index([potreroId])
+  @@index([rodeoId])
+  @@index([categoriaId])
+  @@index([estadoVital])
+  @@index([numeroInterno])
+  @@index([cuig])
+  @@index([caravanaRfid])
+}
+
+// ============================================
+// ANIMAL - OVINO (Estructura similar)
+// ============================================
+
+model Ovino {
+  id                 String   @id @default(cuid())
+  
+  // Identificación
+  idv                Int      // Identificación Visual
+  caravanaRfid       String?  @unique @map("caravana_rfid")
+  colorMarca         String   @map("color_marca")
+  nombreApodo        String?  @map("nombre_apodo")
+  
+  // Demográficos
+  sexo               String   // 'M' | 'H'
+  anioNacimiento     Int?     @map("anio_nacimiento")
+  
+  razaId             String?  @map("raza_id")
+  raza               Raza?    @relation(fields: [razaId], references: [id])
+  razaTexto          String?  @map("raza_texto")
+  
+  // Clasificación
+  categoriaId        String?  @map("categoria_id")
+  categoria          Categoria? @relation(fields: [categoriaId], references: [id])
+  categoriaTexto     String?  @map("categoria_texto")
+  
+  estadoVital        String   @default("activo") @map("estado_vital")
+  
+  estadoFisiologicoId String? @map("estado_fisiologico_id")
+  estadoFisiologico   EstadoFisiologico? @relation(fields: [estadoFisiologicoId], references: [id])
+  
+  // Ubicación
+  campoId            String   @map("campo_id")
+  campo              Campo    @relation(fields: [campoId], references: [id])
+  potreroId          String?  @map("potrero_id")
+  potrero            Potrero? @relation(fields: [potreroId], references: [id])
+  rodeoId            String?  @map("rodeo_id")
+  rodeo              Rodeo?   @relation(fields: [rodeoId], references: [id])
+  
+  // Estado físico
+  pesoActual         Float?   @map("peso_actual")
+  ccActual           Float?   @map("cc_actual")
+  
+  // Económico
+  valorMercado       Float?   @map("valor_mercado")
+  
+  // Metadata
+  observaciones      String?
+  historialCategoria Json     @default("[]") @map("historial_categoria")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("ovinos")
+  @@index([campoId])
+  @@index([idv])
+  @@index([estadoVital])
+}
+
+// ============================================
+// EVENTOS - BASE PARA AUDITORÍA
+// ============================================
+
+model EventoBase {
+  id           String   @id @default(cuid())
+  tipoEvento   String   @map("tipo_evento") // 'pesada' | 'sanidad' | 'movimiento' | etc.
+  fecha        DateTime
+  especie      String   // 'bovino' | 'ovino'
+  animalId     String?  @map("animal_id") // null si es por lote
+  rodeoId      String?  @map("rodeo_id")  // si aplica a todo el rodeo
+  observaciones String?
+  
+  registradoPorId String   @map("registrado_por_id")
+  registradoPor   Usuario  @relation(fields: [registradoPorId], references: [id])
+  
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("eventos_base")
+  @@index([tipoEvento])
+  @@index([fecha])
+  @@index([animalId])
+  @@index([rodeoId])
+}
+
+// ============================================
+// EVENTO: PESADA
+// ============================================
+
+model EventoPesada {
+  id           String   @id @default(cuid())
+  fecha        DateTime
+  
+  // Animal o Lote
+  bovinoId     String?  @map("bovino_id")
+  bovino       Bovino?  @relation(fields: [bovinoId], references: [id])
+  
+  // Datos
+  peso         Float
+  cc           Float?   // Condición corporal
+  gdp          Float?   // Ganancia diaria calculada (kg/día)
+  
+  // Contexto
+  motivo       String?  // 'rutina' | 'venta' | 'destete' | 'entrada' | 'salida'
+  corralId     String?  @map("corral_id") // Donde se pesó
+  
+  observaciones String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("eventos_pesada")
+  @@index([bovinoId])
+  @@index([fecha])
+}
+
+// ============================================
+// EVENTO: SANIDAD
+// ============================================
+
+model EventoSanidad {
+  id             String   @id @default(cuid())
+  fecha          DateTime
+  
+  // Animal o Lote
+  bovinoId       String?  @map("bovino_id")
+  bovino         Bovino?  @relation(fields: [bovinoId], references: [id])
+  rodeoId        String?  @map("rodeo_id")
+  cantidadAnimales Int?   @map("cantidad_animales") // Si es por lote
+  
+  // Producto
+  productoId     String   @map("producto_id")
+  producto       ProductoSanitario @relation(fields: [productoId], references: [id])
+  loteProductoId String?  @map("lote_producto_id")
+  loteProducto   LoteProductoSanitario? @relation(fields: [loteProductoId], references: [id])
+  
+  // Aplicación
+  dosis          Float
+  unidadDosis    String   @map("unidad_dosis") // 'ml' | 'cc' | 'comprimido'
+  viaAplicacion  String   @map("via_aplicacion") // 'subcutanea' | 'intramuscular' | 'oral'
+  
+  // Responsables
+  aplicadorNombre String? @map("aplicador_nombre")
+  veterinarioNombre String? @map("veterinario_nombre")
+  
+  // Carencia
+  fechaFinCarencia DateTime? @map("fecha_fin_carencia")
+  
+  // Costos
+  costoUnitario  Float?   @map("costo_unitario")
+  costoTotal     Float?   @map("costo_total")
+  
+  observaciones  String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("eventos_sanidad")
+  @@index([bovinoId])
+  @@index([rodeoId])
+  @@index([fecha])
+  @@index([productoId])
+}
+
+// ============================================
+// EVENTO: MOVIMIENTO
+// ============================================
+
+model EventoMovimiento {
+  id              String   @id @default(cuid())
+  fecha           DateTime
+  
+  // Animal o Lote
+  bovinoId        String?  @map("bovino_id")
+  bovino          Bovino?  @relation(fields: [bovinoId], references: [id])
+  rodeoId         String?  @map("rodeo_id")
+  cantidadAnimales Int?    @map("cantidad_animales")
+  
+  // Origen y Destino
+  potreroOrigenId  String? @map("potrero_origen_id")
+  potreroOrigen    Potrero? @relation("PotreroOrigen", fields: [potreroOrigenId], references: [id])
+  potreroDestinoId String? @map("potrero_destino_id")
+  potreroDestino   Potrero? @relation("PotreroDestino", fields: [potreroDestinoId], references: [id])
+  
+  // Motivo
+  motivoId        String   @map("motivo_id")
+  motivo          MotivoMovimiento @relation(fields: [motivoId], references: [id])
+  
+  observaciones   String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("eventos_movimiento")
+  @@index([bovinoId])
+  @@index([fecha])
+}
+
+// ============================================
+// EVENTOS REPRODUCTIVOS
+// ============================================
+
+// Torada / Temporada de Servicio
+model Torada {
+  id              String    @id @default(cuid())
+  nombre          String    // "Servicio Otoño 2024"
+  fechaInicio     DateTime  @map("fecha_inicio")
+  fechaFin        DateTime? @map("fecha_fin")
+  tipo            String    // 'natural' | 'IA' | 'mixto'
+  
+  rodeoId         String    @map("rodeo_id")
+  rodeo           Rodeo     @relation(fields: [rodeoId], references: [id])
+  
+  cantidadHembras Int       @map("cantidad_hembras")
+  cantidadMachos  Int?      @map("cantidad_machos") // Si es natural
+  
+  observaciones   String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  
+  servicios       EventoServicio[]
+
+  @@map("toradas")
+  @@index([rodeoId])
+}
+
+// Servicio (monta o IA)
+model EventoServicio {
+  id            String    @id @default(cuid())
+  fecha         DateTime
+  
+  hembraId      String    @map("hembra_id")
+  hembra        Bovino    @relation("ServicioHembra", fields: [hembraId], references: [id])
+  
+  // Macho (si es natural y está en BD)
+  machoId       String?   @map("macho_id")
+  macho         Bovino?   @relation("ServicioMacho", fields: [machoId], references: [id])
+  
+  // Si es IA
+  tipo          String    // 'natural' | 'IA' | 'IATF'
+  toroNombre    String?   @map("toro_nombre") // Si IA, nombre del toro del semen
+  loteSemen     String?   @map("lote_semen")
+  inseminadorNombre String? @map("inseminador_nombre")
+  
+  toradaId      String?   @map("torada_id")
+  torada        Torada?   @relation(fields: [toradaId], references: [id])
+  
+  observaciones String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  
+  // Resultado
+  tacto         EventoTacto?
+
+  @@map("eventos_servicio")
+  @@index([hembraId])
+  @@index([machoId])
+  @@index([fecha])
+}
+
+// Tacto (diagnóstico de preñez)
+model EventoTacto {
+  id              String    @id @default(cuid())
+  fecha           DateTime
+  
+  hembraId        String    @map("hembra_id")
+  hembra          Bovino    @relation(fields: [hembraId], references: [id])
+  
+  servicioId      String?   @unique @map("servicio_id") // Relacionado al servicio
+  servicio        EventoServicio? @relation(fields: [servicioId], references: [id])
+  
+  resultado       String    // 'preñada' | 'vacia' | 'dudosa' | 'aborto'
+  mesesGestacion  Int?      @map("meses_gestacion")
+  fechaProbableParto DateTime? @map("fecha_probable_parto")
+  
+  metodo          String    @default("palpacion") // 'palpacion' | 'ecografia'
+  veterinarioNombre String? @map("veterinario_nombre")
+  
+  observaciones   String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@map("eventos_tacto")
+  @@index([hembraId])
+  @@index([fecha])
+  @@index([resultado])
+}
+
+// Parto
+model EventoParto {
+  id              String    @id @default(cuid())
+  fecha           DateTime
+  
+  madreId         String    @map("madre_id")
+  madre           Bovino    @relation("PartoMadre", fields: [madreId], references: [id])
+  
+  padreId         String?   @map("padre_id") // Si se conoce
+  padre           Bovino?   @relation("PartoPadre", fields: [padreId], references: [id])
+  padreExterno    String?   @map("padre_externo")
+  
+  // La cría (si sobrevivió y se registró)
+  criaId          String?   @unique @map("cria_id")
+  cria            Bovino?   @relation("PartoCria")
+  
+  // Datos del parto
+  tipoParto       String    @map("tipo_parto") // 'normal' | 'asistido' | 'cesarea'
+  dificultad      Int       @default(1) // 1-5 (1=sin ayuda, 5=cesárea)
+  sexoCria        String?   @map("sexo_cria") // 'M' | 'H'
+  pesoCria        Float?    @map("peso_cria")
+  nacidoVivo      Boolean   @default(true) @map("nacido_vivo")
+  
+  // Número de parto de la madre
+  numeroPartoPara Int?      @map("numero_parto_para") // Paridad
+  
+  observaciones   String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@map("eventos_parto")
+  @@index([madreId])
+  @@index([fecha])
+}
+
+// Destete
+model EventoDestete {
+  id            String   @id @default(cuid())
+  fecha         DateTime
+  
+  criaId        String   @unique @map("cria_id")
+  cria          Bovino   @relation(fields: [criaId], references: [id])
+  
+  peso          Float?
+  edadDias      Int?     @map("edad_dias")
+  metodo        String?  // 'tradicional' | 'precoz' | 'hiperprecoz' | 'destetador'
+  
+  observaciones String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("eventos_destete")
+  @@index([fecha])
+}
+
+// ============================================
+// EVENTO: VENTA / BAJA
+// ============================================
+
+model EventoVentaBaja {
+  id              String    @id @default(cuid())
+  fecha           DateTime
+  
+  bovinoId        String    @unique @map("bovino_id")
+  bovino          Bovino    @relation(fields: [bovinoId], references: [id])
+  
+  causaId         String    @map("causa_id")
+  causa           CausaBaja @relation(fields: [causaId], references: [id])
+  
+  // Si es venta
+  clienteId       String?   @map("cliente_id")
+  cliente         Cliente?  @relation(fields: [clienteId], references: [id])
+  pesoVenta       Float?    @map("peso_venta")
+  precioKg        Float?    @map("precio_kg")
+  precioTotal     Float?    @map("precio_total")
+  
+  // Documentación
+  dtaNumero       String?   @map("dta_numero")
+  facturaNumero   String?   @map("factura_numero")
+  
+  observaciones   String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@map("eventos_venta_baja")
+  @@index([fecha])
+  @@index([causaId])
+}
+
+// ============================================
+// ALIMENTACIÓN
+// ============================================
+
+// Dieta / Ración
+model Dieta {
+  id              String   @id @default(cuid())
+  nombre          String
+  especie         String   // 'bovino' | 'ovino'
+  objetivo        String   // 'mantenimiento' | 'engorde' | 'lactancia' | 'gestacion'
+  
+  // Valores nutricionales objetivo
+  msObjetivo      Float?   @map("ms_objetivo") // Materia Seca kg/día
+  proteina        Float?   // % proteína bruta
+  energia         Float?   // Mcal EM/kg MS
+  fdn             Float?   // % Fibra Detergente Neutro
+  
+  activo          Boolean  @default(true)
+  observaciones   String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  
+  componentes     DietaComponente[]
+  planes          PlanAlimentacion[]
+
+  @@map("dietas")
+}
+
+// Componentes de la dieta
+model DietaComponente {
+  id           String @id @default(cuid())
+  
+  dietaId      String @map("dieta_id")
+  dieta        Dieta  @relation(fields: [dietaId], references: [id], onDelete: Cascade)
+  
+  insumoNombre String @map("insumo_nombre") // "Maíz molido", "Heno alfalfa"
+  proporcion   Float  // Porcentaje en la ración
+  kgPorAnimal  Float? @map("kg_por_animal") // kg/animal/día
+
+  @@map("dieta_componentes")
+  @@index([dietaId])
+}
+
+// Plan de alimentación por rodeo
+model PlanAlimentacion {
+  id           String    @id @default(cuid())
+  nombre       String?
+  
+  rodeoId      String    @map("rodeo_id")
+  rodeo        Rodeo     @relation(fields: [rodeoId], references: [id])
+  
+  dietaId      String    @map("dieta_id")
+  dieta        Dieta     @relation(fields: [dietaId], references: [id])
+  
+  fechaInicio  DateTime  @map("fecha_inicio")
+  fechaFin     DateTime? @map("fecha_fin")
+  
+  msDiaPlan    Float     @map("ms_dia_plan") // kg MS/animal/día planificado
+  
+  activo       Boolean   @default(true)
+  observaciones String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@map("planes_alimentacion")
+  @@index([rodeoId])
+  @@index([activo])
+}
+
+// Evento de alimentación (registro diario/semanal)
+model EventoAlimentacion {
+  id              String   @id @default(cuid())
+  fecha           DateTime
+  
+  rodeoId         String   @map("rodeo_id")
+  rodeo           Rodeo    @relation(fields: [rodeoId], references: [id])
+  
+  cantidadAnimales Int     @map("cantidad_animales")
+  
+  // Consumo real
+  kgMsTotal       Float    @map("kg_ms_total") // Total suministrado
+  kgMsPorAnimal   Float?   @map("kg_ms_por_animal") // Calculado
+  
+  // Desvío del plan
+  desvioPorc      Float?   @map("desvio_porc") // % diferencia vs plan
+  
+  observaciones   String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("eventos_alimentacion")
+  @@index([rodeoId])
+  @@index([fecha])
+}
+
+// ============================================
+// STOCK Y COMPRAS
+// ============================================
+
+model StockAlimento {
+  id               String    @id @default(cuid())
+  tipo             String    // 'fardo' | 'rollo' | 'balanceado' | 'grano' | 'suplemento'
+  nombre           String
+  cantidad         Float
+  unidad           String
+  kgUnitario       Float?    @map("kg_unitario")
+  kgTotal          Float?    @map("kg_total")
+  ubicacion        String?
+  costoUnitario    Float?    @map("costo_unitario")
+  proveedorNombre  String?   @map("proveedor_nombre")
+  fechaIngreso     DateTime? @map("fecha_ingreso")
+  fechaVencimiento DateTime? @map("fecha_vencimiento")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  campoId String @map("campo_id")
+  campo   Campo  @relation(fields: [campoId], references: [id])
+
+  @@map("stock_alimentos")
+  @@index([tipo])
+  @@index([campoId])
+}
+
+model Compra {
+  id           String   @id @default(cuid())
+  fecha        DateTime
+  
+  proveedorId  String   @map("proveedor_id")
+  proveedor    Proveedor @relation(fields: [proveedorId], references: [id])
+  
+  tipo         String   // 'insumos' | 'alimentos' | 'hacienda' | 'servicios'
+  facturaNum   String?  @map("factura_num")
+  total        Float
+  moneda       String   @default("ARS")
+  
+  items        CompraItem[]
+  
+  observaciones String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("compras")
+  @@index([proveedorId])
+  @@index([fecha])
+}
+
+model CompraItem {
+  id          String  @id @default(cuid())
+  
+  compraId    String  @map("compra_id")
+  compra      Compra  @relation(fields: [compraId], references: [id], onDelete: Cascade)
+  
+  concepto    String
+  cantidad    Float
+  unidad      String?
+  precioUnit  Float   @map("precio_unit")
+  subtotal    Float
+
+  @@map("compra_items")
+  @@index([compraId])
+}
+
+// ============================================
+// DOCUMENTOS DE TRÁNSITO (SENASA)
+// ============================================
+
+model DocumentoTransito {
+  id               String    @id @default(cuid())
+  numeroDta        String    @unique @map("numero_dta")
+  tipo             String    @default("DTe")
+  fechaEmision     DateTime  @map("fecha_emision")
+  fechaVencimiento DateTime  @map("fecha_vencimiento")
+  fechaUso         DateTime? @map("fecha_uso")
+  renspaOrigen     String    @map("renspa_origen")
+  nombreOrigen     String?   @map("nombre_origen")
+  renspaDestino    String    @map("renspa_destino")
+  nombreDestino    String?   @map("nombre_destino")
+  especieAnimal    String    @map("especie_animal")
+  cantidadAnimales Int       @map("cantidad_animales")
+  categorias       String?
+  motivo           String
+  estado           String    @default("vigente")
+  patenteCamion    String?   @map("patente_camion")
+  patenteAcoplado  String?   @map("patente_acoplado")
+  transportista    String?
+  certificadoSanitario String? @map("certificado_sanitario")
+  observaciones    String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  campoId String @map("campo_id")
+  campo   Campo  @relation(fields: [campoId], references: [id])
+
+  @@map("documentos_transito")
+  @@index([numeroDta])
+  @@index([fechaEmision])
+  @@index([estado])
+  @@index([campoId])
+}
+

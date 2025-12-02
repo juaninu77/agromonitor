@@ -6,20 +6,20 @@ import {
   Droplets,
   Home,
   LandPlot,
-  Settings,
   Wheat,
   Truck,
   Package,
-  Users,
-  BarChart3,
   Map,
-  MessageSquare,
   Tractor,
   Thermometer,
   AlertTriangle,
   Warehouse,
   Waves,
   TrendingUp,
+  CheckSquare,
+  LayoutDashboard,
+  DollarSign,
+  Wifi,
 } from "lucide-react"
 import type {
   AlertData,
@@ -40,20 +40,16 @@ import type {
 } from "./types"
 
 export const navItems: NavItem[] = [
-  { title: "Panel Principal", href: "/", icon: Home },
-  { title: "Ganado", href: "/ganado", icon: Bot, badge: 3 },
-  { title: "Cultivos", href: "/cultivos", icon: Wheat },
-  { title: "IoT y Sensores", href: "/iot", icon: Cpu, badge: 12 },
-  { title: "Flota", href: "/fleet", icon: Truck, badge: 2 },
-  { title: "Inventario", href: "/inventory", icon: Package, badge: 5 },
-  { title: "Finanzas", href: "/finance", icon: CircleDollarSign },
+  { title: "Panel Principal", href: "/", icon: LayoutDashboard },
+  { title: "Ganado", href: "/ganado", icon: Bot, badge: 450 },
+  { title: "Cultivos", href: "/cultivos", icon: Wheat, badge: "1250 ha" },
+  { title: "Finanzas", href: "/finanzas", icon: DollarSign },
+  { title: "Inventario", href: "/inventario", icon: Package, badge: 847 },
   { title: "Mercado", href: "/mercado", icon: TrendingUp },
-  { title: "Tareas", href: "/tasks", icon: Calendar, badge: 8 },
-  { title: "Equipo", href: "/team", icon: Users },
-  { title: "Reportes", href: "/reports", icon: BarChart3 },
-  { title: "Mapa", href: "/map", icon: Map },
-  { title: "Chat", href: "/chat", icon: MessageSquare, badge: 4 },
-  { title: "Configuración", href: "/settings", icon: Settings },
+  { title: "Tareas", href: "/tareas", icon: CheckSquare, badge: 12 },
+  { title: "Flota", href: "/flota", icon: Truck },
+  { title: "IoT y Sensores", href: "/iot", icon: Wifi, badge: 24 },
+  { title: "Mapa", href: "/mapa", icon: Map },
 ]
 
 export const kpiData: KpiCardData[] = [
@@ -435,7 +431,7 @@ export const notifications: Notification[] = [
     type: "success",
     timestamp: "hace 5m",
     read: false,
-    actionUrl: "/tasks",
+    actionUrl: "/tareas",
     actionText: "Ver Tareas",
   },
   {
@@ -445,7 +441,7 @@ export const notifications: Notification[] = [
     type: "warning",
     timestamp: "hace 15m",
     read: false,
-    actionUrl: "/inventory",
+    actionUrl: "/inventario",
     actionText: "Ver Inventario",
   },
   {
@@ -455,8 +451,8 @@ export const notifications: Notification[] = [
     type: "info",
     timestamp: "hace 30m",
     read: true,
-    actionUrl: "/chat",
-    actionText: "Ver Chat",
+    actionUrl: "/ganado",
+    actionText: "Ver Reporte",
   },
 ]
 

@@ -1,0 +1,994 @@
+// ============================================
+// SCHEMA GANADERO v3 - AgroMonitor ERP
+// ============================================
+// Modelo híbrido combinando:
+// - Estructura profesional de producción real
+// - Event Sourcing puro (estados derivados)
+// - EAV para extensibilidad
+// - Gestión pastoril completa
+// - Formato Prisma para Next.js
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================
+// AUTENTICACIÓN Y MULTI-TENANCY
+// ============================================
+
+model Usuario {
+  id              String    @id @default(uuid()) @db.Uuid
+  nombre          String
+  apellido        String    @default("")
+  email           String    @unique
+  emailVerificado DateTime? @map("email_verified")
+  passwordHash    String?   @map("password_hash")
+  telefono        String?
+  avatar          String?
+  rol             String    @default("operario") // 'admin' | 'encargado' | 'vet' | 'operario'
+  esActivo        Boolean   @default(true) @map("es_activo")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  sessions        Session[]
+  accounts        Account[]
+  membresias      Membresia[]
+  auditLogs       AuditLog[]
+
+  @@map("usuarios")
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(uuid()) @db.Uuid
+  userId            String  @map("user_id") @db.Uuid
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Session {
+  id           String   @id @default(uuid()) @db.Uuid
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id") @db.Uuid
+  expires      DateTime
+  
+  user Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Organizacion {
+  id          String   @id @default(uuid()) @db.Uuid
+  nombre      String
+  slug        String   @unique
+  logo        String?
+  timezone    String   @default("America/Argentina/Buenos_Aires")
+  moneda      String   @default("ARS")
+  esActivo    Boolean  @default(true) @map("es_activo")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  membresias       Membresia[]
+  establecimientos Establecimiento[]
+  proveedores      Proveedor[]
+  clientes         Cliente[]
+
+  @@map("organizaciones")
+}
+
+model Membresia {
+  id             String   @id @default(uuid()) @db.Uuid
+  rol            String   @default("operario")
+  esActivo       Boolean  @default(true) @map("es_activo")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  usuarioId      String       @map("usuario_id") @db.Uuid
+  usuario        Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  organizacionId String       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, organizacionId])
+  @@map("membresias")
+  @@index([usuarioId])
+  @@index([organizacionId])
+}
+
+// ============================================
+// CATÁLOGOS BASE
+// ============================================
+
+// Especie como tabla - extensible a equino, porcino, etc.
+model Especie {
+  id          String   @id @default(uuid()) @db.Uuid
+  nombre      String   @unique // 'bovino' | 'ovino' | 'equino' | 'caprino'
+  descripcion String?
+
+  razas       Raza[]
+  categorias  Categoria[]
+  lotes       Lote[]
+  animales    Animal[]
+
+  @@map("especies")
+}
+
+// Razas por especie
+model Raza {
+  id          String   @id @default(uuid()) @db.Uuid
+  nombre      String
+  descripcion String?
+
+  especieId   String   @map("especie_id") @db.Uuid
+  especie     Especie  @relation(fields: [especieId], references: [id])
+
+  animales    Animal[]
+
+  @@unique([especieId, nombre])
+  @@map("razas")
+}
+
+// Categorías con reglas de edad/sexo
+model Categoria {
+  id          String   @id @default(uuid()) @db.Uuid
+  nombre      String   // 'ternero', 'ternera', 'novillito', 'vaquillona', 'novillo', 'vaca', 'toro'
+  edadMinMeses Int?    @map("edad_min_meses")
+  edadMaxMeses Int?    @map("edad_max_meses")
+  sexo        String?  // 'M' | 'F' | null (ambos)
+  descripcion String?
+
+  especieId   String   @map("especie_id") @db.Uuid
+  especie     Especie  @relation(fields: [especieId], references: [id])
+
+  animales    Animal[]
+
+  @@unique([especieId, nombre])
+  @@map("categorias")
+}
+
+// ============================================
+// ESTABLECIMIENTO Y SECTORES
+// ============================================
+
+// Establecimiento = Campo/Estancia
+model Establecimiento {
+  id          String   @id @default(uuid()) @db.Uuid
+  nombre      String
+  ubicacion   String?
+  renspa      String?  // SENASA
+  provincia   String?
+  localidad   String?
+  hectareas   Float?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  organizacionId String       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+
+  sectores    Sector[]
+  lotes       Lote[]
+
+  @@unique([organizacionId, nombre])
+  @@map("establecimientos")
+}
+
+// Sector unificado: potrero, corral, manga, feedlot
+model Sector {
+  id            String   @id @default(uuid()) @db.Uuid
+  nombre        String
+  tipo          String   // 'potrero' | 'corral' | 'manga' | 'feedlot' | 'embarcadero' | 'enfermeria' | 'otro'
+  superficieHa  Float?   @map("superficie_ha")
+  uso           String?  // 'pastoreo' | 'encierre' | 'manejo' | 'engorde'
+  capacidad     Int?     // Cantidad de animales
+  tieneAgua     Boolean  @default(false) @map("tiene_agua")
+  tieneSombra   Boolean  @default(false) @map("tiene_sombra")
+  tieneBalanza  Boolean  @default(false) @map("tiene_balanza")
+  descripcion   String?
+  activo        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  establecimientoId String          @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id], onDelete: Cascade)
+
+  // Forrajes sembrados
+  forrajes      SectorForraje[]
+  
+  // Mediciones de pasto
+  mediciones    MedicionPotrero[]
+  
+  // Eventos de pastoreo
+  pastoreosIngreso EvtPastoreo[] @relation("PastoreoSector")
+  
+  // Ubicaciones de animales
+  ubicacionesActuales UbicacionHist[] @relation("UbicacionSector")
+  
+  // Movimientos
+  movimientosOrigen  EvtMovimiento[] @relation("MovimientoOrigen")
+  movimientosDestino EvtMovimiento[] @relation("MovimientoDestino")
+
+  @@unique([establecimientoId, nombre])
+  @@map("sectores")
+  @@index([tipo])
+  @@index([activo])
+}
+
+// ============================================
+// FORRAJE Y PASTURAS
+// ============================================
+
+// Catálogo de forrajes
+model Forraje {
+  id          String   @id @default(uuid()) @db.Uuid
+  nombre      String   @unique // 'festuca', 'alfalfa', 'raigrás', 'avena', 'sorgo'
+  tipo        String?  // 'perenne' | 'anual'
+  clase       String?  // 'pastura' | 'verdeo' | 'cultivo'
+  notas       String?
+
+  sectorForrajes SectorForraje[]
+
+  @@map("forrajes")
+}
+
+// Qué forraje hay en cada sector y desde cuándo
+model SectorForraje {
+  id               String    @id @default(uuid()) @db.Uuid
+  desde            DateTime  @db.Date
+  hasta            DateTime? @db.Date
+  densidadSiembraKgHa Float?  @map("densidad_siembra_kg_ha")
+  notas            String?
+
+  sectorId   String  @map("sector_id") @db.Uuid
+  sector     Sector  @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+  
+  forrajeId  String  @map("forraje_id") @db.Uuid
+  forraje    Forraje @relation(fields: [forrajeId], references: [id])
+
+  @@map("sector_forrajes")
+  @@index([sectorId])
+}
+
+// Mediciones de pasto para balance forrajero
+model MedicionPotrero {
+  id            String   @id @default(uuid()) @db.Uuid
+  fecha         DateTime @db.Date
+  alturaPastoCm Float?   @map("altura_pasto_cm")
+  msKgHa        Float?   @map("ms_kg_ha") // Materia seca kg/hectárea
+  coberturaPct  Float?   @map("cobertura_pct")
+  observ        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  sectorId String @map("sector_id") @db.Uuid
+  sector   Sector @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+
+  @@map("mediciones_potrero")
+  @@index([sectorId])
+  @@index([fecha])
+}
+
+// ============================================
+// LOTE / RODEO
+// ============================================
+
+model Lote {
+  id          String   @id @default(uuid()) @db.Uuid
+  nombre      String
+  tipo        String   // 'recria' | 'engorde' | 'reproductivo' | 'mixto' | 'descarte'
+  objetivo    String?  // Descripción del objetivo
+  activo      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  especieId         String          @map("especie_id") @db.Uuid
+  especie           Especie         @relation(fields: [especieId], references: [id])
+  
+  establecimientoId String          @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id])
+
+  // Historial de animales en el lote
+  animalLoteHist    AnimalLoteHist[]
+  
+  // Planes de alimentación
+  planesAlimentacion PlanAlimentacion[]
+  
+  // Eventos por lote
+  eventosPesada     EvtPesada[]
+  eventosSanidad    EvtSanidad[]
+  eventosMovimiento EvtMovimiento[]
+  eventosAlimentacion EvtAlimentacion[]
+  eventosPastoreo   EvtPastoreo[]
+  
+  // Toradas (servicio)
+  toradas           Torada[]
+
+  @@unique([establecimientoId, nombre])
+  @@map("lotes")
+  @@index([tipo])
+  @@index([activo])
+}
+
+// ============================================
+// PRODUCTOS SANITARIOS
+// ============================================
+
+model Producto {
+  id              String   @id @default(uuid()) @db.Uuid
+  nombre          String
+  tipo            String   // 'vacuna' | 'antiparasitario' | 'antibiotico' | 'mineral' | 'vitaminico' | 'otro'
+  principioActivo String?  @map("principio_activo")
+  laboratorio     String?
+  retiroDias      Int      @default(0) @map("retiro_dias")
+  dosisReferencia String?  @map("dosis_referencia")
+  notas           String?
+
+  lotes           LoteProducto[]
+  eventosSanidad  EvtSanidad[]
+
+  @@map("productos")
+  @@index([tipo])
+}
+
+model LoteProducto {
+  id          String    @id @default(uuid()) @db.Uuid
+  nroLote     String    @map("nro_lote")
+  vencimiento DateTime? @db.Date
+  proveedor   String?
+  cantidad    Float?
+  unidad      String?
+  costo       Float?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  productoId String   @map("producto_id") @db.Uuid
+  producto   Producto @relation(fields: [productoId], references: [id])
+
+  eventosSanidad EvtSanidad[]
+
+  @@map("lotes_producto")
+  @@index([productoId])
+  @@index([vencimiento])
+}
+
+// ============================================
+// TERCEROS
+// ============================================
+
+model Proveedor {
+  id             String   @id @default(uuid()) @db.Uuid
+  nombre         String
+  cuit           String?
+  tipo           String[] // ['insumos', 'hacienda', 'servicios']
+  contactoNombre String?  @map("contacto_nombre")
+  contactoTel    String?  @map("contacto_tel")
+  notas          String?
+  activo         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organizacionId String       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+
+  animalesComprados Animal[]
+
+  @@map("proveedores")
+}
+
+model Cliente {
+  id             String   @id @default(uuid()) @db.Uuid
+  nombre         String
+  cuit           String?
+  tipo           String[] // ['invernador', 'frigorifico', 'consignatario', 'particular']
+  renspa         String?
+  contactoNombre String?  @map("contacto_nombre")
+  contactoTel    String?  @map("contacto_tel")
+  notas          String?
+  activo         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organizacionId String       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+
+  ventas EvtBaja[]
+
+  @@map("clientes")
+}
+
+// ============================================
+// ANIMAL - MODELO LIMPIO
+// ============================================
+// Estados derivados de eventos, no almacenados
+// Usamos animal_attr para extensiones
+
+model Animal {
+  id              String   @id @default(uuid()) @db.Uuid
+  
+  // === IDENTIFICACIÓN ===
+  cuig            String?  @unique  // SENASA
+  caravanaVisual  String?  @unique @map("caravana_visual")
+  caravanaRfid    String?  @unique @map("caravana_rfid")
+  otroId          String?  @map("otro_id") // Numeración interna, marca, etc.
+  
+  // === DEMOGRÁFICOS ===
+  sexo            String   // 'M' | 'F'
+  fechaNacimiento DateTime? @map("fecha_nacimiento") @db.Date
+  origen          String?  // 'cria_propia' | 'compra'
+  
+  // === CLASIFICACIÓN (cacheados, se actualizan por triggers/lógica) ===
+  estadoVital     String   @default("activo") @map("estado_vital") 
+                           // 'activo' | 'vendido' | 'baja' | 'muerto'
+  
+  // === RASGOS FÍSICOS BÁSICOS ===
+  colorManto      String?  @map("color_manto")
+  mocho           Boolean?
+  marcaFuego      String?  @map("marca_fuego")
+  cornamenta      String?
+  estadoCastracion String? @map("estado_castracion") // 'entero' | 'castrado'
+  denticion       String?  // '2D' | '4D' | '6D' | 'BL'
+  
+  // === CABAÑA (opcional) ===
+  esCabana        Boolean  @default(false) @map("es_cabana")
+  registroCabana  String?  @map("registro_cabana") // Número HBA, AAA, etc.
+  
+  notas           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // === RELACIONES ESTRUCTURALES ===
+  especieId   String    @map("especie_id") @db.Uuid
+  especie     Especie   @relation(fields: [especieId], references: [id])
+  
+  razaId      String?   @map("raza_id") @db.Uuid
+  raza        Raza?     @relation(fields: [razaId], references: [id])
+  
+  categoriaId String?   @map("categoria_id") @db.Uuid
+  categoria   Categoria? @relation(fields: [categoriaId], references: [id])
+  
+  proveedorId String?   @map("proveedor_id") @db.Uuid
+  proveedor   Proveedor? @relation(fields: [proveedorId], references: [id])
+
+  // === GENEALOGÍA ===
+  genealogia      Genealogia?
+  
+  // === ATRIBUTOS EXTENSIBLES (EAV) ===
+  atributos       AnimalAttr[]
+  
+  // === HISTORIAL DE UBICACIÓN Y LOTE ===
+  ubicacionHist   UbicacionHist[]
+  loteHist        AnimalLoteHist[]
+  
+  // === EVENTOS ===
+  eventosPesada      EvtPesada[]
+  eventosSanidad     EvtSanidad[]
+  eventosMovimiento  EvtMovimiento[]
+  
+  // Reproductivos como hembra
+  serviciosHembra    EvtServicio[] @relation("ServicioHembra")
+  tactos             EvtTacto[]
+  partosComoMadre    EvtParicion[] @relation("ParicionMadre")
+  
+  // Reproductivos como macho
+  serviciosMacho     EvtServicio[] @relation("ServicioMacho")
+  partosComoPadre    EvtParicion[] @relation("ParicionPadre")
+  
+  // Como cría
+  nacimiento         EvtParicion?  @relation("ParicionCria")
+  destete            EvtDestete?
+  
+  // Baja
+  eventoBaja         EvtBaja?
+
+  @@map("animales")
+  @@index([especieId])
+  @@index([estadoVital])
+  @@index([cuig])
+  @@index([caravanaRfid])
+}
+
+// Genealogía separada (1:1 con Animal)
+model Genealogia {
+  animalId  String  @id @map("animal_id") @db.Uuid
+  animal    Animal  @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  
+  padreId   String? @map("padre_id") @db.Uuid
+  madreId   String? @map("madre_id") @db.Uuid
+  
+  // Si los padres no están en la BD
+  padreExterno String? @map("padre_externo")
+  madreExterno String? @map("madre_externo")
+  
+  observ    String?
+
+  @@map("genealogias")
+}
+
+// Atributos extensibles (EAV - Entity-Attribute-Value)
+model AnimalAttr {
+  id        String    @id @default(uuid()) @db.Uuid
+  clave     String    // 'linea_sanguinea', 'biotipo', 'dep_peso_destete', etc.
+  valor     String
+  desde     DateTime? @db.Date
+  hasta     DateTime? @db.Date
+
+  animalId  String @map("animal_id") @db.Uuid
+  animal    Animal @relation(fields: [animalId], references: [id], onDelete: Cascade)
+
+  @@unique([animalId, clave, desde])
+  @@map("animal_attrs")
+  @@index([animalId])
+  @@index([clave])
+}
+
+// Historial de pertenencia a lote/rodeo
+model AnimalLoteHist {
+  id        String    @id @default(uuid()) @db.Uuid
+  desde     DateTime  @db.Date
+  hasta     DateTime? @db.Date
+  motivo    String?
+
+  animalId  String @map("animal_id") @db.Uuid
+  animal    Animal @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  
+  loteId    String @map("lote_id") @db.Uuid
+  lote      Lote   @relation(fields: [loteId], references: [id])
+
+  @@map("animal_lote_hist")
+  @@index([animalId])
+  @@index([loteId])
+}
+
+// Historial de ubicación física
+model UbicacionHist {
+  id        String    @id @default(uuid()) @db.Uuid
+  desde     DateTime  @default(now())
+  hasta     DateTime?
+  motivo    String?
+
+  animalId  String @map("animal_id") @db.Uuid
+  animal    Animal @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  
+  sectorId  String @map("sector_id") @db.Uuid
+  sector    Sector @relation("UbicacionSector", fields: [sectorId], references: [id])
+
+  @@map("ubicacion_hist")
+  @@index([animalId])
+  @@index([sectorId])
+}
+
+// ============================================
+// EVENTOS - CICLO DE VIDA
+// ============================================
+
+// Parición (nacimiento)
+model EvtParicion {
+  id            String   @id @default(uuid()) @db.Uuid
+  fecha         DateTime @db.Date
+  resultado     String   // 'vivo' | 'muerto'
+  pesoNacerKg   Float?   @map("peso_nacer_kg")
+  tipoParto     String?  @map("tipo_parto") // 'normal' | 'asistido' | 'cesarea'
+  dificultad    Int?     // 1-5
+  sexoCria      String?  @map("sexo_cria")
+  observ        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  madreId       String  @map("madre_id") @db.Uuid
+  madre         Animal  @relation("ParicionMadre", fields: [madreId], references: [id])
+  
+  padreId       String? @map("padre_id") @db.Uuid
+  padre         Animal? @relation("ParicionPadre", fields: [padreId], references: [id])
+  padreExterno  String? @map("padre_externo")
+  
+  // La cría (si sobrevivió y se registró)
+  nacidoAnimalId String? @unique @map("nacido_animal_id") @db.Uuid
+  nacido         Animal? @relation("ParicionCria", fields: [nacidoAnimalId], references: [id])
+
+  @@map("evt_paricion")
+  @@index([madreId])
+  @@index([fecha])
+}
+
+// Destete
+model EvtDestete {
+  id            String   @id @default(uuid()) @db.Uuid
+  fecha         DateTime @db.Date
+  pesoKg        Float?   @map("peso_kg")
+  edadDias      Int?     @map("edad_dias")
+  metodo        String?  // 'tradicional' | 'precoz' | 'hiperprecoz' | 'destetador'
+  observ        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  animalId      String @unique @map("animal_id") @db.Uuid
+  animal        Animal @relation(fields: [animalId], references: [id])
+  
+  loteDesteteId String? @map("lote_destete_id") @db.Uuid
+
+  @@map("evt_destete")
+  @@index([fecha])
+}
+
+// Pesada (individual o por lote)
+model EvtPesada {
+  id            String   @id @default(uuid()) @db.Uuid
+  fecha         DateTime @db.Date
+  pesoKg        Float?   @map("peso_kg")
+  cc            Float?   // Condición corporal 1-9
+  gdpKg         Float?   @map("gdp_kg") // Ganancia diaria calculada
+  balanza       String?
+  observ        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Individual o lote (uno u otro)
+  animalId      String? @map("animal_id") @db.Uuid
+  animal        Animal? @relation(fields: [animalId], references: [id])
+  
+  loteId        String? @map("lote_id") @db.Uuid
+  lote          Lote?   @relation(fields: [loteId], references: [id])
+  
+  cantidadAnimales Int? @map("cantidad_animales") // Si es por lote
+
+  @@map("evt_pesada")
+  @@index([animalId])
+  @@index([loteId])
+  @@index([fecha])
+}
+
+// Movimiento entre sectores
+model EvtMovimiento {
+  id            String   @id @default(uuid()) @db.Uuid
+  fecha         DateTime @default(now())
+  motivo        String?
+  observ        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Individual o lote
+  animalId      String? @map("animal_id") @db.Uuid
+  animal        Animal? @relation(fields: [animalId], references: [id])
+  
+  loteId        String? @map("lote_id") @db.Uuid
+  lote          Lote?   @relation(fields: [loteId], references: [id])
+  
+  cantidadAnimales Int? @map("cantidad_animales")
+
+  // Origen y destino
+  origenSectorId  String? @map("origen_sector_id") @db.Uuid
+  origenSector    Sector? @relation("MovimientoOrigen", fields: [origenSectorId], references: [id])
+  
+  destinoSectorId String  @map("destino_sector_id") @db.Uuid
+  destinoSector   Sector  @relation("MovimientoDestino", fields: [destinoSectorId], references: [id])
+
+  @@map("evt_movimiento")
+  @@index([animalId])
+  @@index([loteId])
+  @@index([fecha])
+}
+
+// Sanidad (individual o masivo)
+model EvtSanidad {
+  id              String   @id @default(uuid()) @db.Uuid
+  fecha           DateTime @db.Date
+  dosis           Float?
+  unidad          String?  // 'ml' | 'cc' | 'comprimido'
+  via             String?  // 'subcutanea' | 'intramuscular' | 'oral' | 'pour-on'
+  motivo          String?  // 'preventivo' | 'curativo' | 'metafilaxis'
+  carenciaDias    Int?     @map("carencia_dias") // Override del producto
+  aplicador       String?
+  veterinario     String?
+  costo           Float?
+  observ          String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // Individual o lote
+  animalId        String? @map("animal_id") @db.Uuid
+  animal          Animal? @relation(fields: [animalId], references: [id])
+  
+  loteId          String? @map("lote_id") @db.Uuid
+  lote            Lote?   @relation(fields: [loteId], references: [id])
+  
+  cantidadAnimales Int?   @map("cantidad_animales")
+
+  // Producto y lote del producto
+  productoId      String  @map("producto_id") @db.Uuid
+  producto        Producto @relation(fields: [productoId], references: [id])
+  
+  loteProductoId  String? @map("lote_producto_id") @db.Uuid
+  loteProducto    LoteProducto? @relation(fields: [loteProductoId], references: [id])
+
+  @@map("evt_sanidad")
+  @@index([animalId])
+  @@index([loteId])
+  @@index([fecha])
+  @@index([productoId])
+}
+
+// ============================================
+// EVENTOS REPRODUCTIVOS
+// ============================================
+
+// Torada / Temporada de servicio
+model Torada {
+  id              String    @id @default(uuid()) @db.Uuid
+  nombre          String    // "Servicio Otoño 2024"
+  fechaInicio     DateTime  @map("fecha_inicio") @db.Date
+  fechaFin        DateTime? @map("fecha_fin") @db.Date
+  tipo            String    // 'natural' | 'ia' | 'iatf' | 'mixto'
+  cantidadHembras Int?      @map("cantidad_hembras")
+  cantidadMachos  Int?      @map("cantidad_machos")
+  observ          String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  loteId    String @map("lote_id") @db.Uuid
+  lote      Lote   @relation(fields: [loteId], references: [id])
+
+  servicios EvtServicio[]
+
+  @@map("toradas")
+  @@index([loteId])
+}
+
+// Servicio (monta o IA)
+model EvtServicio {
+  id              String   @id @default(uuid()) @db.Uuid
+  fecha           DateTime @db.Date
+  tipo            String   // 'natural' | 'ia' | 'iatf'
+  toroNombre      String?  @map("toro_nombre") // Si es IA
+  loteSemen       String?  @map("lote_semen")
+  inseminador     String?
+  observ          String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  hembraId  String  @map("hembra_id") @db.Uuid
+  hembra    Animal  @relation("ServicioHembra", fields: [hembraId], references: [id])
+  
+  machoId   String? @map("macho_id") @db.Uuid
+  macho     Animal? @relation("ServicioMacho", fields: [machoId], references: [id])
+  
+  toradaId  String? @map("torada_id") @db.Uuid
+  torada    Torada? @relation(fields: [toradaId], references: [id])
+
+  // Resultado
+  tacto     EvtTacto?
+
+  @@map("evt_servicio")
+  @@index([hembraId])
+  @@index([machoId])
+  @@index([fecha])
+}
+
+// Tacto (diagnóstico de preñez)
+model EvtTacto {
+  id                 String    @id @default(uuid()) @db.Uuid
+  fecha              DateTime  @db.Date
+  resultado          String    // 'preñada' | 'vacia' | 'dudosa' | 'absorcion'
+  mesesGest          Float?    @map("meses_gest")
+  fechaProbableParto DateTime? @map("fecha_probable_parto") @db.Date
+  metodo             String    @default("palpacion") // 'palpacion' | 'ecografia'
+  veterinario        String?
+  observ             String?
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  hembraId    String  @map("hembra_id") @db.Uuid
+  hembra      Animal  @relation(fields: [hembraId], references: [id])
+  
+  servicioId  String? @unique @map("servicio_id") @db.Uuid
+  servicio    EvtServicio? @relation(fields: [servicioId], references: [id])
+
+  @@map("evt_tacto")
+  @@index([hembraId])
+  @@index([fecha])
+  @@index([resultado])
+}
+
+// ============================================
+// EVENTO: BAJA (venta, muerte, faena)
+// ============================================
+
+model EvtBaja {
+  id            String   @id @default(uuid()) @db.Uuid
+  fecha         DateTime @db.Date
+  motivo        String   // 'venta' | 'muerte' | 'faena' | 'descarte' | 'robo' | 'otro'
+  pesoVivoKg    Float?   @map("peso_vivo_kg")
+  precioKg      Float?   @map("precio_kg")
+  precioTotal   Float?   @map("precio_total")
+  
+  // Documentación
+  dtaNumero     String?  @map("dta_numero")
+  facturaNumero String?  @map("factura_numero")
+  
+  observ        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  animalId  String  @unique @map("animal_id") @db.Uuid
+  animal    Animal  @relation(fields: [animalId], references: [id])
+  
+  clienteId String? @map("cliente_id") @db.Uuid
+  cliente   Cliente? @relation(fields: [clienteId], references: [id])
+
+  @@map("evt_baja")
+  @@index([fecha])
+  @@index([motivo])
+}
+
+// ============================================
+// ALIMENTACIÓN
+// ============================================
+
+// Dieta / Ración
+model Dieta {
+  id            String   @id @default(uuid()) @db.Uuid
+  nombre        String
+  objetivo      String   // 'recria' | 'engorde' | 'mantenimiento' | 'lactancia' | 'otro'
+  msObjetivoKg  Float?   @map("ms_objetivo_kg")
+  proteinaPct   Float?   @map("proteina_pct")
+  energiaMcal   Float?   @map("energia_mcal")
+  notas         String?
+  activo        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  componentes        DietaComponente[]
+  planesAlimentacion PlanAlimentacion[]
+  eventosAlimentacion EvtAlimentacion[]
+
+  @@map("dietas")
+}
+
+// Componentes de la dieta
+model DietaComponente {
+  id            String @id @default(uuid()) @db.Uuid
+  insumo        String // 'maíz molido', 'expeller soja', 'heno alfalfa'
+  proporcionPct Float  @map("proporcion_pct")
+  kgPorAnimal   Float? @map("kg_por_animal")
+
+  dietaId String @map("dieta_id") @db.Uuid
+  dieta   Dieta  @relation(fields: [dietaId], references: [id], onDelete: Cascade)
+
+  @@unique([dietaId, insumo])
+  @@map("dieta_componentes")
+}
+
+// Plan de alimentación por lote
+model PlanAlimentacion {
+  id           String    @id @default(uuid()) @db.Uuid
+  desde        DateTime  @db.Date
+  hasta        DateTime? @db.Date
+  msDiaPlanKg  Float?    @map("ms_dia_plan_kg")
+  activo       Boolean   @default(true)
+  observ       String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  loteId  String @map("lote_id") @db.Uuid
+  lote    Lote   @relation(fields: [loteId], references: [id])
+  
+  dietaId String @map("dieta_id") @db.Uuid
+  dieta   Dieta  @relation(fields: [dietaId], references: [id])
+
+  @@map("planes_alimentacion")
+  @@index([loteId])
+  @@index([activo])
+}
+
+// Evento de alimentación (registro diario/semanal)
+model EvtAlimentacion {
+  id               String   @id @default(uuid()) @db.Uuid
+  fecha            DateTime @db.Date
+  cantidadAnimales Int?     @map("cantidad_animales")
+  msRealKg         Float?   @map("ms_real_kg") // Total suministrado
+  desvioPct        Float?   @map("desvio_pct") // vs plan
+  observ           String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  loteId  String  @map("lote_id") @db.Uuid
+  lote    Lote    @relation(fields: [loteId], references: [id])
+  
+  dietaId String? @map("dieta_id") @db.Uuid
+  dieta   Dieta?  @relation(fields: [dietaId], references: [id])
+
+  @@map("evt_alimentacion")
+  @@index([loteId])
+  @@index([fecha])
+}
+
+// ============================================
+// PASTOREO (Balance Forrajero)
+// ============================================
+
+model EvtPastoreo {
+  id               String    @id @default(uuid()) @db.Uuid
+  ingreso          DateTime
+  egreso           DateTime?
+  animalesPromedio Int?      @map("animales_promedio")
+  observ           String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  loteId   String @map("lote_id") @db.Uuid
+  lote     Lote   @relation(fields: [loteId], references: [id])
+  
+  sectorId String @map("sector_id") @db.Uuid
+  sector   Sector @relation("PastoreoSector", fields: [sectorId], references: [id])
+
+  @@map("evt_pastoreo")
+  @@index([loteId])
+  @@index([sectorId])
+  @@index([ingreso])
+}
+
+// ============================================
+// AUDITORÍA
+// ============================================
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  tabla     String
+  rowPk     String   @map("row_pk")
+  accion    String   // 'INSERT' | 'UPDATE' | 'DELETE'
+  detalle   Json?    // Cambios en JSONB
+  fecha     DateTime @default(now())
+
+  usuarioId String?  @map("usuario_id") @db.Uuid
+  usuario   Usuario? @relation(fields: [usuarioId], references: [id])
+
+  @@map("audit_log")
+  @@index([tabla])
+  @@index([fecha])
+}
+
+// ============================================
+// DOCUMENTOS DE TRÁNSITO (SENASA)
+// ============================================
+
+model DocumentoTransito {
+  id               String    @id @default(uuid()) @db.Uuid
+  numeroDta        String    @unique @map("numero_dta")
+  tipo             String    @default("DTe") // 'DTA' | 'DTe'
+  fechaEmision     DateTime  @map("fecha_emision") @db.Date
+  fechaVencimiento DateTime  @map("fecha_vencimiento") @db.Date
+  fechaUso         DateTime? @map("fecha_uso") @db.Date
+  
+  renspaOrigen     String    @map("renspa_origen")
+  nombreOrigen     String?   @map("nombre_origen")
+  renspaDestino    String    @map("renspa_destino")
+  nombreDestino    String?   @map("nombre_destino")
+  
+  especie          String
+  cantidadAnimales Int       @map("cantidad_animales")
+  categorias       String?
+  motivo           String    // 'venta' | 'faena' | 'invernada' | 'cambio_campo'
+  estado           String    @default("vigente") // 'vigente' | 'usado' | 'vencido' | 'anulado'
+  
+  patenteCamion    String?   @map("patente_camion")
+  transportista    String?
+  observ           String?
+  
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@map("documentos_transito")
+  @@index([numeroDta])
+  @@index([estado])
+  @@index([fechaEmision])
+}
+

@@ -1,15 +1,65 @@
 {
-  "name": "my-v0-project",
-  "version": "0.1.0",
+  "name": "agromonitor-erp",
+  "version": "2.0.0",
+  "description": "Sistema ERP para gestión integral de emprendimientos agropecuarios - Módulos de ganado, cultivos, finanzas, inventario y más",
   "private": true,
+  "author": {
+    "name": "AgroMonitor Team"
+  },
+  "keywords": [
+    "erp",
+    "agropecuario",
+    "ganadería",
+    "agricultura",
+    "gestión-rural",
+    "livestock-management",
+    "farm-management",
+    "nextjs",
+    "typescript",
+    "react"
+  ],
   "scripts": {
-    "build": "next build",
     "dev": "next dev",
+    "dev:test": "cross-env NODE_ENV=test next dev",
+    "build": "next build",
+    "build:prod": "cross-env NODE_ENV=production next build",
+    "start": "next start",
+    "start:prod": "cross-env NODE_ENV=production next start",
     "lint": "next lint",
-    "start": "next start"
+    "type-check": "tsc --noEmit",
+    "test": "cross-env NODE_ENV=test vitest",
+    "test:ci": "cross-env NODE_ENV=test vitest run",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:push:dev": "dotenv -e .env.development -- prisma db push",
+    "db:push:test": "dotenv -e .env.test -- prisma db push",
+    "db:push:prod": "dotenv -e .env.production -- prisma db push",
+    "db:migrate:dev": "dotenv -e .env.development -- prisma migrate dev",
+    "db:migrate:deploy": "dotenv -e .env.production -- prisma migrate deploy",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:seed:dev": "dotenv -e .env.development -- tsx prisma/seed.ts",
+    "db:seed:test": "dotenv -e .env.test -- tsx prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "db:studio:dev": "dotenv -e .env.development -- prisma studio",
+    "db:studio:test": "dotenv -e .env.test -- prisma studio",
+    "db:studio:prod": "dotenv -e .env.production -- prisma studio",
+    "db:reset:test": "dotenv -e .env.test -- prisma db push --force-reset && pnpm db:seed:test",
+    "db:backup": "node -e \"require('child_process').exec(process.platform === 'win32' ? 'scripts\\\\backup-db.bat' : 'bash scripts/backup-db.sh', (e,o) => console.log(o))\"",
+    "db:check-safety": "tsx scripts/check-migration-safety.ts",
+    "import:excel": "node scripts/import-excel.js",
+    "env:check": "tsx scripts/check-env.ts",
+    "env:setup": "tsx scripts/setup-env.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=9.0.0"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
+    "@prisma/client": "^6.19.0",
     "@radix-ui/react-accordion": "latest",
     "@radix-ui/react-alert-dialog": "latest",
     "@radix-ui/react-aspect-ratio": "latest",
@@ -23,7 +73,7 @@
     "@radix-ui/react-label": "latest",
     "@radix-ui/react-menubar": "latest",
     "@radix-ui/react-navigation-menu": "latest",
-    "@radix-ui/react-popover": "latest",
+    "@radix-ui/react-popover": "^1.1.14",
     "@radix-ui/react-progress": "latest",
     "@radix-ui/react-radio-group": "latest",
     "@radix-ui/react-scroll-area": "latest",
@@ -38,6 +88,7 @@
     "@radix-ui/react-toggle-group": "latest",
     "@radix-ui/react-tooltip": "latest",
     "autoprefixer": "^10.4.20",
+    "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "latest",
@@ -47,7 +98,9 @@
     "input-otp": "latest",
     "lucide-react": "^0.454.0",
     "next": "15.2.4",
+    "next-auth": "5.0.0-beta.30",
     "next-themes": "latest",
+    "prisma": "^6.19.0",
     "react": "^19",
     "react-day-picker": "latest",
     "react-dom": "^19",
@@ -58,14 +111,20 @@
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "latest",
+    "xlsx": "^0.18.5",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cross-env": "^7.0.3",
+    "dotenv-cli": "^7.4.4",
     "postcss": "^8.5",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5"
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
   }
 }

@@ -1,0 +1,2563 @@
+// ============================================
+// SCHEMA UNIFICADO COMPLETO - AgroMonitor ERP
+// Incluye TODOS los módulos de la UI
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================
+// 1. MÓDULO CORE Y CONFIGURACIÓN
+// ============================================
+
+model Usuario {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  nombre            String
+  apellido          String
+  rol               String    // 'admin' | 'supervisor' | 'operario' | 'veterinario'
+  telefono          String?
+  avatar            String?
+  esActivo          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relaciones
+  tareasAsignadas   Tarea[]
+  preferencias      UsuarioPreferencias?
+  registrosSanitarios RegistroSanitario[]
+  eventosDispositivo EventoDispositivo[]
+
+  @@index([email])
+  @@index([rol])
+}
+
+model UsuarioPreferencias {
+  id                String    @id @default(cuid())
+  usuarioId         String    @unique
+  usuario           Usuario   @relation(fields: [usuarioId], references: [id])
+  tema              String    @default("light") // 'light' | 'dark'
+  idioma            String    @default("es")
+  dashboard         Json?     // Configuración de widgets
+  notificaciones    Json?     // Preferencias de notificaciones
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model Campo {
+  id                String    @id @default(cuid())
+  nombre            String    @unique
+  hectareas         Float
+  tipo              String    // 'propio' | 'arrendado' | 'compartido'
+  ubicacionLat      Float?
+  ubicacionLng      Float?
+  ubicacionDireccion String?
+  responsable       String?
+  capacidadBovinos  Int?
+  capacidadOvinos   Int?
+  potreros          Json?     // Array de potreros
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relaciones
+  bovinos           Bovino[]
+  ovinos            Ovino[]
+  movimientosOrigen MovimientoGanado[] @relation("CampoOrigen")
+  movimientosDestino MovimientoGanado[] @relation("CampoDestino")
+  registrosSanitarios RegistroSanitario[]
+  rodeos            Rodeo[]
+  consumosAlimento  ConsumoAlimento[]
+  comprasAlimento   CompraAlimento[]
+  lotes             Lote[]
+  sistemasRiego     SistemaRiego[]
+  analisisSuelo     AnalisisSuelo[]
+  dispositivos      DispositivoIoT[]
+  tareas            Tarea[]
+  vehiculos         Vehiculo[]
+  infraestructura   Infraestructura[]
+  lotesEngorde      LoteEngorde[]
+  periodosEncastre  PeriodoEncastre[]
+  estacionesMeteo   EstacionMeteorologica[]
+
+  @@index([nombre])
+}
+
+// ============================================
+// 2. MÓDULO DE GANADO (EXPANDIDO)
+// ============================================
+
+model CategoriaAnimal {
+  id                  String    @id @default(cuid())
+  especie             String    // 'bovino' | 'ovino' | 'porcino'
+  codigo              String    // 'vientre', 'toro', 'oveja', 'borrega'
+  nombre              String
+  descripcion         String?
+  edadMinimaMeses     Int?
+  edadMaximaMeses     Int?
+  esActiva            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  animales            Bovino[]  @relation("BovinoCategoria")
+  animalesOvino       Ovino[]   @relation("OvinoCategoria")
+  historialCategorias HistorialCategoria[]
+  stockRodeo          StockRodeo[]
+
+  @@unique([especie, codigo])
+  @@index([especie])
+  @@index([codigo])
+}
+
+model HistorialCategoria {
+  id                  String    @id @default(cuid())
+  animalId            String
+  animalTipo          String    // 'bovino' | 'ovino'
+  categoriaId         String
+  categoria           CategoriaAnimal @relation(fields: [categoriaId], references: [id])
+  fechaCambio         DateTime  @default(now())
+  motivo              String?
+  notas               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([animalId, animalTipo])
+  @@index([categoriaId])
+  @@index([fechaCambio])
+}
+
+model Bovino {
+  id                  String    @id @default(cuid())
+  cuig                String?   @unique
+  numero              String
+  subNumero           Int?
+  categoriaId         String?
+  categoria           CategoriaAnimal? @relation("BovinoCategoria", fields: [categoriaId], references: [id])
+  categoriaActual     String
+  dientes             String?
+  fechaNacimiento     DateTime?
+  edad                String?
+  peso                Float?
+  pesoActual          Float?
+  rodeoId             String?
+  rodeo               Rodeo?    @relation(fields: [rodeoId], references: [id])
+  padreId             String?
+  padre               Bovino?   @relation("BovinoPadre", fields: [padreId], references: [id])
+  madreId             String?
+  madre               Bovino?   @relation("BovinoMadre", fields: [madreId], references: [id])
+  raza                String?
+  estado              String    @default("activo")
+  observaciones       String?
+  historial           Json      @default("[]")
+  ubicacion           String?
+  condicionCorporal   Float?
+  valorMercado        Float?
+  fechaCategoriaActual DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  campoId             String
+  campo               Campo     @relation(fields: [campoId], references: [id])
+  destetes            RegistroDestete[]
+  hijosPadre          Bovino[]  @relation("BovinoPadre")
+  hijosMadre          Bovino[]  @relation("BovinoMadre")
+  registrosPeso       RegistroPeso[]
+  eventosReproductivos EventoReproductivo[]
+  valoresGeneticos    ValoresGeneticos?
+  analisesNutricionales AnalisisNutricional[]
+  indicadoresEconomicos IndicadorEconomico[]
+
+  @@index([numero])
+  @@index([cuig])
+  @@index([categoriaId])
+  @@index([estado])
+  @@index([campoId])
+  @@index([rodeoId])
+}
+
+model Ovino {
+  id                  String    @id @default(cuid())
+  idv                 Int       @unique
+  colorMarca          String
+  categoriaId         String?
+  categoria           CategoriaAnimal? @relation("OvinoCategoria", fields: [categoriaId], references: [id])
+  categoriaActual     String
+  anioNacimiento      Int
+  peso                Float?
+  pesoActual          Float?
+  raza                String?
+  estado              String    @default("activo")
+  rodeoId             String?
+  rodeo               Rodeo?    @relation(fields: [rodeoId], references: [id])
+  observaciones       String?
+  historialCategoria  Json      @default("[]")
+  historial           Json      @default("[]")
+  condicionCorporal   Float?
+  valorMercado        Float?
+  fechaCategoriaActual DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  campoId             String
+  campo               Campo     @relation(fields: [campoId], references: [id])
+  destetes            RegistroDestete[]
+  registrosPeso       RegistroPeso[]
+  eventosReproductivos EventoReproductivo[]
+
+  @@index([idv])
+  @@index([categoriaId])
+  @@index([estado])
+  @@index([campoId])
+  @@index([colorMarca])
+  @@index([rodeoId])
+}
+
+model RegistroPeso {
+  id                  String    @id @default(cuid())
+  animalId            String
+  animalTipo          String    // 'bovino' | 'ovino'
+  bovinoId            String?
+  bovino              Bovino?   @relation(fields: [bovinoId], references: [id])
+  ovinoId             String?
+  ovino               Ovino?    @relation(fields: [ovinoId], references: [id])
+  fechaPesaje         DateTime
+  peso                Float
+  condicionCorporal   Float?
+  gananciaD iaria      Float?    // GDP
+  metodoMedicion      String?   // 'bascula' | 'cinta' | 'estimado'
+  operario            String?
+  notas               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([animalId, animalTipo])
+  @@index([fechaPesaje])
+}
+
+model EventoReproductivo {
+  id                  String    @id @default(cuid())
+  animalId            String
+  animalTipo          String    // 'bovino' | 'ovino'
+  bovinoId            String?
+  bovino              Bovino?   @relation(fields: [bovinoId], references: [id])
+  ovinoId             String?
+  ovino               Ovino?    @relation(fields: [ovinoId], references: [id])
+  tipoEvento          String    // 'servicio' | 'parto' | 'aborto' | 'tacto' | 'destete'
+  fecha               DateTime
+  resultado           String?   // 'positivo' | 'negativo' | 'fallido'
+  padreId             String?   // ID del reproductor
+  criasIds            Json?     // Array de IDs de las crías
+  numerosCrias        Int?
+  pesoPromedioCrias   Float?
+  observaciones       String?
+  veterinario         String?
+  createdAt           DateTime  @default(now())
+
+  @@index([animalId, animalTipo])
+  @@index([tipoEvento])
+  @@index([fecha])
+}
+
+model ValoresGeneticos {
+  id                  String    @id @default(cuid())
+  bovinoId            String    @unique
+  bovino              Bovino    @relation(fields: [bovinoId], references: [id])
+  pesoNacimiento      Float?
+  pesoDestete         Float?
+  pesoAño             Float?
+  pesoAdulto          Float?
+  marbling            Float?    // Marmoreo
+  areaOjoRibete       Float?    // cm²
+  espesorGrasa        Float?    // mm
+  lecheMaterna        Float?
+  facilidadParto      Float?
+  confiabilidadGenomica Float?
+  fechaEvaluacion     DateTime?
+  fuenteDatos         String?   // 'laboratorio' | 'estimado' | 'registro'
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([bovinoId])
+}
+
+model AnalisisNutricional {
+  id                  String    @id @default(cuid())
+  bovinoId            String
+  bovino              Bovino    @relation(fields: [bovinoId], references: [id])
+  fechaAnalisis       DateTime
+  materiaSecaDiaria   Float?    // kg
+  proteinaCruda       Float?    // %
+  energiaMetabolizable Float?   // Mcal/kg
+  fibra               Float?    // %
+  calcio              Float?    // %
+  fosforo             Float?    // %
+  eficienciaAlimenticia Float?
+  costoAlimentacionDiario Float?
+  notas               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([bovinoId])
+  @@index([fechaAnalisis])
+}
+
+model IndicadorEconomico {
+  id                  String    @id @default(cuid())
+  bovinoId            String
+  bovino              Bovino    @relation(fields: [bovinoId], references: [id])
+  fechaCalculo        DateTime
+  valorMercado        Float
+  costoAlimentacion   Float?
+  costoSanitario      Float?
+  otrosCostos         Float?
+  costoTotal          Float?
+  valorGenetico       Float?
+  roi                 Float?    // Return on Investment
+  notas               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([bovinoId])
+  @@index([fechaCalculo])
+}
+
+model Rodeo {
+  id                  String    @id @default(cuid())
+  nombre              String
+  campoId             String
+  campo               Campo     @relation(fields: [campoId], references: [id])
+  descripcion         String?
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  bovinos             Bovino[]
+  ovinos              Ovino[]
+  stockPorCategoria   StockRodeo[]
+  movimientos         MovimientoRodeo[]
+
+  @@unique([nombre, campoId])
+  @@index([campoId])
+}
+
+model StockRodeo {
+  id                  String    @id @default(cuid())
+  rodeoId             String
+  rodeo               Rodeo     @relation(fields: [rodeoId], references: [id])
+  categoriaId         String?
+  categoria           CategoriaAnimal? @relation(fields: [categoriaId], references: [id])
+  cantidad            Int       @default(0)
+  fechaStock          DateTime  @default(now())
+  notas               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([rodeoId])
+  @@index([categoriaId])
+  @@index([fechaStock])
+}
+
+model MovimientoRodeo {
+  id                  String    @id @default(cuid())
+  rodeoId             String
+  rodeo               Rodeo     @relation(fields: [rodeoId], references: [id])
+  tipo                String    // 'entry' | 'exit' | 'transfer'
+  animalId            String?
+  animalTipo          String?
+  categoriaId         String?
+  cantidad            Int       @default(1)
+  fechaMovimiento     DateTime  @default(now())
+  motivo              String?
+  rodeoDestinoId      String?
+  notas               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([rodeoId])
+  @@index([fechaMovimiento])
+  @@index([tipo])
+}
+
+// ============================================
+// 3. MÓDULO DE ALIMENTACIÓN
+// ============================================
+
+model TipoAlimento {
+  id                  String    @id @default(cuid())
+  nombre              String    @unique
+  unidad              String    @default("kg")
+  descripcion         String?
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+
+  // Relaciones
+  stock               StockAlimento[]
+  compras             CompraAlimento[]
+  consumos            ConsumoAlimento[]
+}
+
+model StockAlimento {
+  id                  String    @id @default(cuid())
+  tipoAlimentoId      String
+  tipoAlimento        TipoAlimento @relation(fields: [tipoAlimentoId], references: [id])
+  tipo                String
+  nombre              String
+  cantidad            Float
+  unidad              String
+  kgUnitario          Float?
+  kgTotal             Float?
+  ubicacion           String?
+  campoId             String?
+  campo               Campo?    @relation(fields: [campoId], references: [id])
+  costoUnitario       Float?
+  proveedor           String?
+  fechaIngreso        DateTime?
+  fechaVencimiento    DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([tipoAlimentoId])
+  @@index([tipo])
+  @@index([ubicacion])
+}
+
+model CompraAlimento {
+  id                  String    @id @default(cuid())
+  tipoAlimentoId      String
+  tipoAlimento        TipoAlimento @relation(fields: [tipoAlimentoId], references: [id])
+  campoId             String?
+  campo               Campo?    @relation(fields: [campoId], references: [id])
+  fechaCompra         DateTime  @default(now())
+  cantidad            Float
+  precioUnitario      Float
+  precioTotal         Float
+  proveedorId         String?
+  proveedor           Proveedor? @relation(fields: [proveedorId], references: [id])
+  proveedorNombre     String?
+  numeroFactura       String?
+  notas               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([tipoAlimentoId])
+  @@index([fechaCompra])
+  @@index([proveedorId])
+}
+
+model ConsumoAlimento {
+  id                  String    @id @default(cuid())
+  tipoAlimentoId      String
+  tipoAlimento        TipoAlimento @relation(fields: [tipoAlimentoId], references: [id])
+  campoId             String
+  campo               Campo     @relation(fields: [campoId], references: [id])
+  fechaConsumo        DateTime  @default(now())
+  cantidad            Float
+  grupoObjetivo       String?
+  notas               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([tipoAlimentoId])
+  @@index([fechaConsumo])
+  @@index([campoId])
+}
+
+model PlanAlimentacion {
+  id                String    @id @default(cuid())
+  nombre            String
+  especie           String
+  categoria         String?
+  cantidadAnimales  Int
+  racionDiaria      Float
+  alimentos         Json      @default("[]")
+  duracionDias      Int
+  consumoTotal      Float
+  costo             Float?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([especie])
+}
+
+// ============================================
+// 4. MÓDULO DE REPRODUCCIÓN Y ENGORDE
+// ============================================
+
+model RegistroDestete {
+  id                  String    @id @default(cuid())
+  anio                Int
+  especie             String
+  fechaDestete        DateTime  @default(now())
+  lote                String?
+  madres              Int
+  crias               Json      @default("{}")
+  pesoPromedio        Float?
+  observaciones       String?
+  ventaId             String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  bovinoId            String?
+  bovino              Bovino?   @relation(fields: [bovinoId], references: [id])
+  ovinoId             String?
+  ovino               Ovino?    @relation(fields: [ovinoId], references: [id])
+
+  @@index([anio])
+  @@index([especie])
+  @@index([fechaDestete])
+}
+
+model PeriodoEncastre {
+  id                  String    @id @default(cuid())
+  nombre              String
+  especie             String
+  fechaInicio         DateTime
+  fechaFin            DateTime
+  duracionDias        Int
+  campoId             String?
+  campo               Campo?    @relation(fields: [campoId], references: [id])
+  notas               String?
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  encastes            Encaste[]
+
+  @@index([especie])
+  @@index([fechaInicio, fechaFin])
+}
+
+model Encaste {
+  id                String    @id @default(cuid())
+  periodoEncastreId String?
+  periodoEncastre   PeriodoEncastre? @relation(fields: [periodoEncastreId], references: [id])
+  anio              Int
+  nombre            String
+  especie           String
+  fechaInicio       DateTime
+  fechaFin          DateTime
+  duracionDias      Int
+  madres            Json      @default("{}")
+  carneros          Json      @default("{}")
+  observaciones     String?
+  resultados        Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([anio])
+  @@index([especie])
+  @@index([periodoEncastreId])
+}
+
+model LoteEngorde {
+  id                String    @id @default(cuid())
+  nombre            String
+  especie           String
+  campoId           String?
+  campo             Campo?    @relation(fields: [campoId], references: [id])
+  fechaInicio       DateTime
+  fechaFinEstimada  DateTime?
+  fechaFin          DateTime?
+  animales          Json      @default("[]")
+  estado            String    @default("activo")
+  notas             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relaciones
+  ingresos          IngresoEngorde[]
+  alimentacion      AlimentacionEngorde[]
+  produccion        ProduccionEngorde[]
+
+  @@index([especie])
+  @@index([estado])
+  @@index([campoId])
+}
+
+model IngresoEngorde {
+  id                  String    @id @default(cuid())
+  loteEngordeId       String
+  loteEngorde         LoteEngorde @relation(fields: [loteEngordeId], references: [id])
+  fechaIngreso        DateTime  @default(now())
+  origen              String?
+  categoria           String?
+  animalId            String?
+  animalTipo          String?
+  pesoInicial         Float?
+  notas               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([loteEngordeId])
+  @@index([fechaIngreso])
+}
+
+model AlimentacionEngorde {
+  id                  String    @id @default(cuid())
+  loteEngordeId       String
+  loteEngorde         LoteEngorde @relation(fields: [loteEngordeId], references: [id])
+  tipoAlimento        String
+  cantidad            Float
+  unidad              String    @default("kg")
+  costoPorUnidad      Float?
+  costoTotal          Float?
+  fechaAlimentacion   DateTime  @default(now())
+  notas               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([loteEngordeId])
+  @@index([fechaAlimentacion])
+}
+
+model ProduccionEngorde {
+  id                  String    @id @default(cuid())
+  loteEngordeId       String
+  loteEngorde         LoteEngorde @relation(fields: [loteEngordeId], references: [id])
+  tipo                String
+  cantidad            Float
+  unidad              String    @default("kg")
+  precioPorUnidad     Float?
+  valorTotal          Float?
+  fechaProduccion     DateTime  @default(now())
+  notas               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([loteEngordeId])
+  @@index([fechaProduccion])
+  @@index([tipo])
+}
+
+// ============================================
+// 5. MÓDULO DE MOVIMIENTOS Y SANIDAD
+// ============================================
+
+model Proveedor {
+  id                  String    @id @default(cuid())
+  nombre              String
+  taxId               String?
+  contacto            Json?
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  comprasAlimento     CompraAlimento[]
+  comprasGanado       MovimientoGanado[] @relation("ProveedorMovimiento")
+
+  @@index([nombre])
+}
+
+model Cliente {
+  id                  String    @id @default(cuid())
+  nombre              String
+  taxId               String?
+  contacto            Json?
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  ventasGanado        MovimientoGanado[] @relation("ClienteMovimiento")
+  ingresos            Ingreso[]
+
+  @@index([nombre])
+}
+
+model MovimientoGanado {
+  id                    String    @id @default(cuid())
+  fecha                 DateTime
+  tipo                  String
+  especie               String
+  categoria             String
+  cantidad              Int
+  animalesIds           Json?     @default("[]")
+  proveedorId           String?
+  proveedor             Proveedor? @relation("ProveedorMovimiento", fields: [proveedorId], references: [id])
+  proveedorNombre       String?
+  precioUnitario        Float?
+  precioTotal           Float?
+  clienteId             String?
+  cliente               Cliente?  @relation("ClienteMovimiento", fields: [clienteId], references: [id])
+  clienteNombre         String?
+  precioVentaUnitario   Float?
+  precioVentaTotal      Float?
+  pesoPromedio          Float?
+  observaciones         String?
+  documentos            Json?     @default("[]")
+  responsable           String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relaciones
+  campoOrigenId         String?
+  campoDestinoId        String?
+  campoOrigen           Campo?    @relation("CampoOrigen", fields: [campoOrigenId], references: [id])
+  campoDestino          Campo?    @relation("CampoDestino", fields: [campoDestinoId], references: [id])
+
+  @@index([fecha])
+  @@index([tipo])
+  @@index([especie])
+  @@index([proveedorId])
+  @@index([clienteId])
+}
+
+model RegistroSanitario {
+  id                    String    @id @default(cuid())
+  fecha                 DateTime
+  especie               String
+  tipo                  String
+  tratamiento           String
+  producto              String
+  dosis                 String
+  cantidadAnimales      Int
+  animalesIds           Json?     @default("[]")
+  categorias            Json?     @default("[]")
+  esTratamientoGrupal   Boolean   @default(false)
+  operario              String
+  usuarioId             String?
+  usuario               Usuario?  @relation(fields: [usuarioId], references: [id])
+  veterinario           String?
+  costo                 Float?
+  proximoTratamiento    DateTime?
+  observaciones         String?
+  loteProducto          String?
+  vencimientoProducto   DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relaciones
+  campoId               String
+  campo                 Campo     @relation(fields: [campoId], references: [id])
+
+  @@index([fecha])
+  @@index([especie])
+  @@index([tipo])
+  @@index([campoId])
+}
+
+// ============================================
+// 6. MÓDULO DE CULTIVOS (COMPLETO)
+// ============================================
+
+model Cultivo {
+  id                String    @id @default(cuid())
+  nombre            String    // 'Maíz Híbrido DK-390', 'Soja RR Intacta'
+  nombreCientifico  String?
+  especie           String    // 'maiz', 'soja', 'trigo', 'girasol'
+  variedad          String?
+  descripcion       String?
+  cicloVegetativo   Int?      // días
+  esActivo          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relaciones
+  lotes             Lote[]
+
+  @@index([especie])
+}
+
+model Lote {
+  id                String    @id @default(cuid())
+  nombre            String    // 'Lote Norte A-1', 'Lote Sur B-3'
+  cultivoId         String
+  cultivo           Cultivo   @relation(fields: [cultivoId], references: [id])
+  campoId           String
+  campo             Campo     @relation(fields: [campoId], references: [id])
+  area              Float     // hectáreas
+  ubicacionPoligono Json?     // Coordenadas GeoJSON
+  estado            String    @default("activo") // 'activo' | 'cosechado' | 'en_barbecho'
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relaciones
+  siembras          Siembra[]
+  analisisSuelo     AnalisisSuelo[]
+  registrosPlaga    RegistroPlaga[]
+  registrosEnfermedad RegistroEnfermedad[]
+  aplicacionesFitosanitario AplicacionFitosanitario[]
+  sistemasRiego     SistemaRiego[]
+  registrosRiego    RegistroRiego[]
+  proyecciones      ProyeccionRendimiento[]
+  cosechas          RegistroCosecha[]
+
+  @@index([cultivoId])
+  @@index([campoId])
+  @@index([estado])
+}
+
+model Siembra {
+  id                  String    @id @default(cuid())
+  loteId              String
+  lote                Lote      @relation(fields: [loteId], references: [id])
+  fechaSiembra        DateTime
+  fechaCosechaEsperada DateTime
+  poblacionPlantada   Int       // plantas/ha
+  profundidadSiembra  Float?    // cm
+  distanciaEntreHileras Float?  // cm
+  metodologiaSiembra  String?   // 'directa' | 'convencional'
+  unidadesTérmicasRequeridas Int?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  estadosFenologicos EstadoFenologico[]
+  planesNutricion   PlanFertilizacion[]
+
+  @@index([loteId])
+  @@index([fechaSiembra])
+}
+
+model EstadoFenologico {
+  id                  String    @id @default(cuid())
+  siembraId           String
+  siembra             Siembra   @relation(fields: [siembraId], references: [id])
+  etapa               String    // 'emergencia', 'V6', 'R1', 'R5', etc.
+  descripcion         String?
+  fechaInicio         DateTime
+  fechaFin            DateTime?
+  porcentajeCompletado Float   @default(0)
+  unidadesTérmicasAcumuladas Int?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@index([siembraId])
+  @@index([fechaInicio])
+  @@index([etapa])
+}
+
+model PlanFertilizacion {
+  id                  String    @id @default(cuid())
+  siembraId           String
+  siembra             Siembra   @relation(fields: [siembraId], references: [id])
+  nombre              String
+  objetivo            String?   // 'base' | 'cobertura' | 'foliar'
+  fechaPlanificacion  DateTime
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  aplicaciones        AplicacionFertilizante[]
+
+  @@index([siembraId])
+}
+
+model AplicacionFertilizante {
+  id                  String    @id @default(cuid())
+  planFertilizacionId String?
+  planFertilizacion   PlanFertilizacion? @relation(fields: [planFertilizacionId], references: [id])
+  nutriente           String    // 'Nitrógeno', 'Fósforo', 'Potasio'
+  producto            String
+  cantidadAplicada    Float
+  cantidadRecomendada Float
+  unidad              String    @default("kg/ha")
+  fechaAplicacion     DateTime
+  metodoAplicacion    String?   // 'voleo' | 'inyectado' | 'foliar'
+  costo               Float?
+  operario            String?
+  condicionesClimaticas Json?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@index([planFertilizacionId])
+  @@index([fechaAplicacion])
+  @@index([nutriente])
+}
+
+model AnalisisFoliar {
+  id                  String    @id @default(cuid())
+  loteId              String?
+  fechaAnalisis       DateTime
+  nitrógeno           Float?
+  fósforo             Float?
+  potasio             Float?
+  calcio              Float?
+  magnesio            Float?
+  azufre              Float?
+  hierro              Float?
+  manganeso           Float?
+  zinc                Float?
+  cobre               Float?
+  boro                Float?
+  laboratorio         String?
+  recomendaciones     String?
+  createdAt           DateTime  @default(now())
+
+  @@index([fechaAnalisis])
+}
+
+model RegistroPlaga {
+  id                  String    @id @default(cuid())
+  loteId              String
+  lote                Lote      @relation(fields: [loteId], references: [id])
+  nombreComun         String    // 'Cogollero del Maíz'
+  nombreCientifico    String?   // 'Spodoptera frugiperda'
+  fechaDeteccion      DateTime
+  nivelInfestacion    Int       // Escala 1-5
+  umbalEconómico      Int
+  etapaPlaga          String?   // 'larva' | 'adulto'
+  areaAfectada        Float?    // hectáreas
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@index([loteId])
+  @@index([fechaDeteccion])
+  @@index([nombreComun])
+}
+
+model RegistroEnfermedad {
+  id                  String    @id @default(cuid())
+  loteId              String
+  lote                Lote      @relation(fields: [loteId], references: [id])
+  nombreComun         String    // 'Roya del Maíz'
+  nombreCientifico    String?   // 'Puccinia sorghi'
+  fechaDeteccion      DateTime
+  severidad           Int       // Escala 1-5
+  umbalEconómico      Int
+  síntomas            String?
+  areaAfectada        Float?    // hectáreas
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@index([loteId])
+  @@index([fechaDeteccion])
+  @@index([nombreComun])
+}
+
+model AplicacionFitosanitario {
+  id                  String    @id @default(cuid())
+  loteId              String
+  lote                Lote      @relation(fields: [loteId], references: [id])
+  tipo                String    // 'herbicida' | 'insecticida' | 'fungicida'
+  producto            String
+  principioActivo     String?
+  dosisAplicada       Float
+  unidad              String
+  fechaAplicacion     DateTime
+  metodoAplicacion    String?   // 'terrestre' | 'aéreo'
+  objetivo            String?   // Plaga/enfermedad/maleza objetivo
+  costo               Float?
+  operario            String?
+  condicionesClimaticas Json?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@index([loteId])
+  @@index([fechaAplicacion])
+  @@index([tipo])
+}
+
+model UmbralEconomico {
+  id                  String    @id @default(cuid())
+  cultivo             String
+  plaga               String?
+  enfermedad          String?
+  maleza              String?
+  umbral              Float
+  unidadMedida        String
+  etapaFenologica     String?
+  descripcion         String?
+  fuente              String?
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([cultivo])
+}
+
+model SistemaRiego {
+  id                  String    @id @default(cuid())
+  nombre              String
+  loteId              String?
+  lote                Lote?     @relation(fields: [loteId], references: [id])
+  campoId             String
+  campo               Campo     @relation(fields: [campoId], references: [id])
+  tipo                String    // 'goteo' | 'aspersion' | 'pivot' | 'gravedad'
+  capacidad           Float?    // L/min
+  areaCobertura       Float?    // hectáreas
+  eficiencia          Float?    // %
+  estado              String    @default("activo")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  programaciones      ProgramacionRiego[]
+  registros           RegistroRiego[]
+
+  @@index([loteId])
+  @@index([campoId])
+  @@index([tipo])
+}
+
+model ProgramacionRiego {
+  id                  String    @id @default(cuid())
+  sistemaRiegoId      String
+  sistemaRiego        SistemaRiego @relation(fields: [sistemaRiegoId], references: [id])
+  fechaProgramada     DateTime
+  duracion            Int       // minutos
+  lamina              Float?    // mm
+  estado              String    @default("programado") // 'programado' | 'ejecutado' | 'cancelado'
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([sistemaRiegoId])
+  @@index([fechaProgramada])
+  @@index([estado])
+}
+
+model RegistroRiego {
+  id                  String    @id @default(cuid())
+  loteId              String
+  lote                Lote      @relation(fields: [loteId], references: [id])
+  sistemaRiegoId      String?
+  sistemaRiego        SistemaRiego? @relation(fields: [sistemaRiegoId], references: [id])
+  fechaRiego          DateTime
+  duracion            Int       // minutos
+  laminaAplicada      Float?    // mm
+  volumenAgua         Float?    // m³
+  costo               Float?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@index([loteId])
+  @@index([sistemaRiegoId])
+  @@index([fechaRiego])
+}
+
+model LecturaHumedadSuelo {
+  id                  String    @id @default(cuid())
+  loteId              String?
+  sensorId            String?   // ID del sensor IoT
+  fechaLectura        DateTime
+  profundidad         Float     // cm
+  humedadVolumetrica  Float     // %
+  temperatura         Float?    // °C
+  ubicacionLat        Float?
+  ubicacionLng        Float?
+  createdAt           DateTime  @default(now())
+
+  @@index([fechaLectura])
+  @@index([sensorId])
+}
+
+model AnalisisSuelo {
+  id                  String    @id @default(cuid())
+  loteId              String?
+  lote                Lote?     @relation(fields: [loteId], references: [id])
+  campoId             String
+  campo               Campo     @relation(fields: [campoId], references: [id])
+  fechaAnalisis       DateTime
+  profundidad         Float?    // cm
+  
+  // Químico
+  pH                  Float?
+  materiaOrganica     Float?    // %
+  nitrógeno           Float?    // ppm
+  fósforo             Float?    // ppm
+  potasio             Float?    // ppm
+  calcio              Float?    // ppm
+  magnesio            Float?    // ppm
+  azufre              Float?    // ppm
+  cic                 Float?    // meq/100g
+  
+  // Físico
+  textura             String?   // 'Franco', 'Arcilloso', 'Arenoso'
+  densidadAparente    Float?    // g/cm³
+  tasaInfiltracion    Float?    // cm/h
+  capacidadCampo      Float?    // %
+  puntoMarchitez      Float?    // %
+  
+  laboratorio         String?
+  recomendaciones     Json?
+  createdAt           DateTime  @default(now())
+
+  @@index([loteId])
+  @@index([campoId])
+  @@index([fechaAnalisis])
+}
+
+model PropiedadesFisicasSuelo {
+  id                  String    @id @default(cuid())
+  loteId              String?
+  fechaAnalisis       DateTime
+  arena               Float?    // %
+  limo                Float?    // %
+  arcilla             Float?    // %
+  densidadReal        Float?    // g/cm³
+  porosidadTotal      Float?    // %
+  estabilidadAgregados Float?   // índice
+  conductividadHidraulica Float? // cm/h
+  recomendaciones     String?
+  createdAt           DateTime  @default(now())
+
+  @@index([fechaAnalisis])
+}
+
+model HistorialSuelo {
+  id                  String    @id @default(cuid())
+  loteId              String?
+  fecha               DateTime
+  evento              String    // 'analisis' | 'enmienda' | 'labranza'
+  descripcion         String
+  datos               Json?
+  createdAt           DateTime  @default(now())
+
+  @@index([fecha])
+  @@index([evento])
+}
+
+model ProyeccionRendimiento {
+  id                  String    @id @default(cuid())
+  loteId              String
+  lote                Lote      @relation(fields: [loteId], references: [id])
+  fechaProyeccion     DateTime
+  rendimientoEstimado Float     // t/ha
+  rendimientoObjetivo Float?    // t/ha
+  rendimientoPromedio Float?    // zona
+  potencialGenetico   Float?    // t/ha
+  factores            Json?     // Factores de rendimiento
+  metodologia         String?   // 'modelo' | 'manual' | 'satelite'
+  confianza           Float?    // %
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@index([loteId])
+  @@index([fechaProyeccion])
+}
+
+model RegistroCosecha {
+  id                  String    @id @default(cuid())
+  loteId              String
+  lote                Lote      @relation(fields: [loteId], references: [id])
+  fechaCosecha        DateTime
+  rendimiento         Float     // t/ha
+  rendimientoTotal    Float     // toneladas
+  humedad             Float?    // %
+  calidadGrano        String?
+  precioVenta         Float?
+  comprador           String?
+  costo               Float?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@index([loteId])
+  @@index([fechaCosecha])
+}
+
+model FactorLimitante {
+  id                  String    @id @default(cuid())
+  loteId              String?
+  fecha               DateTime
+  factor              String    // 'agua' | 'nutrientes' | 'plagas' | 'clima'
+  severidad           Int       // 1-5
+  impactoEstimado     Float?    // % reducción rendimiento
+  descripcion         String?
+  medidaCorrectiva    String?
+  createdAt           DateTime  @default(now())
+
+  @@index([fecha])
+  @@index([factor])
+}
+
+// ============================================
+// 7. MÓDULO DE FINANZAS (COMPLETO)
+// ============================================
+
+model CuentaContable {
+  id                  String    @id @default(cuid())
+  codigo              String    @unique
+  nombre              String
+  tipo                String    // 'activo' | 'pasivo' | 'patrimonio' | 'ingreso' | 'gasto'
+  categoria           String?
+  nivel               Int       @default(1)
+  cuentaPadreId       String?
+  cuentaPadre         CuentaContable? @relation("CuentaHija", fields: [cuentaPadreId], references: [id])
+  esActiva            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  subcuentas          CuentaContable[] @relation("CuentaHija")
+  ingresos            Ingreso[]
+  gastos              Gasto[]
+  asientos            DetalleAsiento[]
+
+  @@index([codigo])
+  @@index([tipo])
+  @@index([cuentaPadreId])
+}
+
+model CategoriaFinanciera {
+  id                  String    @id @default(cuid())
+  nombre              String    @unique
+  tipo                String    // 'ingreso' | 'gasto'
+  descripcion         String?
+  esActiva            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+
+  // Relaciones
+  ingresos            Ingreso[]
+  gastos              Gasto[]
+  presupuestos        PresupuestoCategoria[]
+
+  @@index([tipo])
+}
+
+model Ejercicio {
+  id                  String    @id @default(cuid())
+  nombre              String    // '2024' | 'Ejercicio 2024'
+  fechaInicio         DateTime
+  fechaFin            DateTime
+  esCerrado           Boolean   @default(false)
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  ingresos            Ingreso[]
+  gastos              Gasto[]
+  presupuestos        Presupuesto[]
+  asientos            AsientoContable[]
+
+  @@index([fechaInicio, fechaFin])
+}
+
+model Ingreso {
+  id                  String    @id @default(cuid())
+  fecha               DateTime
+  concepto            String
+  monto               Float
+  categoriaId         String
+  categoria           CategoriaFinanciera @relation(fields: [categoriaId], references: [id])
+  cuentaContableId    String?
+  cuentaContable      CuentaContable? @relation(fields: [cuentaContableId], references: [id])
+  clienteId           String?
+  cliente             Cliente?  @relation(fields: [clienteId], references: [id])
+  clienteNombre       String?
+  metodoPago          String?   // 'efectivo' | 'transferencia' | 'cheque'
+  numeroComprobante   String?
+  ejercicioId         String?
+  ejercicio           Ejercicio? @relation(fields: [ejercicioId], references: [id])
+  estado              String    @default("pagado") // 'pagado' | 'pendiente' | 'parcial'
+  observaciones       String?
+  documentos          Json?     @default("[]")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([fecha])
+  @@index([categoriaId])
+  @@index([clienteId])
+  @@index([ejercicioId])
+  @@index([estado])
+}
+
+model Gasto {
+  id                  String    @id @default(cuid())
+  fecha               DateTime
+  concepto            String
+  monto               Float
+  categoriaId         String
+  categoria           CategoriaFinanciera @relation(fields: [categoriaId], references: [id])
+  cuentaContableId    String?
+  cuentaContable      CuentaContable? @relation(fields: [cuentaContableId], references: [id])
+  proveedorId         String?
+  proveedorNombre     String?
+  metodoPago          String?
+  numeroFactura       String?
+  ejercicioId         String?
+  ejercicio           Ejercicio? @relation(fields: [ejercicioId], references: [id])
+  estado              String    @default("pagado")
+  observaciones       String?
+  documentos          Json?     @default("[]")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([fecha])
+  @@index([categoriaId])
+  @@index([proveedorId])
+  @@index([ejercicioId])
+  @@index([estado])
+}
+
+model Transferencia {
+  id                  String    @id @default(cuid())
+  fecha               DateTime
+  monto               Float
+  cuentaOrigenId      String
+  cuentaDestinoId     String
+  concepto            String
+  numeroComprobante   String?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@index([fecha])
+}
+
+model AsientoContable {
+  id                  String    @id @default(cuid())
+  fecha               DateTime
+  numero              String    // Número correlativo
+  tipo                String    // 'manual' | 'automatico'
+  concepto            String
+  ejercicioId         String
+  ejercicio           Ejercicio @relation(fields: [ejercicioId], references: [id])
+  estado              String    @default("borrador") // 'borrador' | 'registrado' | 'anulado'
+  usuarioId           String?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  detalles            DetalleAsiento[]
+
+  @@unique([ejercicioId, numero])
+  @@index([fecha])
+  @@index([ejercicioId])
+  @@index([estado])
+}
+
+model DetalleAsiento {
+  id                  String    @id @default(cuid())
+  asientoId           String
+  asiento             AsientoContable @relation(fields: [asientoId], references: [id])
+  cuentaContableId    String
+  cuentaContable      CuentaContable @relation(fields: [cuentaContableId], references: [id])
+  debe                Float     @default(0)
+  haber               Float     @default(0)
+  descripcion         String?
+  createdAt           DateTime  @default(now())
+
+  @@index([asientoId])
+  @@index([cuentaContableId])
+}
+
+model Presupuesto {
+  id                  String    @id @default(cuid())
+  nombre              String
+  ejercicioId         String
+  ejercicio           Ejercicio @relation(fields: [ejercicioId], references: [id])
+  fechaInicio         DateTime
+  fechaFin            DateTime
+  montoTotal          Float
+  esActivo            Boolean   @default(true)
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  categorias          PresupuestoCategoria[]
+
+  @@index([ejercicioId])
+  @@index([fechaInicio, fechaFin])
+}
+
+model PresupuestoCategoria {
+  id                  String    @id @default(cuid())
+  presupuestoId       String
+  presupuesto         Presupuesto @relation(fields: [presupuestoId], references: [id])
+  categoriaId         String
+  categoria           CategoriaFinanciera @relation(fields: [categoriaId], references: [id])
+  montoPresupuestado  Float
+  montoEjecutado      Float     @default(0)
+  porcentajeEjecutado Float     @default(0)
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([presupuestoId])
+  @@index([categoriaId])
+}
+
+model EjecucionPresupuesto {
+  id                  String    @id @default(cuid())
+  presupuestoCategoriaId String
+  fecha               DateTime
+  monto               Float
+  transaccionId       String?   // ID de Ingreso o Gasto
+  transaccionTipo     String?   // 'ingreso' | 'gasto'
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@index([presupuestoCategoriaId])
+  @@index([fecha])
+}
+
+model EstadoResultados {
+  id                  String    @id @default(cuid())
+  ejercicioId         String?
+  periodo             String    // 'mensual' | 'trimestral' | 'anual'
+  fechaInicio         DateTime
+  fechaFin            DateTime
+  totalIngresos       Float
+  totalGastos         Float
+  utilidadNeta        Float
+  margenUtilidad      Float
+  datos               Json?     // Desglose detallado
+  generadoEn          DateTime  @default(now())
+
+  @@index([fechaInicio, fechaFin])
+  @@index([periodo])
+}
+
+model FlujoCaja {
+  id                  String    @id @default(cuid())
+  ejercicioId         String?
+  periodo             String
+  fechaInicio         DateTime
+  fechaFin            DateTime
+  saldoInicial        Float
+  entradas            Float
+  salidas             Float
+  saldoFinal          Float
+  datos               Json?
+  generadoEn          DateTime  @default(now())
+
+  @@index([fechaInicio, fechaFin])
+  @@index([periodo])
+}
+
+model BalanceGeneral {
+  id                  String    @id @default(cuid())
+  ejercicioId         String?
+  fecha               DateTime
+  totalActivos        Float
+  totalPasivos        Float
+  totalPatrimonio     Float
+  datos               Json?     // Desglose por cuentas
+  generadoEn          DateTime  @default(now())
+
+  @@index([fecha])
+}
+
+model AlertaFinanciera {
+  id                  String    @id @default(cuid())
+  tipo                String    // 'presupuesto' | 'pago_pendiente' | 'flujo_bajo'
+  severidad           String    // 'info' | 'warning' | 'critical'
+  titulo              String
+  mensaje             String
+  datos               Json?
+  fecha               DateTime  @default(now())
+  leida               Boolean   @default(false)
+  resuelta            Boolean   @default(false)
+  fechaResolucion     DateTime?
+  createdAt           DateTime  @default(now())
+
+  @@index([tipo])
+  @@index([severidad])
+  @@index([fecha])
+  @@index([leida])
+  @@index([resuelta])
+}
+
+model UmbralFinanciero {
+  id                  String    @id @default(cuid())
+  nombre              String
+  tipo                String    // 'presupuesto' | 'flujo' | 'ratio'
+  valor               Float
+  unidad              String?   // '%' | 'monto'
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([tipo])
+}
+
+// ============================================
+// 8. MÓDULO DE INVENTARIO (EXPANDIDO)
+// ============================================
+
+model ProductoInventario {
+  id                  String    @id @default(cuid())
+  nombre              String
+  codigo              String?   @unique
+  categoriaInventarioId String
+  categoria           CategoriaInventario @relation(fields: [categoriaInventarioId], references: [id])
+  descripcion         String?
+  unidadMedida        String    // 'kg' | 'litros' | 'unidades' | 'sacos'
+  stockActual         Float     @default(0)
+  stockMinimo         Float
+  stockMaximo         Float
+  ubicacion           String?
+  almacenId           String?
+  almacen             Almacen?  @relation(fields: [almacenId], references: [id])
+  costoUnitario       Float?
+  precioVenta         Float?
+  proveedorId         String?
+  proveedor           Proveedor? @relation(fields: [proveedorId], references: [id])
+  fechaUltimaCompra   DateTime?
+  fechaVencimiento    DateTime?
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  movimientos         MovimientoInventario[]
+  alertas             AlertaStock[]
+
+  @@index([categoriaInventarioId])
+  @@index([almacenId])
+  @@index([codigo])
+}
+
+model CategoriaInventario {
+  id                  String    @id @default(cuid())
+  nombre              String    @unique
+  descripcion         String?
+  tipo                String?   // 'alimento' | 'sanitario' | 'agrícola' | 'repuesto'
+  esActiva            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+
+  // Relaciones
+  productos           ProductoInventario[]
+
+  @@index([tipo])
+}
+
+model Almacen {
+  id                  String    @id @default(cuid())
+  nombre              String    @unique
+  ubicacion           String?
+  capacidad           Float?
+  unidad              String?   // 'm³' | 'toneladas'
+  tipo                String?   // 'galpón' | 'silo' | 'cámara_fría'
+  responsable         String?
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  productos           ProductoInventario[]
+  ubicaciones         UbicacionAlmacen[]
+
+  @@index([nombre])
+}
+
+model UbicacionAlmacen {
+  id                  String    @id @default(cuid())
+  almacenId           String
+  almacen             Almacen   @relation(fields: [almacenId], references: [id])
+  codigo              String    // 'A1', 'B2', 'C3'
+  descripcion         String?
+  capacidad           Float?
+  ocupado             Float     @default(0)
+  esActiva            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+
+  @@unique([almacenId, codigo])
+  @@index([almacenId])
+}
+
+model MovimientoInventario {
+  id                  String    @id @default(cuid())
+  productoId          String
+  producto            ProductoInventario @relation(fields: [productoId], references: [id])
+  tipo                String    // 'entrada' | 'salida' | 'ajuste' | 'transferencia'
+  cantidad            Float
+  cantidadAnterior    Float
+  cantidadNueva       Float
+  motivo              String?   // 'compra' | 'venta' | 'consumo' | 'merma' | 'ajuste_inventario'
+  costo               Float?
+  fecha               DateTime  @default(now())
+  responsable         String?
+  observaciones       String?
+  documentoReferencia String?   // Número de comprobante o factura
+  createdAt           DateTime  @default(now())
+
+  @@index([productoId])
+  @@index([tipo])
+  @@index([fecha])
+}
+
+model AlertaStock {
+  id                  String    @id @default(cuid())
+  productoId          String
+  producto            ProductoInventario @relation(fields: [productoId], references: [id])
+  tipo                String    // 'stock_minimo' | 'stock_critico' | 'vencimiento_proximo' | 'sobrestock'
+  severidad           String    // 'info' | 'warning' | 'critical'
+  mensaje             String
+  fecha               DateTime  @default(now())
+  leida               Boolean   @default(false)
+  resuelta            Boolean   @default(false)
+  fechaResolucion     DateTime?
+  createdAt           DateTime  @default(now())
+
+  @@index([productoId])
+  @@index([tipo])
+  @@index([severidad])
+  @@index([leida])
+  @@index([resuelta])
+}
+
+model ValorInventario {
+  id                  String    @id @default(cuid())
+  fecha               DateTime
+  categoriaId         String?
+  valorTotal          Float
+  cantidadItems       Int
+  datos               Json?     // Desglose por categoría/producto
+  createdAt           DateTime  @default(now())
+
+  @@index([fecha])
+}
+
+// ============================================
+// 9. MÓDULO DE IoT (COMPLETO)
+// ============================================
+
+model TipoDispositivo {
+  id                  String    @id @default(cuid())
+  nombre              String    @unique // 'Sensor Humedad', 'Collar GPS', 'Estación Meteorológica'
+  categoria           String    // 'Agricultura' | 'Ganadería' | 'Ambiente' | 'Riego'
+  fabricante          String?
+  modelo              String?
+  descripcion         String?
+  tiposLectura        Json?     // Array de tipos de datos que puede medir
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+
+  // Relaciones
+  dispositivos        DispositivoIoT[]
+
+  @@index([categoria])
+}
+
+model DispositivoIoT {
+  id                  String    @id @default(cuid())
+  nombre              String
+  tipoDispositivoId   String
+  tipoDispositivo     TipoDispositivo @relation(fields: [tipoDispositivoId], references: [id])
+  identificador       String    @unique // MAC address, serial, etc.
+  campoId             String?
+  campo               Campo?    @relation(fields: [campoId], references: [id])
+  ubicacionLat        Float?
+  ubicacionLng        Float?
+  ubicacionDescripcion String?
+  estado              String    @default("activo") // 'activo' | 'inactivo' | 'mantenimiento'
+  bateria             Float?    // % (0-100)
+  señal               Float?    // % (0-100)
+  firmware            String?
+  fechaInstalacion    DateTime?
+  ultimaConexion      DateTime?
+  configuracion       Json?
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  lecturas            LecturaDispositivo[]
+  alertas             AlertaDispositivo[]
+  eventos             EventoDispositivo[]
+  mantenimientos      MantenimientoDispositivo[]
+  ubicaciones         UbicacionDispositivo[]
+
+  @@index([tipoDispositivoId])
+  @@index([campoId])
+  @@index([estado])
+  @@index([identificador])
+}
+
+model ConfiguracionDispositivo {
+  id                  String    @id @default(cuid())
+  dispositivoId       String    @unique
+  frecuenciaLectura   Int       // minutos
+  umbralBateriaBaja   Float     @default(30)
+  umbralSeñalDebil    Float     @default(40)
+  parametros          Json?     // Parámetros específicos del dispositivo
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([dispositivoId])
+}
+
+model LecturaDispositivo {
+  id                  String    @id @default(cuid())
+  dispositivoId       String
+  dispositivo         DispositivoIoT @relation(fields: [dispositivoId], references: [id])
+  timestamp           DateTime  @default(now())
+  datos               Json      // Datos variables según tipo de sensor
+  temperatura         Float?
+  humedad             Float?
+  ph                  Float?
+  flujo               Float?
+  peso                Float?
+  ubicacionLat        Float?
+  ubicacionLng        Float?
+  bateria             Float?
+  señal               Float?
+  esValida            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+
+  @@index([dispositivoId])
+  @@index([timestamp])
+}
+
+model HistorialLecturas {
+  id                  String    @id @default(cuid())
+  dispositivoId       String
+  fecha               DateTime
+  estadisticas        Json      // Min, max, avg, etc.
+  totalLecturas       Int
+  lecturasValidas     Int
+  createdAt           DateTime  @default(now())
+
+  @@index([dispositivoId])
+  @@index([fecha])
+}
+
+model AlertaDispositivo {
+  id                  String    @id @default(cuid())
+  dispositivoId       String
+  dispositivo         DispositivoIoT @relation(fields: [dispositivoId], references: [id])
+  tipo                String    // 'offline' | 'bateria_baja' | 'señal_debil' | 'lectura_anomala'
+  severidad           String    // 'info' | 'warning' | 'critical'
+  mensaje             String
+  datos               Json?
+  fecha               DateTime  @default(now())
+  leida               Boolean   @default(false)
+  resuelta            Boolean   @default(false)
+  fechaResolucion     DateTime?
+  resolucionNotas     String?
+  createdAt           DateTime  @default(now())
+
+  @@index([dispositivoId])
+  @@index([tipo])
+  @@index([severidad])
+  @@index([fecha])
+  @@index([leida])
+  @@index([resuelta])
+}
+
+model UmbralAlerta {
+  id                  String    @id @default(cuid())
+  dispositivoId       String?   // null = aplica a todos del tipo
+  tipoDispositivoId   String?
+  parametro           String    // 'temperatura' | 'humedad' | 'bateria' | 'señal'
+  valorMinimo         Float?
+  valorMaximo         Float?
+  severidad           String    // 'info' | 'warning' | 'critical'
+  mensaje             String
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([dispositivoId])
+  @@index([tipoDispositivoId])
+  @@index([parametro])
+}
+
+model ConfiguracionAlerta {
+  id                  String    @id @default(cuid())
+  nombre              String
+  parametro           String
+  condicion           String    // 'mayor_que' | 'menor_que' | 'igual_a' | 'entre'
+  valor               Float
+  valorSecundario     Float?    // Para condición 'entre'
+  accion              String    // 'notificar' | 'email' | 'sms'
+  destinatarios       Json?
+  esActiva            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([parametro])
+}
+
+model MantenimientoDispositivo {
+  id                  String    @id @default(cuid())
+  dispositivoId       String
+  dispositivo         DispositivoIoT @relation(fields: [dispositivoId], references: [id])
+  tipo                String    // 'preventivo' | 'correctivo' | 'calibracion'
+  fecha               DateTime
+  descripcion         String
+  costo               Float?
+  tecnico             String?
+  proximoMantenimiento DateTime?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@index([dispositivoId])
+  @@index([fecha])
+  @@index([tipo])
+}
+
+model EventoDispositivo {
+  id                  String    @id @default(cuid())
+  dispositivoId       String
+  dispositivo         DispositivoIoT @relation(fields: [dispositivoId], references: [id])
+  tipo                String    // 'conexion' | 'desconexion' | 'error' | 'actualizacion'
+  fecha               DateTime  @default(now())
+  descripcion         String
+  datos               Json?
+  usuarioId           String?
+  usuario             Usuario?  @relation(fields: [usuarioId], references: [id])
+  createdAt           DateTime  @default(now())
+
+  @@index([dispositivoId])
+  @@index([tipo])
+  @@index([fecha])
+}
+
+model UbicacionDispositivo {
+  id                  String    @id @default(cuid())
+  dispositivoId       String
+  dispositivo         DispositivoIoT @relation(fields: [dispositivoId], references: [id])
+  timestamp           DateTime  @default(now())
+  latitud             Float
+  longitud            Float
+  altitud             Float?
+  precision           Float?    // metros
+  velocidad           Float?    // km/h
+  rumbo               Float?    // grados
+  createdAt           DateTime  @default(now())
+
+  @@index([dispositivoId])
+  @@index([timestamp])
+}
+
+// ============================================
+// 10. MÓDULO DE MAPA Y GEORREFERENCIACIÓN
+// ============================================
+
+model Zona {
+  id                  String    @id @default(cuid())
+  nombre              String
+  tipo                String    // 'potrero' | 'lote_cultivo' | 'sector' | 'zona_restriccion'
+  campoId             String?
+  area                Float     // hectáreas
+  perimetro           Float?    // metros
+  coordenadas         Json      // GeoJSON polygon
+  centroLat           Float
+  centroLng           Float
+  estado              String    @default("activo")
+  descripcion         String?
+  responsable         String?
+  capacidad           Int?      // Animales o plantaciones
+  uso Actual          String?
+  ultimaInspeccion    DateTime?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  coordenadasPoligono CoordenadasPoligono[]
+
+  @@index([tipo])
+  @@index([estado])
+}
+
+model CoordenadasPoligono {
+  id                  String    @id @default(cuid())
+  zonaId              String
+  zona                Zona      @relation(fields: [zonaId], references: [id])
+  orden               Int
+  latitud             Float
+  longitud            Float
+  altitud             Float?
+  createdAt           DateTime  @default(now())
+
+  @@index([zonaId])
+  @@index([orden])
+}
+
+model Marcador {
+  id                  String    @id @default(cuid())
+  nombre              String
+  tipo                String    // 'aguada' | 'corral' | 'silo' | 'galpón' | 'casa' | 'sensor' | 'otro'
+  latitud             Float
+  longitud            Float
+  altitud             Float?
+  icono               String?
+  color               String?
+  descripcion         String?
+  estado              String    @default("activo")
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([tipo])
+  @@index([estado])
+}
+
+model CapaMapa {
+  id                  String    @id @default(cuid())
+  nombre              String    @unique
+  tipo                String    // 'potreros' | 'cultivos' | 'vehiculos' | 'sensores' | 'infraestructura'
+  icono               String?
+  color               String?
+  esVisible           Boolean   @default(true)
+  orden               Int       @default(0)
+  configuracion       Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([tipo])
+  @@index([orden])
+}
+
+model Vehiculo {
+  id                  String    @id @default(cuid())
+  nombre              String
+  tipo                String    // 'tractor' | 'camioneta' | 'cosechadora' | 'pulverizadora'
+  marca               String?
+  modelo              String?
+  año                 Int?
+  patente             String?   @unique
+  numeroInterno       String?
+  campoId             String?
+  campo               Campo?    @relation(fields: [campoId], references: [id])
+  estado              String    @default("activo") // 'activo' | 'mantenimiento' | 'fuera_servicio'
+  horasUso            Float?
+  kilometraje         Float?
+  consumoCombustible  Float?    // L/hora o L/100km
+  capacidad           Json?     // Capacidades específicas
+  fechaCompra         DateTime?
+  valorCompra         Float?
+  valorActual         Float?
+  polizaSeguro        String?
+  vencimientoSeguro   DateTime?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  ubicaciones         UbicacionVehiculo[]
+  mantenimientos      MantenimientoVehiculo[]
+
+  @@index([tipo])
+  @@index([estado])
+  @@index([campoId])
+}
+
+model UbicacionVehiculo {
+  id                  String    @id @default(cuid())
+  vehiculoId          String
+  vehiculo            Vehiculo  @relation(fields: [vehiculoId], references: [id])
+  timestamp           DateTime  @default(now())
+  latitud             Float
+  longitud            Float
+  velocidad           Float?
+  rumbo               Float?
+  enMovimiento        Boolean   @default(false)
+  horasUso            Float?
+  combustibleRestante Float?
+  createdAt           DateTime  @default(now())
+
+  @@index([vehiculoId])
+  @@index([timestamp])
+}
+
+model MantenimientoVehiculo {
+  id                  String    @id @default(cuid())
+  vehiculoId          String
+  vehiculo            Vehiculo  @relation(fields: [vehiculoId], references: [id])
+  tipo                String    // 'preventivo' | 'correctivo' | 'revision'
+  fecha               DateTime
+  horasUso            Float?
+  kilometraje         Float?
+  descripcion         String
+  repuestos           Json?     // Lista de repuestos usados
+  costo               Float?
+  taller              String?
+  tecnico             String?
+  proximoMantenimiento DateTime?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@index([vehiculoId])
+  @@index([fecha])
+  @@index([tipo])
+}
+
+model Infraestructura {
+  id                  String    @id @default(cuid())
+  nombre              String
+  tipo                String    // 'aguada' | 'corral' | 'silo' | 'galpón' | 'manga' | 'brete'
+  campoId             String
+  campo               Campo     @relation(fields: [campoId], references: [id])
+  latitud             Float
+  longitud            Float
+  capacidad           Float?
+  unidadCapacidad     String?   // 'animales' | 'toneladas' | 'm³'
+  estado              String    @default("operativo")
+  fechaConstruccion   DateTime?
+  descripcion         String?
+  dimensiones         Json?     // Medidas específicas
+  material            String?
+  costoInicial        Float?
+  ultimoMantenimiento DateTime?
+  proximoMantenimiento DateTime?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([tipo])
+  @@index([estado])
+  @@index([campoId])
+}
+
+model UbicacionInfraestructura {
+  id                  String    @id @default(cuid())
+  infraestructuraId   String
+  nombre              String
+  descripcion         String?
+  coordenadas         Json?     // Para polígonos (corrales, galpones)
+  createdAt           DateTime  @default(now())
+
+  @@index([infraestructuraId])
+}
+
+model EstacionMeteorologica {
+  id                  String    @id @default(cuid())
+  nombre              String
+  campoId             String
+  campo               Campo     @relation(fields: [campoId], references: [id])
+  latitud             Float
+  longitud            Float
+  altitud             Float?
+  tipo                String?   // 'automatica' | 'manual'
+  modelo              String?
+  estado              String    @default("activo")
+  fechaInstalacion    DateTime?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  lecturas            LecturaClimatica[]
+
+  @@index([campoId])
+  @@index([estado])
+}
+
+model LecturaClimatica {
+  id                  String    @id @default(cuid())
+  estacionId          String
+  estacion            EstacionMeteorologica @relation(fields: [estacionId], references: [id])
+  timestamp           DateTime  @default(now())
+  temperatura         Float?    // °C
+  humedadRelativa     Float?    // %
+  precipitacion       Float?    // mm
+  velocidadViento     Float?    // km/h
+  direccionViento     Float?    // grados
+  presionAtmosferica  Float?    // hPa
+  radiacionSolar      Float?    // W/m²
+  evapotranspiracion  Float?    // mm
+  puntoRocio          Float?    // °C
+  createdAt           DateTime  @default(now())
+
+  @@index([estacionId])
+  @@index([timestamp])
+}
+
+model PronosticoClimatico {
+  id                  String    @id @default(cuid())
+  fecha               DateTime
+  temperatura Min      Float?
+  temperaturaMax      Float?
+  precipitacionProb   Float?    // %
+  precipitacionMm     Float?
+  humedad             Float?
+  viento              Float?
+  descripcion         String?
+  fuente              String?   // 'SMN' | 'OpenWeather'
+  createdAt           DateTime  @default(now())
+
+  @@index([fecha])
+}
+
+// ============================================
+// 11. MÓDULO DE MERCADO
+// ============================================
+
+model ProductoMercado {
+  id                  String    @id @default(cuid())
+  nombre              String
+  categoriaMercadoId  String
+  categoria           CategoriaMercado @relation(fields: [categoriaMercadoId], references: [id])
+  unidad              String    // 'kg' | 'tonelada' | 'bolsa' | 'litro'
+  descripcion         String?
+  tipo                String    // 'insumo' | 'producto' | 'ganado' | 'maquinaria'
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  precios             PrecioHistorico[]
+  cotizaciones        CotizacionDiaria[]
+
+  @@index([categoriaMercadoId])
+  @@index([tipo])
+}
+
+model CategoriaMercado {
+  id                  String    @id @default(cuid())
+  nombre              String    @unique
+  tipo                String    // 'insumo' | 'producto' | 'ganado' | 'maquinaria'
+  descripcion         String?
+  esActiva            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+
+  // Relaciones
+  productos           ProductoMercado[]
+
+  @@index([tipo])
+}
+
+model FuentePrecio {
+  id                  String    @id @default(cuid())
+  nombre              String    @unique // 'Rosario' | 'CBOT' | 'Liniers' | 'Local'
+  tipo                String    // 'bolsa' | 'mercado' | 'referencia'
+  pais                String?
+  ciudad              String?
+  url                 String?
+  apiEndpoint         String?
+  esActiva            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  precios             PrecioHistorico[]
+
+  @@index([tipo])
+}
+
+model PrecioHistorico {
+  id                  String    @id @default(cuid())
+  productoMercadoId   String
+  productoMercado     ProductoMercado @relation(fields: [productoMercadoId], references: [id])
+  fuentePrecioId      String
+  fuentePrecio        FuentePrecio @relation(fields: [fuentePrecioId], references: [id])
+  fecha               DateTime
+  precio              Float
+  precioAnterior      Float?
+  variacion           Float?    // %
+  volumen             Float?
+  moneda              String    @default("ARS")
+  createdAt           DateTime  @default(now())
+
+  @@unique([productoMercadoId, fuentePrecioId, fecha])
+  @@index([productoMercadoId])
+  @@index([fuentePrecioId])
+  @@index([fecha])
+}
+
+model CotizacionDiaria {
+  id                  String    @id @default(cuid())
+  productoMercadoId   String
+  productoMercado     ProductoMercado @relation(fields: [productoMercadoId], references: [id])
+  fecha               DateTime
+  precioCompra        Float?
+  precioVenta         Float?
+  volumen             Float?
+  tendencia           String?   // 'up' | 'down' | 'stable'
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@unique([productoMercadoId, fecha])
+  @@index([productoMercadoId])
+  @@index([fecha])
+}
+
+model TendenciaPrecio {
+  id                  String    @id @default(cuid())
+  productoMercadoId   String
+  periodo             String    // 'semanal' | 'mensual' | 'trimestral' | 'anual'
+  fechaInicio         DateTime
+  fechaFin            DateTime
+  precioPromedio      Float
+  precioMinimo        Float
+  precioMaximo        Float
+  variacionPromedio   Float     // %
+  volatilidad         Float     // Desviación estándar
+  createdAt           DateTime  @default(now())
+
+  @@index([productoMercadoId])
+  @@index([periodo])
+  @@index([fechaInicio, fechaFin])
+}
+
+model IndiceMercado {
+  id                  String    @id @default(cuid())
+  nombre              String    // 'Índice Ganadero' | 'Índice Granos' | 'Índice General'
+  fecha               DateTime
+  valor               Float
+  variacion           Float?    // %
+  componentes         Json?     // Productos que componen el índice
+  createdAt           DateTime  @default(now())
+
+  @@unique([nombre, fecha])
+  @@index([nombre])
+  @@index([fecha])
+}
+
+model VolumenTransaccion {
+  id                  String    @id @default(cuid())
+  productoMercadoId   String
+  fecha               DateTime
+  volumen             Float
+  unidad              String
+  mercado             String?
+  createdAt           DateTime  @default(now())
+
+  @@index([productoMercadoId])
+  @@index([fecha])
+}
+
+model ProyeccionPrecio {
+  id                  String    @id @default(cuid())
+  productoMercadoId   String
+  fechaProyeccion     DateTime
+  periodo             String    // 'corto' | 'mediano' | 'largo'
+  precioEstimado      Float
+  precioMinimo        Float
+  precioMaximo        Float
+  confianza           Float?    // %
+  metodologia         String?   // 'tendencia' | 'estacional' | 'modelo'
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@index([productoMercadoId])
+  @@index([fechaProyeccion])
+}
+
+model AlertaPrecio {
+  id                  String    @id @default(cuid())
+  productoMercadoId   String
+  tipo                String    // 'precio_bajo' | 'precio_alto' | 'variacion_significativa'
+  severidad           String    // 'info' | 'warning' | 'opportunity'
+  mensaje             String
+  precio              Float
+  umbral              Float
+  fecha               DateTime  @default(now())
+  leida               Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+
+  @@index([productoMercadoId])
+  @@index([tipo])
+  @@index([fecha])
+  @@index([leida])
+}
+
+// ============================================
+// 12. MÓDULO DE TAREAS (COMPLETO)
+// ============================================
+
+model Tarea {
+  id                  String    @id @default(cuid())
+  titulo              String
+  descripcion         String
+  categoriaTareaId    String
+  categoria           CategoriaTarea @relation(fields: [categoriaTareaId], references: [id])
+  prioridad           String    // 'urgent' | 'high' | 'medium' | 'low'
+  estado              String    @default("pending") // 'pending' | 'in-progress' | 'completed' | 'overdue'
+  fechaCreacion       DateTime  @default(now())
+  fechaInicio         DateTime?
+  fechaVencimiento    DateTime
+  fechaCompletado     DateTime?
+  horasEstimadas      Float?
+  horasTrabajadas     Float?
+  ubicacion           String?
+  campoId             String?
+  campo               Campo?    @relation(fields: [campoId], references: [id])
+  animalId            String?   // Si está relacionada con un animal específico
+  loteId              String?   // Si está relacionada con un cultivo específico
+  equipoId            String?   // Si requiere un equipo/vehículo específico
+  esRecurrente        Boolean   @default(false)
+  patronRecurrencia   Json?
+  observaciones       String?
+  archivos            Json?     // URLs de documentos adjuntos
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  asignaciones        AsignacionTarea[]
+  registrosProgreso   RegistroProgreso[]
+  comentarios         ComentarioTarea[]
+  adjuntos            AdjuntoTarea[]
+  tiemposTrabajados   TiempoTrabajado[]
+  subtareas           Tarea[]   @relation("TareaPadreHija")
+  tareaPadreId        String?
+  tareaPadre          Tarea?    @relation("TareaPadreHija", fields: [tareaPadreId], references: [id])
+
+  @@index([categoriaTareaId])
+  @@index([estado])
+  @@index([prioridad])
+  @@index([fechaVencimiento])
+  @@index([campoId])
+  @@index([tareaPadreId])
+}
+
+model CategoriaTarea {
+  id                  String    @id @default(cuid())
+  nombre              String    @unique // 'Sanidad Animal' | 'Mantenimiento' | 'Agricultura' | 'Flota'
+  descripcion         String?
+  icono               String?
+  color               String?
+  esActiva            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+
+  // Relaciones
+  tareas              Tarea[]
+
+  @@index([nombre])
+}
+
+model EstadoTarea {
+  id                  String    @id @default(cuid())
+  codigo              String    @unique // 'pending' | 'in-progress' | 'completed' | 'overdue'
+  nombre              String
+  descripcion         String?
+  color               String?
+  orden               Int       @default(0)
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+
+  @@index([orden])
+}
+
+model PrioridadTarea {
+  id                  String    @id @default(cuid())
+  codigo              String    @unique // 'urgent' | 'high' | 'medium' | 'low'
+  nombre              String
+  nivel               Int       // 4=urgent, 3=high, 2=medium, 1=low
+  color               String?
+  esActiva            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+
+  @@index([nivel])
+}
+
+model AsignacionTarea {
+  id                  String    @id @default(cuid())
+  tareaId             String
+  tarea               Tarea     @relation(fields: [tareaId], references: [id])
+  usuarioId           String
+  usuario             Usuario   @relation(fields: [usuarioId], references: [id])
+  rol                 String    @default("assigned") // 'responsible' | 'assigned' | 'collaborator'
+  fechaAsignacion     DateTime  @default(now())
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  @@unique([tareaId, usuarioId])
+  @@index([tareaId])
+  @@index([usuarioId])
+}
+
+model EquipoTrabajo {
+  id                  String    @id @default(cuid())
+  nombre              String    @unique
+  descripcion         String?
+  lider               String?
+  miembros            Json      // Array de userIds
+  especialidad        String?
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([nombre])
+}
+
+model RegistroProgreso {
+  id                  String    @id @default(cuid())
+  tareaId             String
+  tarea               Tarea     @relation(fields: [tareaId], references: [id])
+  fecha               DateTime  @default(now())
+  porcentajeAnterior  Float
+  porcentajeNuevo     Float
+  descripcion         String?
+  responsable         String?
+  createdAt           DateTime  @default(now())
+
+  @@index([tareaId])
+  @@index([fecha])
+}
+
+model ComentarioTarea {
+  id                  String    @id @default(cuid())
+  tareaId             String
+  tarea               Tarea     @relation(fields: [tareaId], references: [id])
+  usuarioId           String?
+  autorNombre         String
+  comentario          String
+  esInterno           Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([tareaId])
+  @@index([createdAt])
+}
+
+model AdjuntoTarea {
+  id                  String    @id @default(cuid())
+  tareaId             String
+  tarea               Tarea     @relation(fields: [tareaId], references: [id])
+  nombre              String
+  tipo                String    // 'imagen' | 'documento' | 'video'
+  url                 String
+  tamaño              Int?      // bytes
+  createdAt           DateTime  @default(now())
+
+  @@index([tareaId])
+}
+
+model TiempoTrabajado {
+  id                  String    @id @default(cuid())
+  tareaId             String
+  tarea               Tarea     @relation(fields: [tareaId], references: [id])
+  usuarioId           String?
+  trabajador          String
+  fechaInicio         DateTime
+  fechaFin            DateTime?
+  duracion            Float?    // horas
+  descripcion         String?
+  createdAt           DateTime  @default(now())
+
+  @@index([tareaId])
+  @@index([fechaInicio])
+}
+
+model TareaRecurrente {
+  id                  String    @id @default(cuid())
+  titulo              String
+  descripcion         String
+  categoria           String
+  prioridad           String
+  patron              String    // 'diario' | 'semanal' | 'mensual' | 'anual'
+  frecuencia          Int       // Cada X días/semanas/meses
+  diasSemana          Json?     // Para patrón semanal [1,2,3,4,5,6,7]
+  diaMes              Int?      // Para patrón mensual (1-31)
+  fechaInicio         DateTime
+  fechaFin            DateTime?
+  ultimaGeneracion    DateTime?
+  esActiva            Boolean   @default(true)
+  plantilla           Json?     // Configuración de la tarea a generar
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([patron])
+  @@index([esActiva])
+  @@index([fechaInicio, fechaFin])
+}
+
+model PatronRecurrencia {
+  id                  String    @id @default(cuid())
+  nombre              String    @unique
+  tipo                String    // 'diario' | 'semanal' | 'mensual' | 'anual' | 'personalizado'
+  configuracion       Json      // Configuración específica del patrón
+  descripcion         String?
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+
+  @@index([tipo])
+}
+
+// ============================================
+// 13. MÓDULO DE DASHBOARD Y WIDGETS
+// ============================================
+
+model DashboardWidget {
+  id                  String    @id @default(cuid())
+  nombre              String
+  tipo                String    // 'kpi' | 'chart' | 'table' | 'map' | 'list'
+  posicion            Json      // {x, y, width, height}
+  configuracion       Json      // Configuración específica del widget
+  origen Datos         String?   // Query o endpoint para datos
+  actualizacion       Int?      // Minutos de auto-refresh
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([tipo])
+}
+
+model MetricaHistorial {
+  id                  String    @id @default(cuid())
+  metrica             String    // 'total_animales' | 'ingresos' | 'temp_promedio'
+  valor               Float
+  fecha               DateTime
+  periodo             String    // 'hora' | 'dia' | 'semana' | 'mes'
+  datos               Json?     // Metadatos adicionales
+  createdAt           DateTime  @default(now())
+
+  @@index([metrica])
+  @@index([fecha])
+  @@index([periodo])
+}
+
+// ============================================
+// 14. MODELOS AUXILIARES DE COMPATIBILIDAD
+// ============================================
+
+model Destete {
+  id                String    @id @default(cuid())
+  anio              Int
+  especie           String
+  fecha             DateTime
+  lote              String
+  madres            Int
+  crias             Json      @default("{}")
+  observaciones     String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([anio])
+  @@index([especie])
+}
+
+model PlantillaActividad {
+  id                  String    @id @default(cuid())
+  nombre              String
+  descripcion         String?
+  tipoActividad       String?
+  duracionHoras       Float?
+  especie             String?
+  esRecurrente        Boolean   @default(false)
+  patronRecurrencia   Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  actividadesEstacionales ActividadPlanEstacional[]
+
+  @@index([nombre])
+  @@index([tipoActividad])
+}
+
+model PlanEstacional {
+  id                  String    @id @default(cuid())
+  nombre              String
+  temporada           String
+  mesInicio           Int
+  mesFin              Int
+  anio                Int?
+  esActivo            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  actividades         ActividadPlanEstacional[]
+
+  @@index([nombre])
+  @@index([anio])
+}
+
+model ActividadPlanEstacional {
+  id                  String    @id @default(cuid())
+  planEstacionalId    String
+  planEstacional      PlanEstacional @relation(fields: [planEstacionalId], references: [id])
+  plantillaId         String?
+  plantilla           PlantillaActividad? @relation(fields: [plantillaId], references: [id])
+  mes                 Int
+  fechaProgramada     DateTime?
+  notas               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([planEstacionalId])
+  @@index([mes])
+}
+

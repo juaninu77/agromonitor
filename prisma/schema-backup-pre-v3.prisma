@@ -1,0 +1,501 @@
+// ============================================
+// SCHEMA ACTUAL - AgroMonitor ERP
+// Estructura sincronizada con Neon DB
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================
+// AUTENTICACIÓN (NextAuth.js v5)
+// ============================================
+
+model Usuario {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  emailVerificado DateTime? @map("email_verified")
+  passwordHash    String    @map("password_hash")
+  nombre          String
+  apellido        String
+  telefono        String?
+  avatar          String?
+  rol             String    @default("usuario") // 'admin' | 'usuario' | 'operario'
+  esActivo        Boolean   @default(true) @map("es_activo")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Relaciones
+  sessions        Session[]
+  accounts        Account[]
+  membresias      Membresia[]
+
+  @@map("usuarios")
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String  @map("user_id")
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id")
+  expires      DateTime
+
+  // Contexto activo (organización y campo seleccionados)
+  organizacionActivaId String? @map("organizacion_activa_id")
+  campoActivoId        String? @map("campo_activo_id")
+
+  user Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================
+// MULTI-TENANCY: Organizaciones y Membresías
+// ============================================
+
+// Una Organización es el "tenant" - representa una empresa, 
+// establecimiento agropecuario o grupo de campos
+model Organizacion {
+  id          String   @id @default(cuid())
+  nombre      String
+  slug        String   @unique  // URL amigable: "estancia-la-maria"
+  logo        String?
+  descripcion String?
+  
+  // Datos de contacto
+  email       String?
+  telefono    String?
+  direccion   String?
+  
+  // Configuración
+  timezone    String   @default("America/Argentina/Buenos_Aires")
+  moneda      String   @default("ARS")
+  
+  // Estado
+  esActivo    Boolean  @default(true) @map("es_activo")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  membresias  Membresia[]
+  campos      Campo[]
+
+  @@map("organizaciones")
+  @@index([slug])
+}
+
+// Membresía conecta usuarios con organizaciones y define su rol
+model Membresia {
+  id             String   @id @default(cuid())
+  
+  // Roles: 'propietario' | 'administrador' | 'encargado' | 'operario' | 'veterinario' | 'contador'
+  rol            String   @default("operario")
+  
+  // Permisos granulares (opcional, para control más fino)
+  permisos       Json     @default("[]")  // ['leer_ganado', 'editar_ganado', 'eliminar_ganado', ...]
+  
+  // Estado
+  esActivo       Boolean  @default(true) @map("es_activo")
+  fechaInvitacion DateTime? @map("fecha_invitacion")
+  fechaAceptacion DateTime? @map("fecha_aceptacion")
+  
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  usuarioId      String   @map("usuario_id")
+  usuario        Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  
+  organizacionId String   @map("organizacion_id")
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+
+  // Un usuario solo puede tener una membresía por organización
+  @@unique([usuarioId, organizacionId])
+  @@map("membresias")
+  @@index([usuarioId])
+  @@index([organizacionId])
+}
+
+// ============================================
+// MODELOS DE NEGOCIO
+// ============================================
+
+model Campo {
+  id        String   @id @default(cuid())
+  nombre    String
+  hectareas Float
+  tipo      String   // 'propio' | 'arrendado' | 'compartido'
+  potreros  Json     @default("[]")
+  
+  // SENASA - Registro Nacional Sanitario de Productores Agropecuarios
+  renspa    String?  // Ej: "06.123.0.12345/00"
+  
+  // Ubicación
+  provincia String?
+  localidad String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relación con Organización (Multi-Tenancy)
+  organizacionId String @map("organizacion_id")
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+
+  // Relaciones
+  bovinos   Bovino[]
+  ovinos    Ovino[]
+
+  // Nombre único dentro de cada organización
+  @@unique([organizacionId, nombre])
+  @@index([organizacionId])
+  @@index([nombre])
+}
+
+model Bovino {
+  id                String    @id @default(cuid())
+  
+  // Identificación Argentina
+  cuig              String?   @unique  // Código Único de Identificación Ganadera
+  numero            String
+  subNumero         Int?
+  
+  // Clasificación
+  categoria         String    // 'vaca' | 'toro' | 'vaquillona' | 'novillo' | 'ternero' | 'ternera'
+  dientes           String?   // '2D', '4D', '6D', 'BL'
+  raza              String?
+  
+  // Fechas
+  fechaNacimiento   DateTime?
+  edad              String?
+  
+  // Estado físico
+  peso              Float?
+  condicionCorporal Float?
+  estado            String    @default("activo") // 'activo' | 'vendido' | 'muerto' | 'perdido'
+  
+  // Ubicación
+  rodeo             String?
+  ubicacion         String?
+  
+  // ============================================
+  // GENEALOGÍA - Relaciones reales
+  // ============================================
+  // Padre (toro)
+  padreId           String?   @map("padre_id")
+  padre             Bovino?   @relation("PadreHijos", fields: [padreId], references: [id], onDelete: SetNull)
+  hijosComoPadre    Bovino[]  @relation("PadreHijos")
+  
+  // Madre (vaca)
+  madreId           String?   @map("madre_id")
+  madre             Bovino?   @relation("MadreHijos", fields: [madreId], references: [id], onDelete: SetNull)
+  hijosComoMadre    Bovino[]  @relation("MadreHijos")
+  
+  // Texto libre para padres externos/desconocidos
+  padreExterno      String?   @map("padre_externo") // Ej: "Toro Don Juan - Cabaña XYZ"
+  madreExterna      String?   @map("madre_externa") // Ej: "Comprada en remate"
+  
+  // Económico
+  valorMercado      Float?
+  
+  // Metadata
+  observaciones     String?
+  historial         Json      @default("[]")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relaciones
+  campoId           String
+  campo             Campo     @relation(fields: [campoId], references: [id])
+
+  @@index([numero])
+  @@index([categoria])
+  @@index([estado])
+  @@index([campoId])
+  @@index([padreId])
+  @@index([madreId])
+}
+
+model Ovino {
+  id                 String   @id @default(cuid())
+  
+  // Identificación
+  idv                Int      // Identificación Visual
+  colorMarca         String   // Color de la marca/caravana
+  
+  // Clasificación
+  categoria          String   // 'oveja' | 'borrega' | 'cordera' | 'carnero' | 'capón'
+  raza               String?
+  
+  // Fechas
+  anioNacimiento     Int?
+  
+  // Estado físico
+  peso               Float?
+  condicionCorporal  Float?
+  estado             String   @default("activo")
+  
+  // Ubicación
+  rodeo              String?
+  
+  // Económico
+  valorMercado       Float?
+  
+  // Metadata
+  observaciones      String?
+  historialCategoria Json     @default("[]")  // Cambios de categoría por año
+  historial          Json     @default("[]")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  // Relaciones
+  campoId            String
+  campo              Campo    @relation(fields: [campoId], references: [id])
+
+  @@index([idv])
+  @@index([categoria])
+  @@index([estado])
+  @@index([campoId])
+}
+
+model StockAlimento {
+  id               String    @id @default(cuid())
+  tipo             String    // 'fardo' | 'rollo' | 'balanceado' | 'grano' | 'suplemento' | 'mineral'
+  nombre           String
+  cantidad         Float
+  unidad           String    // 'unidades' | 'kg' | 'toneladas' | 'bolsas'
+  kgUnitario       Float?    // kg por unidad
+  kgTotal          Float?    // total en kg
+  ubicacion        String?
+  costoUnitario    Float?
+  proveedor        String?
+  fechaIngreso     DateTime?
+  fechaVencimiento DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Multi-Tenancy: Campo al que pertenece
+  campoId          String    @map("campo_id")
+
+  @@index([tipo])
+  @@index([nombre])
+  @@index([campoId])
+}
+
+model PlanAlimentacion {
+  id          String   @id @default(cuid())
+  nombre      String
+  animalTipo  String   // 'bovino' | 'ovino'
+  categoria   String   // Categoría a la que aplica
+  kgDiarios   Float
+  descripcion String?
+  activo      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Multi-Tenancy: Campo al que pertenece
+  campoId     String   @map("campo_id")
+
+  @@index([animalTipo])
+  @@index([categoria])
+  @@index([campoId])
+}
+
+model LoteEngorde {
+  id               String    @id @default(cuid())
+  nombre           String
+  fechaInicio      DateTime
+  fechaFin         DateTime?
+  pesoInicial      Float
+  pesoFinal        Float?
+  cantidadAnimales Int
+  estado           String    @default("activo") // 'activo' | 'finalizado'
+  observaciones    String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Multi-Tenancy
+  campoId          String    @map("campo_id")
+
+  @@index([estado])
+  @@index([fechaInicio])
+  @@index([campoId])
+}
+
+model Encaste {
+  id             String    @id @default(cuid())
+  anio           Int
+  fechaInicio    DateTime
+  fechaFin       DateTime?
+  cantidadMadres Int
+  cantidadToros  Int
+  rodeo          String?
+  observaciones  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Multi-Tenancy
+  campoId        String    @map("campo_id")
+
+  @@index([anio])
+  @@index([campoId])
+}
+
+model Destete {
+  id            String   @id @default(cuid())
+  anio          Int
+  fecha         DateTime
+  cantidadCrias Int
+  pesoPromedio  Float?
+  rodeo         String?
+  observaciones String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Multi-Tenancy
+  campoId       String   @map("campo_id")
+
+  @@index([anio])
+  @@index([fecha])
+  @@index([campoId])
+}
+
+model MovimientoGanado {
+  id            String   @id @default(cuid())
+  tipo          String   // 'compra' | 'venta' | 'traslado' | 'nacimiento' | 'muerte'
+  animalTipo    String   // 'bovino' | 'ovino'
+  animalId      String?
+  cantidad      Int      @default(1)
+  fecha         DateTime
+  origen        String?
+  destino       String?
+  precio        Float?
+  observaciones String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Multi-Tenancy
+  campoId       String   @map("campo_id")
+
+  @@index([tipo])
+  @@index([animalTipo])
+  @@index([fecha])
+  @@index([campoId])
+}
+
+model RegistroSanitario {
+  id                String   @id @default(cuid())
+  fecha             DateTime
+  animalTipo        String   // 'bovino' | 'ovino'
+  animalesAplicados Int
+  producto          String
+  dosis             String?
+  aplicador         String?
+  observaciones     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Multi-Tenancy
+  campoId           String   @map("campo_id")
+
+  @@index([fecha])
+  @@index([animalTipo])
+  @@index([campoId])
+}
+
+// ============================================
+// TRAZABILIDAD SENASA - DTA (Documento de Tránsito Animal)
+// ============================================
+
+model DocumentoTransito {
+  id              String    @id @default(cuid())
+  
+  // Número oficial del DTA/DT-e
+  numeroDta       String    @unique @map("numero_dta")
+  
+  // Tipo: 'DTA' (papel) | 'DTe' (electrónico)
+  tipo            String    @default("DTe")
+  
+  // Fechas
+  fechaEmision    DateTime  @map("fecha_emision")
+  fechaVencimiento DateTime @map("fecha_vencimiento")
+  fechaUso        DateTime? @map("fecha_uso")
+  
+  // Origen
+  renspaOrigen    String    @map("renspa_origen")
+  nombreOrigen    String?   @map("nombre_origen")
+  
+  // Destino
+  renspaDestino   String    @map("renspa_destino")
+  nombreDestino   String?   @map("nombre_destino")
+  
+  // Animales transportados
+  especieAnimal   String    @map("especie_animal") // 'bovino' | 'ovino' | 'equino' | 'porcino'
+  cantidadAnimales Int      @map("cantidad_animales")
+  categorias      String?   // Ej: "30 novillos, 20 vacas"
+  
+  // Motivo del traslado
+  motivo          String    // 'venta' | 'faena' | 'invernada' | 'remate' | 'cambio_campo' | 'exposicion'
+  
+  // Estado del documento
+  estado          String    @default("vigente") // 'vigente' | 'usado' | 'vencido' | 'anulado'
+  
+  // Transporte
+  patenteCamion   String?   @map("patente_camion")
+  patenteAcoplado String?   @map("patente_acoplado")
+  transportista   String?
+  
+  // Sanitario
+  certificadoSanitario String? @map("certificado_sanitario")
+  
+  // Metadata
+  observaciones   String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  
+  // Multi-Tenancy: Campo de origen
+  campoId         String    @map("campo_id")
+
+  @@map("documentos_transito")
+  @@index([numeroDta])
+  @@index([renspaOrigen])
+  @@index([renspaDestino])
+  @@index([fechaEmision])
+  @@index([estado])
+  @@index([campoId])
+}

@@ -78,9 +78,8 @@ export async function POST(request: Request) {
       // 2. Crear organización por defecto
       const organizacion = await tx.organizacion.create({
         data: {
-          nombre: `Establecimiento ${apellido}`,
+          nombre: `Organización ${apellido}`,
           slug,
-          descripcion: `Organización de ${nombre} ${apellido}`,
         },
       })
 
@@ -90,16 +89,14 @@ export async function POST(request: Request) {
           usuarioId: user.id,
           organizacionId: organizacion.id,
           rol: 'propietario',
-          fechaAceptacion: new Date(),
         },
       })
 
-      // 4. Crear campo de ejemplo
-      await tx.campo.create({
+      // 4. Crear establecimiento de ejemplo
+      await tx.establecimiento.create({
         data: {
-          nombre: 'Campo Principal',
+          nombre: 'Establecimiento Principal',
           hectareas: 100,
-          tipo: 'propio',
           organizacionId: organizacion.id,
           provincia: 'Buenos Aires',
         },

@@ -19,6 +19,7 @@
     "react"
   ],
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "next dev",
     "dev:test": "cross-env NODE_ENV=test next dev",
     "build": "prisma generate && next build",

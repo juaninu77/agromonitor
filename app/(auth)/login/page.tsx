@@ -85,7 +85,7 @@ export default function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               required
               disabled={loading}
-              className="bg-white border-gray-300 focus:border-emerald-500 focus:ring-emerald-500"
+              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500"
             />
           </div>
 
@@ -101,7 +101,7 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               required
               disabled={loading}
-              className="bg-white border-gray-300 focus:border-emerald-500 focus:ring-emerald-500"
+              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500"
             />
           </div>
         </CardContent>

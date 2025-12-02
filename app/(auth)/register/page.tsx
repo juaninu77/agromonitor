@@ -151,7 +151,7 @@ export default function RegisterPage() {
                 onChange={handleChange}
                 required
                 disabled={loading}
-                className="bg-white border-gray-300"
+                className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
               />
             </div>
 
@@ -168,7 +168,7 @@ export default function RegisterPage() {
                 onChange={handleChange}
                 required
                 disabled={loading}
-                className="bg-white border-gray-300"
+                className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
               />
             </div>
           </div>
@@ -186,7 +186,7 @@ export default function RegisterPage() {
               onChange={handleChange}
               required
               disabled={loading}
-              className="bg-white border-gray-300"
+              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
             />
           </div>
 
@@ -202,7 +202,7 @@ export default function RegisterPage() {
               value={formData.telefono}
               onChange={handleChange}
               disabled={loading}
-              className="bg-white border-gray-300"
+              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
             />
           </div>
 
@@ -219,7 +219,7 @@ export default function RegisterPage() {
               onChange={handleChange}
               required
               disabled={loading}
-              className="bg-white border-gray-300"
+              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
             />
             <p className="text-xs text-gray-500">
               Mínimo 6 caracteres
@@ -239,7 +239,7 @@ export default function RegisterPage() {
               onChange={handleChange}
               required
               disabled={loading}
-              className="bg-white border-gray-300"
+              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
             />
           </div>
         </CardContent>

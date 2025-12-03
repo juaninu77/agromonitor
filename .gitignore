@@ -64,3 +64,4 @@ detailed_analysis.json
 *.swp
 *.swo
 *~
+.env*.local

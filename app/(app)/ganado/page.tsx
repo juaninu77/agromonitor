@@ -28,6 +28,8 @@ import {
   Plus,
   RefreshCw,
   Database,
+  List,
+  Grid3x3,
 } from "lucide-react"
 import { livestockData } from "@/lib/data/livestock-data"
 import { useGanado, type AnimalAPI } from "@/lib/hooks/use-ganado"
@@ -269,6 +271,7 @@ export default function GanadoPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("todos")
   const [useMockData, setUseMockData] = useState(false)
+  const [viewMode, setViewMode] = useState<"lista" | "tarjetas">("lista")
   
   // Hook para cargar datos de la BD
   const { animales, stats, isLoading, error, refetch } = useGanado()
@@ -535,19 +538,154 @@ export default function GanadoPage() {
                       <SelectItem value="atencion">Requieren atención</SelectItem>
                     </SelectContent>
                   </Select>
+                  {/* Toggle de Vista */}
+                  <div className="flex border-2 rounded-md overflow-hidden">
+                    <Button
+                      variant={viewMode === "lista" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setViewMode("lista")}
+                      className="rounded-none border-0"
+                    >
+                      <List className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant={viewMode === "tarjetas" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setViewMode("tarjetas")}
+                      className="rounded-none border-0 border-l-2"
+                    >
+                      <Grid3x3 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
 
-              {/* Lista de Animales - Ahora usando componente memoizado */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredAnimals.map((animal) => (
-                  <AnimalCard 
-                    key={animal.id} 
-                    animal={animal} 
-                    onSelect={handleAnimalSelect}
-                  />
-                ))}
-              </div>
+              {/* Vista de Lista (Tabla) */}
+              {viewMode === "lista" ? (
+                <div className="border-2 rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b-2 border-gray-200">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Caravana
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Nombre
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Categoría
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Raza
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Edad
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Estado
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Salud
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Acciones
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {filteredAnimals.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                              No se encontraron animales
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredAnimals.map((animal: any) => (
+                            <tr
+                              key={animal.id}
+                              className="hover:bg-gray-50 cursor-pointer transition-colors"
+                              onClick={() => handleAnimalSelect(animal)}
+                            >
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className="text-sm font-medium text-gray-900">
+                                  {animal.tagNumber || animal.caravanaVisual || "N/A"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className="text-sm text-gray-900">
+                                  {animal.name || "Sin nombre"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <Badge
+                                  variant="outline"
+                                  className={getCategoryColor(animal.category || "")}
+                                >
+                                  {animal.category || "N/A"}
+                                </Badge>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className="text-sm text-gray-600">
+                                  {animal.breed || animal.raza?.nombre || "N/A"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className="text-sm text-gray-600">
+                                  {animal.age || animal.edad || "N/A"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    animal.reproductiveStatus === "Preñada"
+                                      ? "bg-green-100 text-green-800 border-green-200"
+                                      : "bg-gray-100 text-gray-800 border-gray-200"
+                                  }
+                                >
+                                  {animal.reproductiveStatus || "N/A"}
+                                </Badge>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <Badge
+                                  variant="outline"
+                                  className={getHealthStatusColor(animal.healthStatus || "")}
+                                >
+                                  {animal.healthStatus || "Saludable"}
+                                </Badge>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-right">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleAnimalSelect(animal)
+                                  }}
+                                >
+                                  Ver detalles
+                                </Button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                /* Vista de Tarjetas */
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredAnimals.map((animal) => (
+                    <AnimalCard 
+                      key={animal.id} 
+                      animal={animal} 
+                      onSelect={handleAnimalSelect}
+                    />
+                  ))}
+                </div>
+              )}
             </TabsContent>
 
             <TabsContent value="detalle" className="mt-6">

@@ -75,16 +75,16 @@ export async function GET(request: NextRequest) {
         especie: true,
         raza: true,
         categoria: true,
-        pesadas: {
+        eventosPesada: {
           orderBy: { fecha: 'desc' },
           take: 1
         },
-        ubicaciones: {
+        ubicacionHist: {
           where: { hasta: null },
           include: { sector: true },
           take: 1
         },
-        lotes: {
+        loteHist: {
           where: { hasta: null },
           include: { lote: true },
           take: 1
@@ -96,9 +96,9 @@ export async function GET(request: NextRequest) {
 
     // Transformar para la UI
     const animalesConDetalles = animales.map(animal => {
-      const ultimoPeso = animal.pesadas[0]
-      const ubicacionActual = animal.ubicaciones[0]
-      const loteActual = animal.lotes[0]
+      const ultimoPeso = animal.eventosPesada[0]
+      const ubicacionActual = animal.ubicacionHist[0]
+      const loteActual = animal.loteHist[0]
       
       // Calcular edad
       let edad = ''

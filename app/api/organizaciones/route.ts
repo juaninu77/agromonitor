@@ -10,7 +10,7 @@ import { prisma } from "@/lib/prisma"
 export async function GET() {
   try {
     const session = await auth()
-    
+
     if (!session?.user?.id) {
       return NextResponse.json(
         { error: "No autenticado" },
@@ -42,8 +42,20 @@ export async function GET() {
     return NextResponse.json(organizaciones)
   } catch (error) {
     console.error("Error al obtener organizaciones:", error)
+    // Log más detallado en desarrollo
+    if (process.env.NODE_ENV === 'development') {
+      console.error("Detalles del error:", {
+        message: error instanceof Error ? error.message : 'Error desconocido',
+        stack: error instanceof Error ? error.stack : undefined,
+      })
+    }
     return NextResponse.json(
-      { error: "Error interno del servidor" },
+      { 
+        error: "Error interno del servidor",
+        ...(process.env.NODE_ENV === 'development' && {
+          details: error instanceof Error ? error.message : 'Error desconocido'
+        })
+      },
       { status: 500 }
     )
   }
@@ -112,7 +124,6 @@ export async function POST(request: Request) {
           usuarioId: session.user.id,
           organizacionId: org.id,
           rol: "propietario",
-          fechaAceptacion: new Date(),
         },
       })
 

@@ -115,7 +115,8 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { 
         message: 'Usuario creado exitosamente',
-        user: result 
+        user: result,
+        necesitaConfiguracion: true // Indica que debe completar el onboarding
       },
       { status: 201 }
     )

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from 'react'
+import { toast } from 'sonner'
 
 // Tipos para los datos de la API
 export interface AnimalAPI {
@@ -56,12 +57,28 @@ export interface GanadoStats {
   pesoPromedio: number
 }
 
+export interface PaginationInfo {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+  hasNextPage: boolean
+  hasPrevPage: boolean
+}
+
 export interface UseGanadoResult {
   animales: AnimalAPI[]
   stats: GanadoStats | null
+  pagination: PaginationInfo | null
   isLoading: boolean
   error: string | null
   refetch: () => Promise<void>
+  setPage: (page: number) => void
+  setLimit: (limit: number) => void
+  setOrderBy: (field: string) => void
+  setOrderDirection: (direction: 'asc' | 'desc') => void
+  orderBy: string
+  orderDirection: 'asc' | 'desc'
 }
 
 /**
@@ -70,15 +87,27 @@ export interface UseGanadoResult {
 export function useGanado(): UseGanadoResult {
   const [animales, setAnimales] = useState<AnimalAPI[]>([])
   const [stats, setStats] = useState<GanadoStats | null>(null)
+  const [pagination, setPagination] = useState<PaginationInfo | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(25)
+  const [orderBy, setOrderBy] = useState('caravana')
+  const [orderDirection, setOrderDirection] = useState<'asc' | 'desc'>('asc')
 
   const fetchGanado = useCallback(async () => {
     try {
       setIsLoading(true)
       setError(null)
 
-      const response = await fetch('/api/ganado/bovinos')
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: limit.toString(),
+        orderBy: orderBy,
+        orderDirection: orderDirection,
+      })
+
+      const response = await fetch(`/api/ganado/bovinos?${params}`)
       
       if (!response.ok) {
         if (response.status === 401) {
@@ -98,19 +127,27 @@ export function useGanado(): UseGanadoResult {
           birthDate: animal.fechaNacimiento,
           age: animal.edad || '',
         }))
-        
+
         setAnimales(animalesTransformados)
         setStats(data.stats)
+        setPagination(data.pagination)
       } else {
         throw new Error(data.error || 'Error al cargar datos')
       }
     } catch (err) {
       console.error('Error fetching ganado:', err)
-      setError(err instanceof Error ? err.message : 'Error desconocido')
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido'
+      setError(errorMessage)
+
+      // Mostrar toast de error
+      toast.error('Error al cargar datos', {
+        description: errorMessage,
+        duration: 5000,
+      })
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [page, limit, orderBy, orderDirection])
 
   useEffect(() => {
     fetchGanado()
@@ -119,9 +156,16 @@ export function useGanado(): UseGanadoResult {
   return {
     animales,
     stats,
+    pagination,
     isLoading,
     error,
     refetch: fetchGanado,
+    setPage,
+    setLimit,
+    setOrderBy,
+    setOrderDirection,
+    orderBy,
+    orderDirection,
   }
 }
 

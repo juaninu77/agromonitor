@@ -6,7 +6,7 @@ import { CommandPalette } from "./command-palette"
 import { NotificationCenter } from "./notification-center"
 import { UserNav } from "./user-nav"
 import { ThemeToggle } from "./theme-toggle"
-import { CampoSelector } from "./campo-selector"
+import { EstablecimientoSelector } from "./establecimiento-selector"
 
 interface HeaderProps {
   onMenuClick: () => void
@@ -26,7 +26,7 @@ export function Header({ onMenuClick }: HeaderProps) {
       </Button>
 
       {/* Selector de Campo (Multi-Tenancy) */}
-      <CampoSelector />
+      <EstablecimientoSelector />
 
       <div className="flex-1">
         <CommandPalette />

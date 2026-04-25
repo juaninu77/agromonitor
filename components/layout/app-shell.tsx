@@ -5,7 +5,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { Separator } from "@/components/ui/separator"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { navItems } from "@/lib/mocks"
+import { navItems } from "@/lib/config/navigation"
 import { Nav } from "@/components/layout/nav"
 import OfflineBanner from "../shared/offline-banner"
 import { Header } from "./header"

@@ -3,9 +3,9 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 
 // ============================================
-// GET /api/organizaciones/[organizacionId]/campos
+// GET /api/organizaciones/[organizacionId]/establecimientos
 // ============================================
-// Retorna los campos de una organización
+// Retorna los establecimientos de una organización
 
 export async function GET(
   request: Request,
@@ -41,8 +41,8 @@ export async function GET(
       )
     }
 
-    // Obtener campos de la organización
-    const campos = await prisma.campo.findMany({
+    // Obtener establecimientos de la organización
+    const establecimientos = await prisma.establecimiento.findMany({
       where: {
         organizacionId,
       },
@@ -50,19 +50,19 @@ export async function GET(
         id: true,
         nombre: true,
         hectareas: true,
-        tipo: true,
         renspa: true,
         provincia: true,
         localidad: true,
+        ubicacion: true,
       },
       orderBy: {
         nombre: "asc",
       },
     })
 
-    return NextResponse.json(campos)
+    return NextResponse.json(establecimientos)
   } catch (error) {
-    console.error("Error al obtener campos:", error)
+    console.error("Error al obtener establecimientos:", error)
     return NextResponse.json(
       { error: "Error interno del servidor" },
       { status: 500 }
@@ -71,9 +71,9 @@ export async function GET(
 }
 
 // ============================================
-// POST /api/organizaciones/[organizacionId]/campos
+// POST /api/organizaciones/[organizacionId]/establecimientos
 // ============================================
-// Crea un nuevo campo en la organización
+// Crea un nuevo establecimiento en la organización
 
 export async function POST(
   request: Request,
@@ -109,16 +109,16 @@ export async function POST(
       )
     }
 
-    // Verificar rol (solo propietario o administrador pueden crear campos)
+    // Verificar rol (solo propietario o administrador pueden crear establecimientos)
     if (!["propietario", "administrador"].includes(membresia.rol)) {
       return NextResponse.json(
-        { error: "No tienes permisos para crear campos" },
+        { error: "No tienes permisos para crear establecimientos" },
         { status: 403 }
       )
     }
 
     const body = await request.json()
-    const { nombre, hectareas, tipo, renspa, provincia, localidad } = body
+    const { nombre, hectareas, renspa, provincia, localidad, ubicacion } = body
 
     if (!nombre || typeof nombre !== "string") {
       return NextResponse.json(
@@ -127,34 +127,34 @@ export async function POST(
       )
     }
 
-    if (!hectareas || typeof hectareas !== "number" || hectareas <= 0) {
+    if (hectareas !== undefined && (typeof hectareas !== "number" || hectareas <= 0)) {
       return NextResponse.json(
         { error: "Las hectáreas deben ser un número positivo" },
         { status: 400 }
       )
     }
 
-    // Crear campo
-    const campo = await prisma.campo.create({
+    // Crear establecimiento
+    const establecimiento = await prisma.establecimiento.create({
       data: {
         nombre,
-        hectareas,
-        tipo: tipo || "propio",
-        renspa,
-        provincia,
-        localidad,
+        hectareas: hectareas || null,
+        renspa: renspa || null,
+        provincia: provincia || null,
+        localidad: localidad || null,
+        ubicacion: ubicacion || null,
         organizacionId,
       },
     })
 
-    return NextResponse.json(campo, { status: 201 })
+    return NextResponse.json(establecimiento, { status: 201 })
   } catch (error) {
-    console.error("Error al crear campo:", error)
+    console.error("Error al crear establecimiento:", error)
     
     // Manejar error de unicidad
     if ((error as { code?: string }).code === "P2002") {
       return NextResponse.json(
-        { error: "Ya existe un campo con ese nombre en esta organización" },
+        { error: "Ya existe un establecimiento con ese nombre en esta organización" },
         { status: 409 }
       )
     }

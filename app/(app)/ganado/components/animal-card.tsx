@@ -37,13 +37,14 @@ interface AnimalData {
 interface AnimalCardProps {
   animal: AnimalData
   onSelect: (animal: AnimalData) => void
+  onEdit?: (animalId: string) => void
 }
 
 /**
  * Componente memoizado para mostrar la tarjeta de un animal
  * Compatible con datos de BD y datos mock
  */
-export const AnimalCard = memo(({ animal, onSelect }: AnimalCardProps) => {
+export const AnimalCard = memo(({ animal, onSelect, onEdit }: AnimalCardProps) => {
   // Normalizar datos para soportar ambos formatos
   const name = animal.name || animal.nombre || 'Sin nombre'
   const tagNumber = animal.tagNumber || animal.caravanaVisual || ''
@@ -136,13 +137,15 @@ export const AnimalCard = memo(({ animal, onSelect }: AnimalCardProps) => {
               <Eye className="h-4 w-4 mr-1" />
               Ver
             </Button>
-            <Button 
-              size="sm" 
-              variant="outline" 
+            <Button
+              size="sm"
+              variant="outline"
               className="flex-1 bg-transparent"
               onClick={(e) => {
                 e.stopPropagation()
-                // Aquí iría la lógica de editar
+                if (onEdit) {
+                  onEdit(animal.id)
+                }
               }}
             >
               <Edit className="h-4 w-4 mr-1" />

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { ThemeProvider } from "@/components/theme-provider"
 import { SessionProvider } from "@/components/providers/session-provider"
 import { TenantProvider } from "@/lib/context/tenant-context"
+import { Toaster } from "sonner"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
 
@@ -31,6 +32,7 @@ export default function RootLayout({
           <TenantProvider>
             <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
               {children}
+              <Toaster position="top-right" richColors />
             </ThemeProvider>
           </TenantProvider>
         </SessionProvider>

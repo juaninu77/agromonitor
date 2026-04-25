@@ -51,7 +51,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             return null
           }
 
-          // Verificar la contraseña
+          if (!user.passwordHash) {
+            console.log('❌ Usuario sin contraseña configurada:', email)
+            return null
+          }
+
           console.log('🔑 Comparando contraseña...')
           const passwordMatch = await bcrypt.compare(password, user.passwordHash)
           console.log('🔑 Contraseña coincide:', passwordMatch)
@@ -62,7 +66,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }
 
           console.log('✅ Autenticación exitosa para:', email)
-          
+
           // Retornar el usuario (sin la contraseña)
           return {
             id: user.id,

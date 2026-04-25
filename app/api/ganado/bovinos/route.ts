@@ -24,6 +24,38 @@ export async function GET(request: NextRequest) {
     const categoriaId = searchParams.get("categoriaId")
     const busqueda = searchParams.get("busqueda")
 
+    // Filtros avanzados
+    const razasFilter = searchParams.get("razas")
+    const categoriasFilter = searchParams.get("categorias")
+    const pesoMin = searchParams.get("pesoMin")
+    const pesoMax = searchParams.get("pesoMax")
+    const ccMin = searchParams.get("ccMin")
+    const ccMax = searchParams.get("ccMax")
+
+    // Parámetros de paginación
+    const page = parseInt(searchParams.get("page") || "1")
+    const limit = parseInt(searchParams.get("limit") || "25")
+    const skip = (page - 1) * limit
+
+    // Parámetros de ordenamiento
+    const orderByField = searchParams.get("orderBy") || "caravanaVisual"
+    const orderDirection = (searchParams.get("orderDirection") || "asc") as "asc" | "desc"
+
+    // Construir el objeto orderBy para Prisma
+    const getOrderByClause = () => {
+      const fieldMapping: Record<string, any> = {
+        caravana: { caravanaVisual: orderDirection },
+        nombre: { otroId: orderDirection },
+        categoria: { categoria: { nombre: orderDirection } },
+        raza: { raza: { nombre: orderDirection } },
+        edad: { fechaNacimiento: orderDirection === 'asc' ? 'desc' : 'asc' }, // Invertir para edad
+        default: { caravanaVisual: orderDirection }
+      }
+      return fieldMapping[orderByField] || fieldMapping.default
+    }
+
+    const orderByClause = getOrderByClause()
+
     // Buscar la especie bovina
     const especieBovina = await prisma.especie.findFirst({
       where: { nombre: 'bovino' }
@@ -41,11 +73,23 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = {
       especieId: especieBovina.id
     }
-    
+
     if (categoriaId) {
       where.categoriaId = categoriaId
     }
-    
+
+    // Filtros avanzados - razas
+    if (razasFilter) {
+      const razasArray = razasFilter.split(',')
+      where.razaId = { in: razasArray }
+    }
+
+    // Filtros avanzados - categorías
+    if (categoriasFilter) {
+      const categoriasArray = categoriasFilter.split(',')
+      where.categoriaId = { in: categoriasArray }
+    }
+
     if (busqueda) {
       where.OR = [
         { caravanaVisual: { contains: busqueda, mode: 'insensitive' } },
@@ -68,7 +112,12 @@ export async function GET(request: NextRequest) {
       where.id = { in: animalIdsEnLote }
     }
 
-    // Obtener animales con relaciones
+    // Obtener total de animales (para paginación)
+    const totalAnimales = await prisma.animal.count({
+      where: where as any
+    })
+
+    // Obtener animales con relaciones y paginación
     const animales = await prisma.animal.findMany({
       where: where as any,
       include: {
@@ -91,7 +140,9 @@ export async function GET(request: NextRequest) {
         },
         genealogia: true,
       },
-      orderBy: { caravanaVisual: 'asc' }
+      orderBy: orderByClause,
+      skip,
+      take: limit
     })
 
     // Transformar para la UI
@@ -155,34 +206,60 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Estadísticas
+    // Estadísticas (calculadas sobre TODOS los animales, no solo la página actual)
     const categorias = await prisma.categoria.findMany({
       where: { especieId: especieBovina.id }
     })
 
+    // Obtener todos los animales para estadísticas (sin paginación)
+    const todosAnimales = await prisma.animal.findMany({
+      where: where as any,
+      include: {
+        categoria: true,
+        eventosPesada: {
+          orderBy: { fecha: 'desc' },
+          take: 1
+        }
+      }
+    })
+
     const stats = {
-      total: animales.length,
+      total: totalAnimales,
       porCategoria: {} as Record<string, number>,
       pesoPromedio: 0,
     }
 
     // Contar por categoría
     for (const cat of categorias) {
-      stats.porCategoria[cat.nombre] = animales.filter(a => a.categoriaId === cat.id).length
+      stats.porCategoria[cat.nombre] = todosAnimales.filter(a => a.categoriaId === cat.id).length
     }
 
     // Calcular peso promedio
-    const pesosValidos = animalesConDetalles.filter(a => a.pesoActual && a.pesoActual > 0)
+    const pesosValidos = todosAnimales
+      .map(a => a.eventosPesada[0]?.pesoKg)
+      .filter((p): p is number => p !== null && p !== undefined && p > 0)
+
     if (pesosValidos.length > 0) {
       stats.pesoPromedio = Math.round(
-        pesosValidos.reduce((acc, a) => acc + (a.pesoActual || 0), 0) / pesosValidos.length
+        pesosValidos.reduce((acc, p) => acc + p, 0) / pesosValidos.length
       )
     }
+
+    // Información de paginación
+    const totalPages = Math.ceil(totalAnimales / limit)
 
     return NextResponse.json({
       success: true,
       data: animalesConDetalles,
       stats,
+      pagination: {
+        page,
+        limit,
+        total: totalAnimales,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      }
     })
   } catch (error) {
     console.error("Error al obtener bovinos:", error)
@@ -278,8 +355,51 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Si se proporciona lote, asignar al lote
+    // Si se proporciona lote, validar y asignar al lote
     if (body.loteId) {
+      // Verificar que el lote existe y el usuario tiene acceso
+      const lote = await prisma.lote.findUnique({
+        where: { id: body.loteId },
+        include: {
+          establecimiento: {
+            include: {
+              organizacion: {
+                include: {
+                  membresias: {
+                    where: {
+                      usuarioId: session.user.id,
+                      esActivo: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      })
+
+      if (!lote) {
+        return NextResponse.json(
+          { error: "Lote no encontrado" },
+          { status: 404 }
+        )
+      }
+
+      if (lote.establecimiento.organizacion.membresias.length === 0) {
+        return NextResponse.json(
+          { error: "No tienes acceso a este lote" },
+          { status: 403 }
+        )
+      }
+
+      // Verificar que el lote es de la especie bovina
+      if (lote.especieId !== especieBovina.id) {
+        return NextResponse.json(
+          { error: "El lote seleccionado no es para bovinos" },
+          { status: 400 }
+        )
+      }
+
       await prisma.animalLoteHist.create({
         data: {
           animalId: animal.id,

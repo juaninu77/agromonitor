@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { signIn } from 'next-auth/react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,6 +28,7 @@ export default function RegisterPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [necesitaConfiguracion, setNecesitaConfiguracion] = useState(false)
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -76,11 +78,33 @@ export default function RegisterPage() {
       }
 
       setSuccess(true)
+      setNecesitaConfiguracion(data.necesitaConfiguracion || false)
       
-      // Redirigir al login después de 2 segundos
-      setTimeout(() => {
-        router.push('/login')
-      }, 2000)
+      // Hacer login automático y redirigir al onboarding
+      try {
+        const result = await signIn('credentials', {
+          email: formData.email,
+          password: formData.password,
+          redirect: false,
+        })
+
+        if (result?.ok) {
+          // Redirigir al onboarding después de 1 segundo
+          setTimeout(() => {
+            router.push('/configuracion/onboarding')
+          }, 1000)
+        } else {
+          // Si falla el login, redirigir al login normal
+          setTimeout(() => {
+            router.push('/login')
+          }, 2000)
+        }
+      } catch (err) {
+        // Si hay error en el login, redirigir al login normal
+        setTimeout(() => {
+          router.push('/login')
+        }, 2000)
+      }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al crear la cuenta')
@@ -103,7 +127,9 @@ export default function RegisterPage() {
               ¡Cuenta creada exitosamente!
             </h2>
             <p className="text-gray-600">
-              Redirigiendo al inicio de sesión...
+              {necesitaConfiguracion 
+                ? 'Redirigiendo a la configuración inicial...'
+                : 'Redirigiendo al inicio de sesión...'}
             </p>
           </div>
         </CardContent>

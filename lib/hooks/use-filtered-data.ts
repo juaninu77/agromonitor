@@ -3,12 +3,6 @@
 import { useEffect, useState } from "react"
 import { useTenant } from "@/lib/context/tenant-context"
 
-// ============================================
-// HOOK: useFilteredData
-// ============================================
-// Este hook permite obtener datos filtrados automáticamente
-// por el campo activo del usuario
-
 interface UseFilteredDataOptions<T> {
   endpoint: string
   enabled?: boolean
@@ -27,14 +21,13 @@ export function useFilteredData<T>({
   enabled = true,
   transform,
 }: UseFilteredDataOptions<T>): UseFilteredDataResult<T> {
-  const { campoActivo, organizacionActiva } = useTenant()
+  const { establecimientoActivo, organizacionActiva } = useTenant()
   const [data, setData] = useState<T[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const fetchData = async () => {
-    // No hacer fetch si no hay campo activo o si está deshabilitado
-    if (!enabled || !campoActivo) {
+    if (!enabled || !establecimientoActivo) {
       setData([])
       return
     }
@@ -43,9 +36,8 @@ export function useFilteredData<T>({
       setIsLoading(true)
       setError(null)
 
-      // Construir URL con parámetros de filtro
       const url = new URL(endpoint, window.location.origin)
-      url.searchParams.set("campoId", campoActivo.id)
+      url.searchParams.set("establecimientoId", establecimientoActivo.id)
       if (organizacionActiva) {
         url.searchParams.set("organizacionId", organizacionActiva.id)
       }
@@ -58,7 +50,10 @@ export function useFilteredData<T>({
 
       let result = await response.json()
 
-      // Aplicar transformación si existe
+      if (result.data) {
+        result = result.data
+      }
+
       if (transform) {
         result = transform(result)
       }
@@ -72,10 +67,9 @@ export function useFilteredData<T>({
     }
   }
 
-  // Refetch cuando cambia el campo activo
   useEffect(() => {
     fetchData()
-  }, [campoActivo?.id, enabled])
+  }, [establecimientoActivo?.id, enabled])
 
   return {
     data,
@@ -85,56 +79,27 @@ export function useFilteredData<T>({
   }
 }
 
-// ============================================
-// HOOK: useBovinos
-// ============================================
-
 export function useBovinos() {
   return useFilteredData<{
     id: string
     cuig: string | null
-    numero: string
-    categoria: string
-    raza: string | null
-    peso: number | null
-    estado: string
+    caravanaVisual: string | null
+    categoria: { nombre: string } | null
+    raza: { nombre: string } | null
+    estadoVital: string
   }>({
-    endpoint: "/api/bovinos",
+    endpoint: "/api/ganado/bovinos",
   })
 }
-
-// ============================================
-// HOOK: useOvinos
-// ============================================
 
 export function useOvinos() {
   return useFilteredData<{
     id: string
-    idv: number
-    colorMarca: string
-    categoria: string
-    raza: string | null
-    peso: number | null
-    estado: string
+    caravanaVisual: string | null
+    categoria: { nombre: string } | null
+    raza: { nombre: string } | null
+    estadoVital: string
   }>({
-    endpoint: "/api/ovinos",
+    endpoint: "/api/ganado/ovinos",
   })
 }
-
-// ============================================
-// HOOK: useStock
-// ============================================
-
-export function useStock() {
-  return useFilteredData<{
-    id: string
-    tipo: string
-    nombre: string
-    cantidad: number
-    unidad: string
-    kgTotal: number | null
-  }>({
-    endpoint: "/api/stock",
-  })
-}
-

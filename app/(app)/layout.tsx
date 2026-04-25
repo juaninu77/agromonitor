@@ -1,6 +1,7 @@
 import { cookies } from "next/headers"
 import { AppShell } from "@/components/layout/app-shell"
 import { Ticker } from "@/components/layout/ticker"
+import { OnboardingGuard } from "@/components/configuracion/onboarding-guard"
 
 /**
  * Layout para páginas autenticadas
@@ -34,18 +35,20 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="flex flex-col min-h-screen">
-      <Ticker />
-      <div className="flex-1">
-        <AppShell 
-          defaultLayout={defaultLayout} 
-          defaultCollapsed={defaultCollapsed} 
-          navCollapsedSize={4}
-        >
-          {children}
-        </AppShell>
+    <OnboardingGuard>
+      <div className="flex flex-col min-h-screen">
+        <Ticker />
+        <div className="flex-1">
+          <AppShell 
+            defaultLayout={defaultLayout} 
+            defaultCollapsed={defaultCollapsed} 
+            navCollapsedSize={4}
+          >
+            {children}
+          </AppShell>
+        </div>
       </div>
-    </div>
+    </OnboardingGuard>
   )
 }
 

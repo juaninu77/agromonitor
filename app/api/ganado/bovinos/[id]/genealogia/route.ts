@@ -2,89 +2,92 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 
-// ============================================
-// GET /api/ganado/bovinos/[id]/genealogia
-// ============================================
-// Retorna un bovino con su árbol genealógico (hasta 2 generaciones)
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
-    
+
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
     }
 
     const { id } = await params
 
-    // Obtener bovino con sus padres y abuelos
-    const bovino = await prisma.bovino.findUnique({
+    const animal = await prisma.animal.findUnique({
       where: { id },
       include: {
-        // Padre y sus padres (abuelos paternos)
-        padre: {
-          include: {
-            padre: true,  // Abuelo paterno
-            madre: true,  // Abuela paterna
-          },
-        },
-        // Madre y sus padres (abuelos maternos)
-        madre: {
-          include: {
-            padre: true,  // Abuelo materno
-            madre: true,  // Abuela materna
-          },
-        },
-        // Hijos (descendencia)
-        hijosComoPadre: {
-          select: {
-            id: true,
-            numero: true,
-            categoria: true,
-            fechaNacimiento: true,
-          },
-          take: 10,
-        },
-        hijosComoMadre: {
-          select: {
-            id: true,
-            numero: true,
-            categoria: true,
-            fechaNacimiento: true,
-          },
-          take: 10,
-        },
+        especie: true,
+        raza: true,
+        categoria: true,
+        genealogia: true,
       },
     })
 
-    if (!bovino) {
-      return NextResponse.json(
-        { error: "Bovino no encontrado" },
-        { status: 404 }
-      )
+    if (!animal) {
+      return NextResponse.json({ error: "Animal no encontrado" }, { status: 404 })
     }
 
-    // Contar total de hijos
-    const totalHijos = await prisma.bovino.count({
-      where: {
-        OR: [
-          { padreId: id },
-          { madreId: id },
-        ],
-      },
+    let padre = null
+    let madre = null
+
+    if (animal.genealogia?.padreId) {
+      padre = await prisma.animal.findUnique({
+        where: { id: animal.genealogia.padreId },
+        include: {
+          raza: true,
+          categoria: true,
+          genealogia: true,
+        },
+      })
+    }
+
+    if (animal.genealogia?.madreId) {
+      madre = await prisma.animal.findUnique({
+        where: { id: animal.genealogia.madreId },
+        include: {
+          raza: true,
+          categoria: true,
+          genealogia: true,
+        },
+      })
+    }
+
+    const totalHijosComoPadre = await prisma.genealogia.count({
+      where: { padreId: id },
+    })
+    const totalHijosComoMadre = await prisma.genealogia.count({
+      where: { madreId: id },
     })
 
     return NextResponse.json({
       success: true,
       data: {
-        ...bovino,
-        totalHijos,
+        animal: {
+          id: animal.id,
+          caravanaVisual: animal.caravanaVisual,
+          sexo: animal.sexo,
+          raza: animal.raza?.nombre,
+          categoria: animal.categoria?.nombre,
+        },
+        padre: padre
+          ? {
+              id: padre.id,
+              caravanaVisual: padre.caravanaVisual,
+              raza: padre.raza?.nombre,
+              padreExterno: animal.genealogia?.padreExterno,
+            }
+          : { padreExterno: animal.genealogia?.padreExterno || null },
+        madre: madre
+          ? {
+              id: madre.id,
+              caravanaVisual: madre.caravanaVisual,
+              raza: madre.raza?.nombre,
+              madreExterno: animal.genealogia?.madreExterno,
+            }
+          : { madreExterno: animal.genealogia?.madreExterno || null },
+        totalHijos: totalHijosComoPadre + totalHijosComoMadre,
       },
     })
   } catch (error) {
@@ -95,4 +98,3 @@ export async function GET(
     )
   }
 }
-

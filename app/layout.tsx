@@ -7,13 +7,20 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { SessionProvider } from "@/components/providers/session-provider"
 import { TenantProvider } from "@/lib/context/tenant-context"
 import { Toaster } from "sonner"
+import { QueryProvider } from "@/components/providers/query-provider"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
 
 export const metadata: Metadata = {
   title: "AgroMonitor - Plataforma de Agricultura Inteligente",
   description: "Sistema de gestión integral para fincas y agricultura inteligente",
-  generator: "v0.dev",
+  manifest: "/manifest.json",
+  themeColor: "#16a34a",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "AgroMonitor",
+  },
 }
 
 /**
@@ -29,12 +36,14 @@ export default function RootLayout({
     <html lang="es" suppressHydrationWarning>
       <body className={cn("min-h-screen bg-background font-sans antialiased", inter.variable)}>
         <SessionProvider>
-          <TenantProvider>
-            <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-              {children}
-              <Toaster position="top-right" richColors />
-            </ThemeProvider>
-          </TenantProvider>
+          <QueryProvider>
+            <TenantProvider>
+              <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+                {children}
+                <Toaster position="top-right" richColors />
+              </ThemeProvider>
+            </TenantProvider>
+          </QueryProvider>
         </SessionProvider>
       </body>
     </html>

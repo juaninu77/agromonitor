@@ -93,9 +93,7 @@ export function AppShell({
       ) : (
         <div className="flex h-screen flex-col">
           <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-            <SheetTrigger asChild>
-              <Header onMenuClick={() => setIsSheetOpen(true)} />
-            </SheetTrigger>
+            <Header onMenuClick={() => setIsSheetOpen(true)} />
             <SheetContent side="left" className="p-0">
               <div className="flex h-14 items-center justify-center px-2">{/* You can add a logo here */}</div>
               <Separator />

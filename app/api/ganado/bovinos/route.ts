@@ -98,18 +98,62 @@ export async function GET(request: NextRequest) {
       ]
     }
 
+    // Filtro por establecimiento (a traves de loteHist -> lote -> establecimiento)
+    if (establecimientoId) {
+      where.loteHist = {
+        some: {
+          hasta: null,
+          lote: { establecimientoId },
+        },
+      }
+    }
+
     // Si hay filtro de lote, buscar animales en ese lote
     let animalIdsEnLote: string[] | undefined
     if (loteId) {
       const animalesEnLote = await prisma.animalLoteHist.findMany({
         where: {
           loteId,
-          hasta: null // Lote activo
+          hasta: null,
         },
-        select: { animalId: true }
+        select: { animalId: true },
       })
       animalIdsEnLote = animalesEnLote.map(a => a.animalId)
       where.id = { in: animalIdsEnLote }
+    }
+
+    // Filtros por peso y condicion corporal (via ultima pesada)
+    if (pesoMin || pesoMax || ccMin || ccMax) {
+      const pesadaFilter: Record<string, unknown> = {}
+      if (pesoMin) pesadaFilter.gte = parseFloat(pesoMin)
+      if (pesoMax) pesadaFilter.lte = parseFloat(pesoMax)
+
+      const animalesConPeso = await prisma.evtPesada.findMany({
+        where: {
+          animalId: { not: null },
+          ...(pesoMin || pesoMax ? { pesoKg: pesadaFilter } : {}),
+          ...(ccMin || ccMax ? {
+            cc: {
+              ...(ccMin ? { gte: parseFloat(ccMin) } : {}),
+              ...(ccMax ? { lte: parseFloat(ccMax) } : {}),
+            },
+          } : {}),
+        },
+        distinct: ["animalId"],
+        orderBy: { fecha: "desc" },
+        select: { animalId: true },
+      })
+
+      const idsConPeso = animalesConPeso
+        .map(p => p.animalId)
+        .filter((id): id is string => id !== null)
+
+      if (where.id) {
+        const existingIds = (where.id as { in: string[] }).in
+        where.id = { in: existingIds.filter((id: string) => idsConPeso.includes(id)) }
+      } else {
+        where.id = { in: idsConPeso }
+      }
     }
 
     // Obtener total de animales (para paginación)

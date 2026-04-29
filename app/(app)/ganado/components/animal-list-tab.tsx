@@ -1,6 +1,7 @@
 "use client"
 
 import { memo, useState, useMemo, useCallback, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -40,6 +41,7 @@ export const AnimalListTab = memo(function AnimalListTab({
   onPageChange,
   onLimitChange,
 }: AnimalListTabProps) {
+  const router = useRouter()
   const [searchTerm, setSearchTerm] = useState("")
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("todos")
@@ -161,7 +163,7 @@ export const AnimalListTab = memo(function AnimalListTab({
                         <tr
                           key={animal.id}
                           className="hover:bg-gray-50 cursor-pointer transition-colors"
-                          onClick={() => onAnimalSelect(animal)}
+                          onClick={() => router.push(`/ganado/${animal.id}`)}
                         >
                           <td className="px-4 py-3 whitespace-nowrap">
                             <span className="text-sm font-medium text-gray-900">
@@ -205,10 +207,10 @@ export const AnimalListTab = memo(function AnimalListTab({
                               size="sm"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                onAnimalSelect(animal)
+                                router.push(`/ganado/${animal.id}`)
                               }}
                             >
-                              Ver detalles
+                              Ver ficha
                             </Button>
                           </td>
                         </tr>

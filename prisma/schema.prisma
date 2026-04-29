@@ -43,6 +43,7 @@ model Usuario {
   auditLogs      AuditLog[]
   tareas         Tarea[]
   notificaciones Notificacion[]
+  sesionesManga  SesionManga[]
 
   @@index([email])
   @@map("usuarios")
@@ -197,9 +198,10 @@ model Establecimiento {
   organizacionId String       @map("organizacion_id") @db.Uuid
   organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
 
-  sectores Sector[]
-  lotes    Lote[]
-  tareas   Tarea[]
+  sectores      Sector[]
+  lotes         Lote[]
+  tareas        Tarea[]
+  sesionesManga SesionManga[]
 
   @@unique([organizacionId, nombre])
   @@map("establecimientos")
@@ -336,6 +338,9 @@ model Lote {
 
   // Destetes al lote
   destetesDestino EvtDestete[] @relation("DesteteLote")
+
+  // Sesiones de manga con este lote como origen
+  sesionesMangaOrigen SesionManga[] @relation("MangaLoteOrigen")
 
   @@unique([establecimientoId, nombre])
   @@index([tipo])
@@ -1087,4 +1092,67 @@ model MovimientoStock {
   @@index([fecha])
   @@index([tipo])
   @@map("movimientos_stock")
+}
+
+// ============================================
+// SESION DE MANGA (Lectura RFID)
+// ============================================
+
+model SesionManga {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre              String
+  fecha               DateTime  @db.Date
+  estado              String    @default("activa") // activa | pausada | finalizada
+  tipo                String    // pesada | sanidad | tacto | general | señalada | destete | recepcion
+  accionesHabilitadas String[]  @map("acciones_habilitadas")
+
+  loteOrigenId      String? @map("lote_origen_id") @db.Uuid
+  loteOrigen        Lote?   @relation("MangaLoteOrigen", fields: [loteOrigenId], references: [id])
+
+  productoSanidadId String? @map("producto_sanidad_id") @db.Uuid
+  dosisSanidad      Float?  @map("dosis_sanidad")
+
+  totalAnimales Int       @default(0) @map("total_animales")
+  observaciones String?
+  iniciadaAt    DateTime  @default(now()) @map("iniciada_at")
+  finalizadaAt  DateTime? @map("finalizada_at")
+
+  establecimientoId String          @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id])
+  operadorId        String          @map("operador_id") @db.Uuid
+  operador          Usuario         @relation(fields: [operadorId], references: [id])
+
+  items SesionMangaItem[]
+
+  @@index([establecimientoId])
+  @@index([estado])
+  @@index([fecha])
+  @@map("sesiones_manga")
+}
+
+model SesionMangaItem {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orden            Int
+  eidLeido         String   @map("eid_leido")
+  timestampLectura DateTime @default(now()) @map("timestamp_lectura")
+
+  pesoKg         Float?  @map("peso_kg")
+  cc             Float?
+  denticion      String?
+  resultadoTacto String? @map("resultado_tacto")
+  mesesGestacion Float?  @map("meses_gestacion")
+  accionSanidad  Boolean @default(false) @map("accion_sanidad")
+  apartadoA      String? @map("apartado_a")
+  observaciones  String?
+
+  esNuevoRegistro Boolean @default(false) @map("es_nuevo_registro")
+
+  sesionId String      @map("sesion_id") @db.Uuid
+  sesion   SesionManga @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+  animalId String?     @map("animal_id") @db.Uuid
+
+  @@index([sesionId])
+  @@index([eidLeido])
+  @@index([animalId])
+  @@map("sesion_manga_items")
 }

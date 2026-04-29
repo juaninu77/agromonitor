@@ -31,6 +31,8 @@ export const authConfig = {
 
       const isProtectedRoute = !nextUrl.pathname.startsWith('/login') &&
                                !nextUrl.pathname.startsWith('/register') &&
+                               !nextUrl.pathname.startsWith('/forgot-password') &&
+                               !nextUrl.pathname.startsWith('/reset-password') &&
                                !isAuthRoute
 
       if (isProtectedRoute && !isLoggedIn) {
@@ -40,7 +42,7 @@ export const authConfig = {
         return Response.redirect(new URL('/login', nextUrl))
       }
 
-      if (isLoggedIn && (nextUrl.pathname === '/login' || nextUrl.pathname === '/register')) {
+      if (isLoggedIn && (nextUrl.pathname === '/login' || nextUrl.pathname === '/register' || nextUrl.pathname === '/forgot-password' || nextUrl.pathname === '/reset-password')) {
         return Response.redirect(new URL('/', nextUrl))
       }
 

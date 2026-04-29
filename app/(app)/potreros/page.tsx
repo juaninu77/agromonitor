@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useState, useMemo } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useTenant } from "@/lib/context/tenant-context"
 import { toast } from "sonner"
 
@@ -15,6 +16,7 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
   SelectContent,
@@ -30,26 +32,32 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   MapPin,
   Plus,
-  ArrowRightLeft,
   Leaf,
   Droplets,
   TreePine,
   Scale,
   LayoutGrid,
   Loader2,
-  MoveRight,
   Clock,
   TrendingUp,
   Fence,
+  Ruler,
+  MoreVertical,
+  Pencil,
+  Eye,
+  AlertCircle,
 } from "lucide-react"
 
-// ============================================
-// TIPOS
-// ============================================
+// ─── Tipos ───────────────────────────────────────────────
 
 interface Sector {
   id: string
@@ -76,26 +84,12 @@ interface Sector {
   } | null
 }
 
-interface Movimiento {
-  id: string
-  fecha: string
-  motivo: string | null
-  observ: string | null
-  cantidadAnimales: number | null
-  animal: { id: string; caravanaVisual: string | null; otroId: string | null; cuig: string | null } | null
-  lote: { id: string; nombre: string } | null
-  origenSector: { id: string; nombre: string; tipo: string } | null
-  destinoSector: { id: string; nombre: string; tipo: string }
-}
-
 interface Pastoreo {
   id: string
   ingreso: string
   egreso: string | null
-  animalesPromedio: number | null
-  observ: string | null
-  lote: { id: string; nombre: string; tipo: string }
-  sector: { id: string; nombre: string; tipo: string }
+  lote: { id: string; nombre: string }
+  sector: { id: string; nombre: string }
 }
 
 interface LoteSimple {
@@ -103,9 +97,7 @@ interface LoteSimple {
   nombre: string
 }
 
-// ============================================
-// CONSTANTES
-// ============================================
+// ─── Constantes ──────────────────────────────────────────
 
 const TIPO_SECTOR_OPTIONS = [
   { value: "potrero", label: "Potrero" },
@@ -134,200 +126,185 @@ const TIPO_BADGE_COLORS: Record<string, string> = {
   otro: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200",
 }
 
-// ============================================
-// PÁGINA PRINCIPAL
-// ============================================
+// ─── Fetchers ────────────────────────────────────────────
+
+async function fetchSectores(estId: string): Promise<Sector[]> {
+  const res = await fetch(`/api/sectores?establecimientoId=${estId}`)
+  const json = await res.json()
+  if (!json.success) throw new Error(json.error || "Error al cargar sectores")
+  return json.data
+}
+
+async function fetchPastoreos(estId: string): Promise<Pastoreo[]> {
+  const res = await fetch(`/api/pastoreo?establecimientoId=${estId}&activos=true`)
+  const json = await res.json()
+  if (!json.success) throw new Error(json.error || "Error al cargar pastoreos")
+  return json.data
+}
+
+async function fetchLotes(estId: string): Promise<LoteSimple[]> {
+  const res = await fetch(`/api/establecimientos/${estId}/lotes`)
+  if (!res.ok) return []
+  const json = await res.json()
+  return Array.isArray(json) ? json : json.data ?? []
+}
+
+// ─── Página principal ────────────────────────────────────
 
 export default function PotrerosPage() {
   const { establecimientoActivo, isLoading: tenantLoading } = useTenant()
-
-  const [sectores, setSectores] = useState<Sector[]>([])
-  const [movimientos, setMovimientos] = useState<Movimiento[]>([])
-  const [pastoreos, setPastoreos] = useState<Pastoreo[]>([])
-  const [lotes, setLotes] = useState<LoteSimple[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const estId = establecimientoActivo?.id ?? ""
 
   const [showSectorDialog, setShowSectorDialog] = useState(false)
-  const [showMovimientoDialog, setShowMovimientoDialog] = useState(false)
-  const [showPastoreoDialog, setShowPastoreoDialog] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [editingSector, setEditingSector] = useState<Sector | null>(null)
+  const [showMedicionDialog, setShowMedicionDialog] = useState(false)
+  const [medicionSectorId, setMedicionSectorId] = useState<string | null>(null)
+  const [showAsignarDialog, setShowAsignarDialog] = useState(false)
+  const [asignarSectorId, setAsignarSectorId] = useState<string | null>(null)
 
-  const estId = establecimientoActivo?.id
+  // ─── Queries ────────────────
 
-  // ---- Fetch helpers ----
-  const fetchSectores = useCallback(async () => {
-    if (!estId) return
-    try {
-      const res = await fetch(`/api/sectores?establecimientoId=${estId}`)
+  const {
+    data: sectores = [],
+    isLoading: loadingSectores,
+    error: errorSectores,
+  } = useQuery({
+    queryKey: ["sectores", estId],
+    queryFn: () => fetchSectores(estId),
+    enabled: !!estId,
+  })
+
+  const { data: pastoreos = [] } = useQuery({
+    queryKey: ["pastoreos-activos", estId],
+    queryFn: () => fetchPastoreos(estId),
+    enabled: !!estId,
+  })
+
+  const { data: lotes = [] } = useQuery({
+    queryKey: ["lotes", estId],
+    queryFn: () => fetchLotes(estId),
+    enabled: !!estId,
+  })
+
+  // ─── Mutations ──────────────
+
+  const crearSectorMutation = useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      const res = await fetch("/api/sectores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...data, establecimientoId: estId }),
+      })
       const json = await res.json()
-      if (json.success) setSectores(json.data)
-    } catch {
-      toast.error("Error al cargar sectores")
-    }
-  }, [estId])
+      if (!res.ok) throw new Error(json.error || "Error al crear sector")
+      return json.data
+    },
+    onSuccess: () => {
+      toast.success("Sector creado correctamente")
+      queryClient.invalidateQueries({ queryKey: ["sectores", estId] })
+      setShowSectorDialog(false)
+      setEditingSector(null)
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
 
-  const fetchMovimientos = useCallback(async () => {
-    if (!estId) return
-    try {
-      const res = await fetch(`/api/movimientos?establecimientoId=${estId}`)
+  const medicionMutation = useMutation({
+    mutationFn: async ({
+      sectorId,
+      ...data
+    }: Record<string, unknown> & { sectorId: string }) => {
+      const res = await fetch(`/api/sectores/${sectorId}/mediciones`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      })
       const json = await res.json()
-      if (json.success) setMovimientos(json.data)
-    } catch {
-      toast.error("Error al cargar movimientos")
-    }
-  }, [estId])
+      if (!res.ok) throw new Error(json.error || "Error al registrar medición")
+      return json.data
+    },
+    onSuccess: () => {
+      toast.success("Medición registrada correctamente")
+      queryClient.invalidateQueries({ queryKey: ["sectores", estId] })
+      setShowMedicionDialog(false)
+      setMedicionSectorId(null)
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
 
-  const fetchPastoreos = useCallback(async () => {
-    if (!estId) return
-    try {
-      const res = await fetch(`/api/pastoreo?establecimientoId=${estId}`)
+  const asignarLoteMutation = useMutation({
+    mutationFn: async (data: { loteId: string; sectorId: string }) => {
+      const res = await fetch("/api/pastoreo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          loteId: data.loteId,
+          sectorId: data.sectorId,
+          ingreso: new Date().toISOString(),
+        }),
+      })
       const json = await res.json()
-      if (json.success) setPastoreos(json.data)
-    } catch {
-      toast.error("Error al cargar pastoreos")
-    }
-  }, [estId])
+      if (!res.ok) throw new Error(json.error || "Error al asignar lote")
+      return json.data
+    },
+    onSuccess: () => {
+      toast.success("Lote asignado al sector")
+      queryClient.invalidateQueries({ queryKey: ["sectores", estId] })
+      queryClient.invalidateQueries({ queryKey: ["pastoreos-activos", estId] })
+      setShowAsignarDialog(false)
+      setAsignarSectorId(null)
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
 
-  const fetchLotes = useCallback(async () => {
-    if (!estId) return
-    try {
-      const res = await fetch(`/api/establecimientos/${estId}/lotes`)
-      const json = await res.json()
-      if (Array.isArray(json)) setLotes(json)
-      else if (json.data) setLotes(json.data)
-    } catch {
-      /* lotes opcionales */
-    }
-  }, [estId])
+  // ─── KPIs ───────────────────
 
-  useEffect(() => {
-    if (!estId) {
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    Promise.all([
-      fetchSectores(),
-      fetchMovimientos(),
-      fetchPastoreos(),
-      fetchLotes(),
-    ]).finally(() => setLoading(false))
-  }, [estId, fetchSectores, fetchMovimientos, fetchPastoreos, fetchLotes])
-
-  // ---- KPIs ----
   const kpis = useMemo(() => {
     const inicioMes = new Date()
     inicioMes.setDate(1)
     inicioMes.setHours(0, 0, 0, 0)
 
+    const medicionesEsteMes = sectores.filter(
+      (s) =>
+        s.ultimaMedicion && new Date(s.ultimaMedicion.fecha) >= inicioMes
+    ).length
+
     return {
       totalSectores: sectores.length,
-      conPastoreoActivo: sectores.filter((s) => s.pastoreoActivo).length,
-      movimientosMes: movimientos.filter(
-        (m) => new Date(m.fecha) >= inicioMes
-      ).length,
       superficieTotal: sectores.reduce(
         (acc, s) => acc + (s.superficieHa || 0),
         0
       ),
+      ocupados: sectores.filter((s) => s.pastoreoActivo).length,
+      medicionesMes: medicionesEsteMes,
     }
-  }, [sectores, movimientos])
+  }, [sectores])
 
-  // ---- Handlers ----
-  async function handleCrearSector(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setSaving(true)
-    const fd = new FormData(e.currentTarget)
-    try {
-      const res = await fetch("/api/sectores", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nombre: fd.get("nombre"),
-          tipo: fd.get("tipo"),
-          superficieHa: fd.get("superficieHa") || null,
-          uso: fd.get("uso") || null,
-          capacidad: fd.get("capacidad") || null,
-          tieneAgua: fd.get("tieneAgua") === "on",
-          tieneSombra: fd.get("tieneSombra") === "on",
-          tieneBalanza: fd.get("tieneBalanza") === "on",
-          descripcion: fd.get("descripcion") || null,
-          establecimientoId: estId,
-        }),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || "Error al crear sector")
-      toast.success("Sector creado correctamente")
-      setShowSectorDialog(false)
-      fetchSectores()
-    } catch (err: any) {
-      toast.error(err.message)
-    } finally {
-      setSaving(false)
-    }
+  // ─── Handlers para abrir diálogos ───
+
+  function openMedicion(sectorId: string) {
+    setMedicionSectorId(sectorId)
+    setShowMedicionDialog(true)
   }
 
-  async function handleCrearMovimiento(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setSaving(true)
-    const fd = new FormData(e.currentTarget)
-    try {
-      const res = await fetch("/api/movimientos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          animalId: null,
-          loteId: fd.get("loteId") || null,
-          cantidadAnimales: fd.get("cantidadAnimales") || null,
-          origenSectorId: fd.get("origenSectorId") || null,
-          destinoSectorId: fd.get("destinoSectorId"),
-          motivo: fd.get("motivo") || null,
-          observ: fd.get("observ") || null,
-        }),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || "Error al crear movimiento")
-      toast.success("Movimiento registrado")
-      setShowMovimientoDialog(false)
-      fetchMovimientos()
-    } catch (err: any) {
-      toast.error(err.message)
-    } finally {
-      setSaving(false)
-    }
+  function openAsignarLote(sectorId: string) {
+    setAsignarSectorId(sectorId)
+    setShowAsignarDialog(true)
   }
 
-  async function handleCrearPastoreo(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setSaving(true)
-    const fd = new FormData(e.currentTarget)
-    try {
-      const res = await fetch("/api/pastoreo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          loteId: fd.get("loteId"),
-          sectorId: fd.get("sectorId"),
-          ingreso: fd.get("ingreso") || new Date().toISOString(),
-          animalesPromedio: fd.get("animalesPromedio") || null,
-          observ: fd.get("observ") || null,
-        }),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || "Error al crear pastoreo")
-      toast.success("Pastoreo registrado")
-      setShowPastoreoDialog(false)
-      fetchPastoreos()
-      fetchSectores()
-    } catch (err: any) {
-      toast.error(err.message)
-    } finally {
-      setSaving(false)
-    }
+  function openEditSector(sector: Sector) {
+    setEditingSector(sector)
+    setShowSectorDialog(true)
   }
 
-  // ---- Renderizado ----
-  if (tenantLoading || loading) {
+  function openNewSector() {
+    setEditingSector(null)
+    setShowSectorDialog(true)
+  }
+
+  // ─── Loading / error states ───
+
+  if (tenantLoading || loadingSectores) {
     return (
       <div className="flex h-[60vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -337,521 +314,138 @@ export default function PotrerosPage() {
 
   if (!estId) {
     return (
-      <div className="p-6 text-center text-muted-foreground">
-        Selecciona un establecimiento para ver los potreros.
+      <div className="flex h-[60vh] flex-col items-center justify-center gap-3 text-muted-foreground">
+        <MapPin className="h-12 w-12" />
+        <p className="text-lg">Seleccioná un establecimiento para ver los potreros.</p>
+      </div>
+    )
+  }
+
+  if (errorSectores) {
+    return (
+      <div className="flex h-[60vh] flex-col items-center justify-center gap-3">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-lg text-destructive">Error al cargar sectores</p>
+        <Button
+          variant="outline"
+          onClick={() =>
+            queryClient.invalidateQueries({ queryKey: ["sectores", estId] })
+          }
+        >
+          Reintentar
+        </Button>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Encabezado */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-          <MapPin className="h-8 w-8 text-primary" />
-          Potreros y Movimientos
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Gestión de sectores, movimientos de hacienda y pastoreo
-        </p>
+    <div className="space-y-6 p-4 md:p-6">
+      {/* ── Encabezado ── */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="flex items-center gap-3 text-2xl font-bold tracking-tight md:text-3xl">
+            <MapPin className="h-7 w-7 text-primary md:h-8 md:w-8" />
+            Potreros y Sectores
+          </h1>
+          <p className="mt-1 text-muted-foreground">
+            Gestión de sectores, mediciones de pasto y asignación de lotes
+          </p>
+        </div>
+        <Button onClick={openNewSector}>
+          <Plus className="mr-2 h-4 w-4" /> Nuevo sector
+        </Button>
       </div>
 
-      {/* KPIs */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* ── KPI cards ── */}
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          title="Total Potreros"
+          title="Total sectores"
           value={kpis.totalSectores}
           icon={<LayoutGrid className="h-4 w-4 text-muted-foreground" />}
         />
         <KpiCard
-          title="Pastoreo Activo"
-          value={kpis.conPastoreoActivo}
+          title="Superficie total"
+          value={`${kpis.superficieTotal.toLocaleString("es-AR", { maximumFractionDigits: 1 })} ha`}
+          icon={<TrendingUp className="h-4 w-4 text-amber-600" />}
+        />
+        <KpiCard
+          title="Potreros ocupados"
+          value={kpis.ocupados}
           icon={<Leaf className="h-4 w-4 text-green-600" />}
         />
         <KpiCard
-          title="Movimientos (mes)"
-          value={kpis.movimientosMes}
-          icon={<ArrowRightLeft className="h-4 w-4 text-blue-600" />}
-        />
-        <KpiCard
-          title="Superficie Total"
-          value={`${kpis.superficieTotal.toLocaleString("es-AR")} ha`}
-          icon={<TrendingUp className="h-4 w-4 text-amber-600" />}
+          title="Mediciones (mes)"
+          value={kpis.medicionesMes}
+          icon={<Ruler className="h-4 w-4 text-blue-600" />}
         />
       </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue="potreros" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="potreros" className="gap-1.5">
-            <Fence className="h-4 w-4" /> Potreros
-          </TabsTrigger>
-          <TabsTrigger value="movimientos" className="gap-1.5">
-            <ArrowRightLeft className="h-4 w-4" /> Movimientos
-          </TabsTrigger>
-          <TabsTrigger value="pastoreo" className="gap-1.5">
-            <Leaf className="h-4 w-4" /> Pastoreo
-          </TabsTrigger>
-        </TabsList>
-
-        {/* ========== TAB POTREROS ========== */}
-        <TabsContent value="potreros" className="space-y-4">
-          <div className="flex justify-end">
-            <Button onClick={() => setShowSectorDialog(true)}>
-              <Plus className="mr-2 h-4 w-4" /> Nuevo Sector
+      {/* ── Grid de sectores ── */}
+      {sectores.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+            <Fence className="h-12 w-12" />
+            <p className="text-lg">No hay sectores registrados.</p>
+            <Button onClick={openNewSector}>
+              <Plus className="mr-2 h-4 w-4" /> Crear el primero
             </Button>
-          </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {sectores.map((sector) => (
+            <SectorCard
+              key={sector.id}
+              sector={sector}
+              onMedir={() => openMedicion(sector.id)}
+              onAsignar={() => openAsignarLote(sector.id)}
+              onEditar={() => openEditSector(sector)}
+            />
+          ))}
+        </div>
+      )}
 
-          {sectores.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                No hay sectores registrados. Crea el primero.
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {sectores.map((sector) => (
-                <SectorCard key={sector.id} sector={sector} />
-              ))}
-            </div>
-          )}
-        </TabsContent>
+      {/* ── Dialog: Crear / Editar sector ── */}
+      <SectorFormDialog
+        open={showSectorDialog}
+        onOpenChange={(open) => {
+          setShowSectorDialog(open)
+          if (!open) setEditingSector(null)
+        }}
+        sector={editingSector}
+        saving={crearSectorMutation.isPending}
+        onSubmit={(data) => crearSectorMutation.mutate(data)}
+      />
 
-        {/* ========== TAB MOVIMIENTOS ========== */}
-        <TabsContent value="movimientos" className="space-y-4">
-          <div className="flex justify-end">
-            <Button onClick={() => setShowMovimientoDialog(true)}>
-              <Plus className="mr-2 h-4 w-4" /> Registrar Movimiento
-            </Button>
-          </div>
+      {/* ── Dialog: Medir pasto ── */}
+      <MedicionDialog
+        open={showMedicionDialog}
+        onOpenChange={(open) => {
+          setShowMedicionDialog(open)
+          if (!open) setMedicionSectorId(null)
+        }}
+        sectorId={medicionSectorId}
+        saving={medicionMutation.isPending}
+        onSubmit={(data) => medicionMutation.mutate(data)}
+      />
 
-          {movimientos.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                No hay movimientos registrados aún.
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th className="px-4 py-3 text-left font-medium">Fecha</th>
-                        <th className="px-4 py-3 text-left font-medium">Origen</th>
-                        <th className="px-4 py-3 text-left font-medium" />
-                        <th className="px-4 py-3 text-left font-medium">Destino</th>
-                        <th className="px-4 py-3 text-left font-medium">Animal / Lote</th>
-                        <th className="px-4 py-3 text-left font-medium">Motivo</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {movimientos.map((m) => (
-                        <tr key={m.id} className="border-b last:border-0 hover:bg-muted/30">
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            {new Date(m.fecha).toLocaleDateString("es-AR")}
-                          </td>
-                          <td className="px-4 py-3">
-                            {m.origenSector?.nombre ?? (
-                              <span className="text-muted-foreground italic">
-                                Externo
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-1">
-                            <MoveRight className="h-4 w-4 text-muted-foreground" />
-                          </td>
-                          <td className="px-4 py-3 font-medium">
-                            {m.destinoSector.nombre}
-                          </td>
-                          <td className="px-4 py-3">
-                            {m.animal
-                              ? m.animal.caravanaVisual ||
-                                m.animal.otroId ||
-                                m.animal.cuig
-                              : m.lote
-                                ? `Lote: ${m.lote.nombre}`
-                                : m.cantidadAnimales
-                                  ? `${m.cantidadAnimales} animales`
-                                  : "-"}
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">
-                            {m.motivo || "-"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* ========== TAB PASTOREO ========== */}
-        <TabsContent value="pastoreo" className="space-y-4">
-          <div className="flex justify-end">
-            <Button onClick={() => setShowPastoreoDialog(true)}>
-              <Plus className="mr-2 h-4 w-4" /> Registrar Pastoreo
-            </Button>
-          </div>
-
-          {pastoreos.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                No hay eventos de pastoreo registrados.
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th className="px-4 py-3 text-left font-medium">Estado</th>
-                        <th className="px-4 py-3 text-left font-medium">Ingreso</th>
-                        <th className="px-4 py-3 text-left font-medium">Egreso</th>
-                        <th className="px-4 py-3 text-left font-medium">Lote</th>
-                        <th className="px-4 py-3 text-left font-medium">Sector</th>
-                        <th className="px-4 py-3 text-left font-medium">Animales</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pastoreos.map((p) => (
-                        <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30">
-                          <td className="px-4 py-3">
-                            {p.egreso ? (
-                              <Badge variant="secondary">Finalizado</Badge>
-                            ) : (
-                              <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                                En curso
-                              </Badge>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            {new Date(p.ingreso).toLocaleDateString("es-AR")}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            {p.egreso
-                              ? new Date(p.egreso).toLocaleDateString("es-AR")
-                              : "-"}
-                          </td>
-                          <td className="px-4 py-3 font-medium">
-                            {p.lote.nombre}
-                          </td>
-                          <td className="px-4 py-3">{p.sector.nombre}</td>
-                          <td className="px-4 py-3">
-                            {p.animalesPromedio ?? "-"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-      </Tabs>
-
-      {/* ========== DIALOG: NUEVO SECTOR ========== */}
-      <Dialog open={showSectorDialog} onOpenChange={setShowSectorDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Nuevo Sector</DialogTitle>
-            <DialogDescription>
-              Crea un potrero, corral u otro sector del establecimiento.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleCrearSector} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="sector-nombre">Nombre *</Label>
-                <Input id="sector-nombre" name="nombre" required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="sector-tipo">Tipo *</Label>
-                <select
-                  id="sector-tipo"
-                  name="tipo"
-                  required
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Seleccionar...</option>
-                  {TIPO_SECTOR_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="sector-superficie">Superficie (ha)</Label>
-                <Input
-                  id="sector-superficie"
-                  name="superficieHa"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="sector-capacidad">Capacidad</Label>
-                <Input
-                  id="sector-capacidad"
-                  name="capacidad"
-                  type="number"
-                  min="0"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="sector-uso">Uso</Label>
-                <select
-                  id="sector-uso"
-                  name="uso"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Ninguno</option>
-                  {USO_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-6">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" name="tieneAgua" className="rounded" />
-                <Droplets className="h-4 w-4 text-blue-500" /> Agua
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" name="tieneSombra" className="rounded" />
-                <TreePine className="h-4 w-4 text-green-600" /> Sombra
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  name="tieneBalanza"
-                  className="rounded"
-                />
-                <Scale className="h-4 w-4 text-amber-600" /> Balanza
-              </label>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="sector-descripcion">Descripción</Label>
-              <Input id="sector-descripcion" name="descripcion" />
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowSectorDialog(false)}
-              >
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Crear Sector
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* ========== DIALOG: NUEVO MOVIMIENTO ========== */}
-      <Dialog
-        open={showMovimientoDialog}
-        onOpenChange={setShowMovimientoDialog}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Registrar Movimiento</DialogTitle>
-            <DialogDescription>
-              Registra un movimiento de hacienda entre sectores.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleCrearMovimiento} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="mov-origen">Sector Origen</Label>
-                <select
-                  id="mov-origen"
-                  name="origenSectorId"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Externo / No aplica</option>
-                  {sectores.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="mov-destino">Sector Destino *</Label>
-                <select
-                  id="mov-destino"
-                  name="destinoSectorId"
-                  required
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Seleccionar...</option>
-                  {sectores.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="mov-lote">Lote</Label>
-                <select
-                  id="mov-lote"
-                  name="loteId"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Ninguno</option>
-                  {lotes.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="mov-cantidad">Cant. Animales</Label>
-                <Input
-                  id="mov-cantidad"
-                  name="cantidadAnimales"
-                  type="number"
-                  min="1"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="mov-motivo">Motivo</Label>
-              <Input id="mov-motivo" name="motivo" placeholder="Ej: Rotación de pastoreo" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="mov-observ">Observaciones</Label>
-              <Input id="mov-observ" name="observ" />
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowMovimientoDialog(false)}
-              >
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Registrar
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* ========== DIALOG: NUEVO PASTOREO ========== */}
-      <Dialog open={showPastoreoDialog} onOpenChange={setShowPastoreoDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Registrar Pastoreo</DialogTitle>
-            <DialogDescription>
-              Registra el ingreso de un lote a un sector para pastoreo.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleCrearPastoreo} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="past-lote">Lote *</Label>
-                <select
-                  id="past-lote"
-                  name="loteId"
-                  required
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Seleccionar...</option>
-                  {lotes.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="past-sector">Sector *</Label>
-                <select
-                  id="past-sector"
-                  name="sectorId"
-                  required
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Seleccionar...</option>
-                  {sectores.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="past-ingreso">Fecha Ingreso *</Label>
-                <Input
-                  id="past-ingreso"
-                  name="ingreso"
-                  type="datetime-local"
-                  required
-                  defaultValue={new Date().toISOString().slice(0, 16)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="past-animales">Animales Promedio</Label>
-                <Input
-                  id="past-animales"
-                  name="animalesPromedio"
-                  type="number"
-                  min="1"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="past-observ">Observaciones</Label>
-              <Input id="past-observ" name="observ" />
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowPastoreoDialog(false)}
-              >
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Registrar
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {/* ── Dialog: Asignar lote ── */}
+      <AsignarLoteDialog
+        open={showAsignarDialog}
+        onOpenChange={(open) => {
+          setShowAsignarDialog(open)
+          if (!open) setAsignarSectorId(null)
+        }}
+        sectorId={asignarSectorId}
+        lotes={lotes}
+        saving={asignarLoteMutation.isPending}
+        onSubmit={(data) => asignarLoteMutation.mutate(data)}
+      />
     </div>
   )
 }
 
-// ============================================
-// COMPONENTES AUXILIARES
-// ============================================
+// ─── KPI Card ────────────────────────────────────────────
 
 function KpiCard({
   title,
@@ -875,22 +469,68 @@ function KpiCard({
   )
 }
 
-function SectorCard({ sector }: { sector: Sector }) {
+// ─── Sector Card ─────────────────────────────────────────
+
+function SectorCard({
+  sector,
+  onMedir,
+  onAsignar,
+  onEditar,
+}: {
+  sector: Sector
+  onMedir: () => void
+  onAsignar: () => void
+  onEditar: () => void
+}) {
   return (
-    <Card className="hover:shadow-md transition-shadow">
+    <Card className="flex flex-col transition-shadow hover:shadow-md">
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <CardTitle className="text-lg">{sector.nombre}</CardTitle>
-          <Badge className={TIPO_BADGE_COLORS[sector.tipo] ?? TIPO_BADGE_COLORS.otro}>
-            {sector.tipo}
-          </Badge>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <CardTitle className="truncate text-lg">{sector.nombre}</CardTitle>
+            {sector.descripcion && (
+              <CardDescription className="mt-0.5 line-clamp-2">
+                {sector.descripcion}
+              </CardDescription>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Badge
+              className={
+                TIPO_BADGE_COLORS[sector.tipo] ?? TIPO_BADGE_COLORS.otro
+              }
+            >
+              {TIPO_SECTOR_OPTIONS.find((o) => o.value === sector.tipo)?.label ??
+                sector.tipo}
+            </Badge>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={onMedir}>
+                  <Ruler className="mr-2 h-4 w-4" /> Medir pasto
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onAsignar}>
+                  <Leaf className="mr-2 h-4 w-4" /> Asignar lote
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onEditar}>
+                  <Pencil className="mr-2 h-4 w-4" /> Editar
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled>
+                  <Eye className="mr-2 h-4 w-4" /> Ver detalle
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
-        {sector.descripcion && (
-          <CardDescription>{sector.descripcion}</CardDescription>
-        )}
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid grid-cols-2 gap-2 text-sm">
+
+      <CardContent className="flex flex-1 flex-col gap-3">
+        {/* Datos principales */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
           {sector.superficieHa != null && (
             <div>
               <span className="text-muted-foreground">Superficie:</span>{" "}
@@ -906,30 +546,34 @@ function SectorCard({ sector }: { sector: Sector }) {
           {sector.uso && (
             <div>
               <span className="text-muted-foreground">Uso:</span>{" "}
-              <span className="font-medium capitalize">{sector.uso}</span>
+              <span className="font-medium capitalize">
+                {USO_OPTIONS.find((o) => o.value === sector.uso)?.label ??
+                  sector.uso}
+              </span>
             </div>
           )}
-          <div>
-            <span className="text-muted-foreground">Movimientos:</span>{" "}
-            <span className="font-medium">{sector.movimientosRecientes}</span>
-          </div>
         </div>
 
         {/* Iconos de servicios */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {sector.tieneAgua && (
-            <span title="Tiene agua" className="flex items-center gap-1 text-xs text-blue-600">
+            <span className="flex items-center gap-1 text-xs text-blue-600">
               <Droplets className="h-4 w-4" /> Agua
             </span>
           )}
           {sector.tieneSombra && (
-            <span title="Tiene sombra" className="flex items-center gap-1 text-xs text-green-600">
+            <span className="flex items-center gap-1 text-xs text-green-600">
               <TreePine className="h-4 w-4" /> Sombra
             </span>
           )}
           {sector.tieneBalanza && (
-            <span title="Tiene balanza" className="flex items-center gap-1 text-xs text-amber-600">
+            <span className="flex items-center gap-1 text-xs text-amber-600">
               <Scale className="h-4 w-4" /> Balanza
+            </span>
+          )}
+          {!sector.tieneAgua && !sector.tieneSombra && !sector.tieneBalanza && (
+            <span className="text-xs text-muted-foreground italic">
+              Sin servicios
             </span>
           )}
         </div>
@@ -940,7 +584,7 @@ function SectorCard({ sector }: { sector: Sector }) {
             <div className="flex items-center gap-1.5 font-medium text-green-800 dark:text-green-200">
               <Leaf className="h-3.5 w-3.5" /> Pastoreo activo
             </div>
-            <p className="text-green-700 dark:text-green-300 mt-0.5">
+            <p className="mt-0.5 text-green-700 dark:text-green-300">
               Lote: {sector.pastoreoActivo.lote.nombre}
             </p>
           </div>
@@ -948,15 +592,407 @@ function SectorCard({ sector }: { sector: Sector }) {
 
         {/* Última medición */}
         {sector.ultimaMedicion && (
-          <div className="text-xs text-muted-foreground flex items-center gap-1">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <Clock className="h-3 w-3" />
-            Medición:{" "}
-            {new Date(sector.ultimaMedicion.fecha).toLocaleDateString("es-AR")}
-            {sector.ultimaMedicion.alturaPastoCm != null &&
-              ` | ${sector.ultimaMedicion.alturaPastoCm} cm`}
+            <span>
+              Medición:{" "}
+              {new Date(sector.ultimaMedicion.fecha).toLocaleDateString(
+                "es-AR"
+              )}
+              {sector.ultimaMedicion.alturaPastoCm != null &&
+                ` · ${sector.ultimaMedicion.alturaPastoCm} cm`}
+              {sector.ultimaMedicion.coberturaPct != null &&
+                ` · ${sector.ultimaMedicion.coberturaPct}% cob.`}
+              {sector.ultimaMedicion.msKgHa != null &&
+                ` · ${sector.ultimaMedicion.msKgHa} kg MS/ha`}
+            </span>
           </div>
         )}
+
+        {/* Botones de acción rápida (abajo) */}
+        <div className="mt-auto flex flex-wrap gap-2 pt-2">
+          <Button variant="outline" size="sm" onClick={onMedir}>
+            <Ruler className="mr-1.5 h-3.5 w-3.5" /> Medir pasto
+          </Button>
+          {!sector.pastoreoActivo && (
+            <Button variant="outline" size="sm" onClick={onAsignar}>
+              <Leaf className="mr-1.5 h-3.5 w-3.5" /> Asignar lote
+            </Button>
+          )}
+        </div>
       </CardContent>
     </Card>
+  )
+}
+
+// ─── Dialog: Crear / Editar sector ───────────────────────
+
+function SectorFormDialog({
+  open,
+  onOpenChange,
+  sector,
+  saving,
+  onSubmit,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  sector: Sector | null
+  saving: boolean
+  onSubmit: (data: Record<string, unknown>) => void
+}) {
+  const isEdit = !!sector
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const fd = new FormData(e.currentTarget)
+    onSubmit({
+      nombre: fd.get("nombre"),
+      tipo: fd.get("tipo"),
+      superficieHa: fd.get("superficieHa") || null,
+      uso: fd.get("uso") || null,
+      capacidad: fd.get("capacidad") || null,
+      tieneAgua: fd.get("tieneAgua") === "on",
+      tieneSombra: fd.get("tieneSombra") === "on",
+      tieneBalanza: fd.get("tieneBalanza") === "on",
+      descripcion: fd.get("descripcion") || null,
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {isEdit ? "Editar Sector" : "Nuevo Sector"}
+          </DialogTitle>
+          <DialogDescription>
+            {isEdit
+              ? "Modificá los datos del sector."
+              : "Creá un potrero, corral u otro sector del establecimiento."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="sec-nombre">Nombre *</Label>
+              <Input
+                id="sec-nombre"
+                name="nombre"
+                required
+                defaultValue={sector?.nombre ?? ""}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sec-tipo">Tipo *</Label>
+              <select
+                id="sec-tipo"
+                name="tipo"
+                required
+                defaultValue={sector?.tipo ?? ""}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="">Seleccionar...</option>
+                {TIPO_SECTOR_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="sec-sup">Superficie (ha)</Label>
+              <Input
+                id="sec-sup"
+                name="superficieHa"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={sector?.superficieHa ?? ""}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sec-cap">Capacidad</Label>
+              <Input
+                id="sec-cap"
+                name="capacidad"
+                type="number"
+                min="0"
+                defaultValue={sector?.capacidad ?? ""}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sec-uso">Uso</Label>
+              <select
+                id="sec-uso"
+                name="uso"
+                defaultValue={sector?.uso ?? ""}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="">Ninguno</option>
+                {USO_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-6">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="tieneAgua"
+                defaultChecked={sector?.tieneAgua}
+                className="rounded"
+              />
+              <Droplets className="h-4 w-4 text-blue-500" /> Agua
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="tieneSombra"
+                defaultChecked={sector?.tieneSombra}
+                className="rounded"
+              />
+              <TreePine className="h-4 w-4 text-green-600" /> Sombra
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="tieneBalanza"
+                defaultChecked={sector?.tieneBalanza}
+                className="rounded"
+              />
+              <Scale className="h-4 w-4 text-amber-600" /> Balanza
+            </label>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="sec-desc">Descripción</Label>
+            <Textarea
+              id="sec-desc"
+              name="descripcion"
+              rows={2}
+              defaultValue={sector?.descripcion ?? ""}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {isEdit ? "Guardar cambios" : "Crear Sector"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Dialog: Medir pasto ─────────────────────────────────
+
+function MedicionDialog({
+  open,
+  onOpenChange,
+  sectorId,
+  saving,
+  onSubmit,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  sectorId: string | null
+  saving: boolean
+  onSubmit: (data: Record<string, unknown> & { sectorId: string }) => void
+}) {
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!sectorId) return
+    const fd = new FormData(e.currentTarget)
+    onSubmit({
+      sectorId,
+      fecha: fd.get("fecha") || new Date().toISOString().split("T")[0],
+      alturaPastoCm: fd.get("alturaPastoCm") || null,
+      msKgHa: fd.get("msKgHa") || null,
+      coberturaPct: fd.get("coberturaPct") || null,
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Medir pasto</DialogTitle>
+          <DialogDescription>
+            Registrá una medición de pasto para este sector.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="med-fecha">Fecha</Label>
+            <Input
+              id="med-fecha"
+              name="fecha"
+              type="date"
+              defaultValue={new Date().toISOString().split("T")[0]}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="med-altura">Altura de pasto (cm) *</Label>
+            <Input
+              id="med-altura"
+              name="alturaPastoCm"
+              type="number"
+              step="0.1"
+              min="0"
+              required
+              placeholder="Ej: 15.5"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="med-ms">MS (kg/ha)</Label>
+              <Input
+                id="med-ms"
+                name="msKgHa"
+                type="number"
+                step="0.1"
+                min="0"
+                placeholder="Opcional"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="med-cob">Cobertura (%)</Label>
+              <Input
+                id="med-cob"
+                name="coberturaPct"
+                type="number"
+                step="0.1"
+                min="0"
+                max="100"
+                placeholder="0–100"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Registrar medición
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Dialog: Asignar lote ────────────────────────────────
+
+function AsignarLoteDialog({
+  open,
+  onOpenChange,
+  sectorId,
+  lotes,
+  saving,
+  onSubmit,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  sectorId: string | null
+  lotes: LoteSimple[]
+  saving: boolean
+  onSubmit: (data: { loteId: string; sectorId: string }) => void
+}) {
+  const [selectedLoteId, setSelectedLoteId] = useState("")
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!sectorId || !selectedLoteId) return
+    onSubmit({ loteId: selectedLoteId, sectorId })
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        onOpenChange(v)
+        if (!v) setSelectedLoteId("")
+      }}
+    >
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Asignar lote al sector</DialogTitle>
+          <DialogDescription>
+            Seleccioná un lote para iniciar el pastoreo en este sector.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label>Lote *</Label>
+            {lotes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No hay lotes disponibles en este establecimiento.
+              </p>
+            ) : (
+              <Select
+                value={selectedLoteId}
+                onValueChange={setSelectedLoteId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar lote..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {lotes.map((l) => (
+                    <SelectItem key={l.id} value={l.id}>
+                      {l.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              disabled={saving || !selectedLoteId || lotes.length === 0}
+            >
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Asignar lote
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }

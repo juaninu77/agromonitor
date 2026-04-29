@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma"
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -21,25 +21,54 @@ export async function GET(
       )
     }
 
+    const { id } = await params
+    const fullHistory = request.nextUrl.searchParams.get("fullHistory") === "true"
+
     const animal = await prisma.animal.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         especie: true,
         raza: true,
         categoria: true,
+        proveedor: { select: { id: true, nombre: true } },
+        genealogia: true,
         eventosPesada: {
           orderBy: { fecha: 'desc' },
-          take: 1
+          ...(fullHistory ? {} : { take: 5 }),
+        },
+        eventosSanidad: {
+          orderBy: { fecha: 'desc' },
+          include: { producto: { select: { id: true, nombre: true, principioActivo: true } } },
+          ...(fullHistory ? {} : { take: 5 }),
+        },
+        serviciosHembra: {
+          orderBy: { fecha: 'desc' },
+          ...(fullHistory ? {} : { take: 5 }),
+        },
+        tactos: {
+          orderBy: { fecha: 'desc' },
+          ...(fullHistory ? {} : { take: 5 }),
+        },
+        partosMadre: {
+          orderBy: { fecha: 'desc' },
+          ...(fullHistory ? {} : { take: 5 }),
+        },
+        eventosMovimiento: {
+          orderBy: { fecha: 'desc' },
+          ...(fullHistory ? {} : { take: 5 }),
         },
         ubicacionHist: {
-          where: { hasta: null },
+          orderBy: { desde: 'desc' },
           include: { sector: true },
-          take: 1
+          ...(fullHistory ? {} : { take: 3 }),
         },
         loteHist: {
-          where: { hasta: null },
+          orderBy: { desde: 'desc' },
           include: { lote: true },
-          take: 1
+          ...(fullHistory ? {} : { take: 3 }),
+        },
+        bajas: {
+          take: 1,
         },
       }
     })
@@ -71,7 +100,7 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -83,11 +112,11 @@ export async function PATCH(
       )
     }
 
+    const { id } = await params
     const body = await request.json()
 
-    // Verificar que el animal existe
     const animalExistente = await prisma.animal.findUnique({
-      where: { id: params.id }
+      where: { id }
     })
 
     if (!animalExistente) {
@@ -131,7 +160,7 @@ export async function PATCH(
 
     // Actualizar animal
     const animalActualizado = await prisma.animal.update({
-      where: { id: params.id },
+      where: { id },
       data: updateData,
       include: {
         especie: true,
@@ -144,7 +173,7 @@ export async function PATCH(
     if (body.pesoNuevo) {
       await prisma.evtPesada.create({
         data: {
-          animalId: params.id,
+          animalId: id,
           fecha: new Date(),
           pesoKg: body.pesoNuevo,
           cc: body.ccNuevo,
@@ -157,7 +186,7 @@ export async function PATCH(
       // Cerrar lote actual
       await prisma.animalLoteHist.updateMany({
         where: {
-          animalId: params.id,
+          animalId: id,
           hasta: null
         },
         data: {
@@ -165,10 +194,9 @@ export async function PATCH(
         }
       })
 
-      // Crear nuevo lote
       await prisma.animalLoteHist.create({
         data: {
-          animalId: params.id,
+          animalId: id,
           loteId: body.loteId,
           desde: new Date(),
         }
@@ -177,10 +205,9 @@ export async function PATCH(
 
     // Si se cambia el sector, actualizar historial
     if (body.sectorId) {
-      // Cerrar ubicación actual
       await prisma.ubicacionHist.updateMany({
         where: {
-          animalId: params.id,
+          animalId: id,
           hasta: null
         },
         data: {
@@ -188,10 +215,9 @@ export async function PATCH(
         }
       })
 
-      // Crear nueva ubicación
       await prisma.ubicacionHist.create({
         data: {
-          animalId: params.id,
+          animalId: id,
           sectorId: body.sectorId,
           desde: new Date(),
         }
@@ -218,7 +244,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -230,9 +256,10 @@ export async function DELETE(
       )
     }
 
-    // Verificar que el animal existe
+    const { id } = await params
+
     const animal = await prisma.animal.findUnique({
-      where: { id: params.id }
+      where: { id }
     })
 
     if (!animal) {
@@ -242,9 +269,9 @@ export async function DELETE(
       )
     }
 
-    // Eliminar el animal (hard delete - considerar soft delete en producción)
-    await prisma.animal.delete({
-      where: { id: params.id }
+    await prisma.animal.update({
+      where: { id },
+      data: { estadoVital: "baja" }
     })
 
     return NextResponse.json({

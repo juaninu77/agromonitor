@@ -1,26 +1,29 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { useTenant } from "@/lib/context/tenant-context"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { Button } from "@/components/ui/button"
+import Link from "next/link"
 import {
-  RefreshCw,
   LayoutDashboard,
-  Loader2,
-  Bot,
-  LandPlot,
-  Droplets,
+  Beef,
+  Layers,
+  Scale,
   Syringe,
   ShoppingCart,
-  Scale,
-  Heart,
-  Plus,
-  MapPin,
   Baby,
+  Building,
+  Activity,
+  Plus,
   ArrowRight,
+  RefreshCw,
+  Crosshair,
+  Heart,
+  Map,
 } from "lucide-react"
-import { useRouter } from "next/navigation"
 
 interface DashboardStats {
   totalAnimales: number
@@ -33,41 +36,145 @@ interface DashboardStats {
   paricionesProximas: number
 }
 
+async function fetchDashboardStats(): Promise<DashboardStats> {
+  const res = await fetch("/api/dashboard/stats")
+  if (!res.ok) throw new Error("Error al cargar estadísticas")
+  const json = await res.json()
+  if (!json.success) throw new Error(json.error ?? "Error al cargar datos")
+  return json.data
+}
+
+function KpiSkeleton() {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-10 w-10 rounded-lg" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-7 w-16" />
+            <Skeleton className="h-3 w-24" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function QuickActionSkeleton() {
+  return (
+    <Card>
+      <CardContent className="p-5 flex flex-col items-center gap-3">
+        <Skeleton className="h-12 w-12 rounded-xl" />
+        <Skeleton className="h-4 w-20" />
+      </CardContent>
+    </Card>
+  )
+}
+
+const mainKpis = [
+  {
+    key: "totalAnimales",
+    title: "Total Animales",
+    icon: Beef,
+    color: "text-green-600",
+    bg: "bg-green-100",
+  },
+  {
+    key: "totalLotes",
+    title: "Total Lotes",
+    icon: Layers,
+    color: "text-blue-600",
+    bg: "bg-blue-100",
+  },
+  {
+    key: "pesadasRecientes",
+    title: "Pesadas del mes",
+    icon: Scale,
+    color: "text-amber-600",
+    bg: "bg-amber-100",
+  },
+  {
+    key: "eventsSanidadMes",
+    title: "Sanidad del mes",
+    icon: Syringe,
+    color: "text-purple-600",
+    bg: "bg-purple-100",
+  },
+] as const
+
+const quickActions = [
+  {
+    label: "Registrar animal",
+    icon: Plus,
+    href: "/ganado",
+    color: "bg-green-600 hover:bg-green-700",
+  },
+  {
+    label: "Sesión de manga",
+    icon: Crosshair,
+    href: "/manga",
+    color: "bg-blue-600 hover:bg-blue-700",
+  },
+  {
+    label: "Aplicar sanidad",
+    icon: Heart,
+    href: "/sanidad",
+    color: "bg-purple-600 hover:bg-purple-700",
+  },
+  {
+    label: "Registrar peso",
+    icon: Scale,
+    href: "/ganado",
+    color: "bg-amber-600 hover:bg-amber-700",
+  },
+  {
+    label: "Ver potreros",
+    icon: Map,
+    href: "/potreros",
+    color: "bg-emerald-600 hover:bg-emerald-700",
+  },
+]
+
 export default function DashboardPage() {
-  const router = useRouter()
-  const [stats, setStats] = useState<DashboardStats | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { establecimientoActivo } = useTenant()
 
-  useEffect(() => {
-    fetchStats()
-  }, [])
+  const {
+    data: stats,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<DashboardStats>({
+    queryKey: ["dashboard-stats", establecimientoActivo?.id],
+    queryFn: fetchDashboardStats,
+    enabled: !!establecimientoActivo,
+  })
 
-  const fetchStats = async () => {
-    try {
-      setIsLoading(true)
-      setError(null)
-      const response = await fetch("/api/dashboard/stats")
-      if (!response.ok) throw new Error("Error al cargar estadísticas")
-      const data = await response.json()
-      if (data.success) {
-        setStats(data.data)
-      } else {
-        throw new Error(data.error || "Error al cargar datos")
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error desconocido")
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const tasaActividad =
+    stats && stats.totalAnimales > 0
+      ? Math.round((stats.pesadasRecientes / stats.totalAnimales) * 100)
+      : 0
 
-  if (isLoading) {
+  if (isLoading || !establecimientoActivo) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center space-y-4">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground">Cargando dashboard...</p>
+      <div className="flex flex-col gap-6 p-4 md:p-6">
+        <div>
+          <Skeleton className="h-8 w-56 mb-2" />
+          <Skeleton className="h-4 w-40" />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <KpiSkeleton key={i} />
+          ))}
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <KpiSkeleton key={i} />
+          ))}
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <QuickActionSkeleton key={i} />
+          ))}
         </div>
       </div>
     )
@@ -76,13 +183,15 @@ export default function DashboardPage() {
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <Card>
+        <Card className="max-w-md w-full">
           <CardHeader>
-            <CardTitle>Error</CardTitle>
+            <CardTitle className="text-destructive">Error</CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="text-destructive">{error}</p>
-            <Button onClick={fetchStats} className="mt-4">Reintentar</Button>
+          <CardContent className="space-y-4">
+            <p className="text-muted-foreground">
+              {error instanceof Error ? error.message : "Error desconocido"}
+            </p>
+            <Button onClick={() => refetch()}>Reintentar</Button>
           </CardContent>
         </Card>
       </div>
@@ -100,73 +209,86 @@ export default function DashboardPage() {
               <LayoutDashboard className="h-8 w-8 text-primary" />
               Panel de Control
             </h1>
-            <p className="text-muted-foreground mt-1">Bienvenido a AgroMonitor</p>
+            <p className="text-muted-foreground mt-1">
+              {establecimientoActivo.nombre}
+            </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={fetchStats} className="rounded-xl border-2 border-transparent hover:border-border">
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Actualizar
-          </Button>
         </div>
-        <EmptyState totalAnimales={stats.totalAnimales} totalEstablecimientos={stats.totalEstablecimientos} totalLotes={stats.totalLotes} />
+        <EmptyState
+          totalAnimales={stats.totalAnimales}
+          totalEstablecimientos={stats.totalEstablecimientos}
+          totalLotes={stats.totalLotes}
+        />
       </div>
     )
   }
 
-  const kpis = [
-    { title: "Total Animales", value: stats.totalAnimales, icon: Bot, color: "text-blue-600", bg: "bg-blue-50" },
-    { title: "Establecimientos", value: stats.totalEstablecimientos, icon: LandPlot, color: "text-green-600", bg: "bg-green-50" },
-    { title: "Lotes", value: stats.totalLotes, icon: Droplets, color: "text-purple-600", bg: "bg-purple-50" },
-    { title: "Sanidad (mes)", value: stats.eventsSanidadMes, icon: Syringe, color: "text-orange-600", bg: "bg-orange-50" },
-    { title: "Ventas (mes)", value: stats.ventasMes, icon: ShoppingCart, color: "text-emerald-600", bg: "bg-emerald-50" },
-    { title: "Pesadas (30d)", value: stats.pesadasRecientes, icon: Scale, color: "text-cyan-600", bg: "bg-cyan-50" },
-  ]
-
-  const quickActions = [
-    { label: "Registrar Animal", icon: Plus, href: "/ganado", color: "bg-emerald-600 hover:bg-emerald-700 text-white" },
-    { label: "Pesada Rápida", icon: Scale, href: "/ganado", color: "bg-blue-600 hover:bg-blue-700 text-white" },
-    { label: "Evento Sanitario", icon: Syringe, href: "/sanidad", color: "bg-purple-600 hover:bg-purple-700 text-white" },
-    { label: "Registrar Parición", icon: Baby, href: "/reproduccion", color: "bg-pink-600 hover:bg-pink-700 text-white" },
-    { label: "Mover Animales", icon: MapPin, href: "/potreros", color: "bg-orange-600 hover:bg-orange-700 text-white" },
-    { label: "Registrar Venta", icon: ShoppingCart, href: "/ventas", color: "bg-teal-600 hover:bg-teal-700 text-white" },
-  ]
-
-  const sections = [
-    { title: "Ganado", description: "Gestión del rodeo", icon: Bot, href: "/ganado", count: `${stats.totalAnimales} cabezas` },
-    { title: "Sanidad", description: "Vacunaciones y tratamientos", icon: Syringe, href: "/sanidad", count: `${stats.eventsSanidadMes} este mes` },
-    { title: "Reproducción", description: "Ciclo reproductivo", icon: Heart, href: "/reproduccion", count: `${stats.paricionesProximas} próximas` },
-    { title: "Potreros", description: "Sectores y movimientos", icon: MapPin, href: "/potreros", count: "" },
-    { title: "Ventas y Compras", description: "Transacciones", icon: ShoppingCart, href: "/ventas", count: `${stats.ventasMes} ventas/mes` },
-    { title: "Configuración", description: "Establecimientos y lotes", icon: LandPlot, href: "/configuracion/establecimientos", count: `${stats.totalEstablecimientos} estab.` },
+  const secondaryKpis = [
+    {
+      title: "Ventas del mes",
+      value: stats.ventasMes,
+      icon: ShoppingCart,
+      color: "text-teal-600",
+      bg: "bg-teal-100",
+    },
+    {
+      title: "Partos próximos",
+      value: stats.paricionesProximas,
+      icon: Baby,
+      color: "text-pink-600",
+      bg: "bg-pink-100",
+    },
+    {
+      title: "Establecimientos",
+      value: stats.totalEstablecimientos,
+      icon: Building,
+      color: "text-slate-600",
+      bg: "bg-slate-100",
+    },
+    {
+      title: "Tasa actividad",
+      value: `${tasaActividad}%`,
+      icon: Activity,
+      color: "text-orange-600",
+      bg: "bg-orange-100",
+    },
   ]
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-3">
             <LayoutDashboard className="h-8 w-8 text-primary" />
             Panel de Control
           </h1>
-          <p className="text-muted-foreground mt-1">Resumen de tu operación ganadera</p>
+          <p className="text-muted-foreground mt-1">
+            {establecimientoActivo.nombre}
+          </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={fetchStats} className="rounded-xl border-2 border-transparent hover:border-border">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => refetch()}
+          className="self-start rounded-xl border hover:border-border"
+        >
           <RefreshCw className="mr-2 h-4 w-4" />
           Actualizar
         </Button>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {kpis.map((kpi) => (
-          <Card key={kpi.title} className="border-2 hover:shadow-md transition-shadow">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {mainKpis.map((kpi) => (
+          <Card key={kpi.key}>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${kpi.bg}`}>
+                <div className={`p-2.5 rounded-lg ${kpi.bg}`}>
                   <kpi.icon className={`h-5 w-5 ${kpi.color}`} />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{kpi.value}</p>
+                  <p className="text-2xl font-bold tabular-nums">
+                    {stats[kpi.key]}
+                  </p>
                   <p className="text-xs text-muted-foreground">{kpi.title}</p>
                 </div>
               </div>
@@ -175,75 +297,73 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Alertas importantes */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {secondaryKpis.map((kpi) => (
+          <Card key={kpi.title}>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${kpi.bg}`}>
+                  <kpi.icon className={`h-4 w-4 ${kpi.color}`} />
+                </div>
+                <div>
+                  <p className="text-xl font-semibold tabular-nums">
+                    {kpi.value}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{kpi.title}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
       {stats.paricionesProximas > 0 && (
-        <Card className="border-2 border-pink-200 bg-pink-50">
-          <CardContent className="p-4 flex items-center justify-between">
+        <Card className="border-pink-200 bg-pink-50/60">
+          <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <Baby className="h-6 w-6 text-pink-600" />
+              <Baby className="h-6 w-6 text-pink-600 shrink-0" />
               <div>
                 <p className="font-semibold text-pink-900">
                   {stats.paricionesProximas} pariciones esperadas esta semana
                 </p>
-                <p className="text-sm text-pink-700">Vacas con fecha probable de parto en los próximos 7 días</p>
+                <p className="text-sm text-pink-700">
+                  Vacas con fecha probable de parto en los próximos 7 días
+                </p>
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={() => router.push("/reproduccion")} className="border-pink-300 text-pink-700 hover:bg-pink-100">
-              Ver detalle
-              <ArrowRight className="ml-2 h-4 w-4" />
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+              className="border-pink-300 text-pink-700 hover:bg-pink-100 shrink-0"
+            >
+              <Link href="/reproduccion">
+                Ver detalle
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
             </Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Acciones Rápidas */}
-      <Card className="border-2">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Acciones Rápidas</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            {quickActions.map((action) => (
-              <Button
-                key={action.label}
-                className={`h-auto py-4 flex flex-col items-center gap-2 ${action.color} shadow-sm`}
-                onClick={() => router.push(action.href)}
-              >
-                <action.icon className="h-6 w-6" />
-                <span className="text-xs font-medium text-center">{action.label}</span>
-              </Button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Módulos */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {sections.map((section) => (
-          <Card
-            key={section.title}
-            className="border-2 cursor-pointer hover:shadow-lg hover:border-primary/30 transition-all"
-            onClick={() => router.push(section.href)}
-          >
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-primary/10 rounded-lg">
-                    <section.icon className="h-6 w-6 text-primary" />
+      <div>
+        <h2 className="text-lg font-semibold mb-3">Acciones rápidas</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+          {quickActions.map((action) => (
+            <Link key={action.label} href={action.href}>
+              <Card className="cursor-pointer hover:scale-[1.03] transition-transform h-full">
+                <CardContent className="p-5 flex flex-col items-center gap-3 text-center">
+                  <div
+                    className={`p-3 rounded-xl ${action.color} text-white`}
+                  >
+                    <action.icon className="h-6 w-6" />
                   </div>
-                  <div>
-                    <h3 className="font-semibold">{section.title}</h3>
-                    <p className="text-sm text-muted-foreground">{section.description}</p>
-                  </div>
-                </div>
-                <ArrowRight className="h-5 w-5 text-muted-foreground" />
-              </div>
-              {section.count && (
-                <p className="text-sm text-muted-foreground mt-3 pl-12">{section.count}</p>
-              )}
-            </CardContent>
-          </Card>
-        ))}
+                  <span className="text-sm font-medium">{action.label}</span>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   )

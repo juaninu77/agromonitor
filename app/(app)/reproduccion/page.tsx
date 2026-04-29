@@ -1,17 +1,17 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useState } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import {
   Heart,
   Plus,
-  Calendar,
   Syringe,
   Baby,
-  Milk,
   Activity,
   Loader2,
   Search,
+  TrendingUp,
 } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -35,10 +35,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 
-// ============================================
-// Tipos
-// ============================================
+import { useTenant } from "@/lib/context/tenant-context"
+
+// ────────────────────────────────────────────
+// Types
+// ────────────────────────────────────────────
 
 interface Torada {
   id: string
@@ -61,10 +64,21 @@ interface Servicio {
   loteSemen: string | null
   inseminador: string | null
   observ: string | null
-  hembra: { id: string; caravanaVisual: string | null; cuig: string | null; categoria?: { nombre: string }; raza?: { nombre: string } }
+  hembra: {
+    id: string
+    caravanaVisual: string | null
+    cuig: string | null
+    categoria?: { nombre: string }
+    raza?: { nombre: string }
+  }
   macho: { id: string; caravanaVisual: string | null } | null
   torada: { id: string; nombre: string } | null
-  tacto: { id: string; resultado: string; mesesGest: number | null; fechaProbableParto: string | null } | null
+  tacto: {
+    id: string
+    resultado: string
+    mesesGest: number | null
+    fechaProbableParto: string | null
+  } | null
 }
 
 interface Tacto {
@@ -76,8 +90,19 @@ interface Tacto {
   metodo: string
   veterinario: string | null
   observ: string | null
-  hembra: { id: string; caravanaVisual: string | null; cuig: string | null; categoria?: { nombre: string }; raza?: { nombre: string } }
-  servicio: { id: string; fecha: string; tipo: string; toroNombre: string | null } | null
+  hembra: {
+    id: string
+    caravanaVisual: string | null
+    cuig: string | null
+    categoria?: { nombre: string }
+    raza?: { nombre: string }
+  }
+  servicio: {
+    id: string
+    fecha: string
+    tipo: string
+    toroNombre: string | null
+  } | null
 }
 
 interface Paricion {
@@ -89,7 +114,12 @@ interface Paricion {
   dificultad: number | null
   sexoCria: string | null
   observ: string | null
-  madre: { id: string; caravanaVisual: string | null; cuig: string | null; raza?: { nombre: string } }
+  madre: {
+    id: string
+    caravanaVisual: string | null
+    cuig: string | null
+    raza?: { nombre: string }
+  }
   padre: { id: string; caravanaVisual: string | null } | null
   padreExterno: string | null
   nacido: { id: string; caravanaVisual: string | null; sexo: string } | null
@@ -102,7 +132,15 @@ interface Destete {
   edadDias: number | null
   metodo: string | null
   observ: string | null
-  animal: { id: string; caravanaVisual: string | null; cuig: string | null; sexo: string; fechaNacimiento: string | null; raza?: { nombre: string }; categoria?: { nombre: string } }
+  animal: {
+    id: string
+    caravanaVisual: string | null
+    cuig: string | null
+    sexo: string
+    fechaNacimiento: string | null
+    raza?: { nombre: string }
+    categoria?: { nombre: string }
+  }
 }
 
 interface AnimalOption {
@@ -117,11 +155,11 @@ interface LoteOption {
   nombre: string
 }
 
-// ============================================
+// ────────────────────────────────────────────
 // Helpers
-// ============================================
+// ────────────────────────────────────────────
 
-function formatDate(dateStr: string) {
+function fmt(dateStr: string) {
   return new Date(dateStr).toLocaleDateString("es-AR", {
     day: "2-digit",
     month: "2-digit",
@@ -129,41 +167,41 @@ function formatDate(dateStr: string) {
   })
 }
 
-function animalLabel(animal: { caravanaVisual: string | null; cuig?: string | null } | null) {
-  if (!animal) return "-"
-  return animal.caravanaVisual || animal.cuig || "Sin ID"
+function label(a: { caravanaVisual: string | null; cuig?: string | null } | null) {
+  if (!a) return "-"
+  return a.caravanaVisual || a.cuig || "Sin ID"
 }
 
-function resultadoBadge(resultado: string) {
-  const map: Record<string, { label: string; className: string }> = {
-    preñada: { label: "Preñada", className: "bg-green-100 text-green-800 border-green-200" },
-    vacia: { label: "Vacía", className: "bg-red-100 text-red-800 border-red-200" },
-    dudosa: { label: "Dudosa", className: "bg-yellow-100 text-yellow-800 border-yellow-200" },
-    absorcion: { label: "Absorción", className: "bg-orange-100 text-orange-800 border-orange-200" },
+function ResultadoBadge({ resultado }: { resultado: string }) {
+  const map: Record<string, { text: string; cls: string }> = {
+    preñada: { text: "Preñada", cls: "bg-green-100 text-green-800 border-green-200" },
+    vacia: { text: "Vacía", cls: "bg-red-100 text-red-800 border-red-200" },
+    dudosa: { text: "Dudosa", cls: "bg-yellow-100 text-yellow-800 border-yellow-200" },
+    absorcion: { text: "Absorción", cls: "bg-orange-100 text-orange-800 border-orange-200" },
   }
-  const info = map[resultado] || { label: resultado, className: "" }
-  return <Badge className={info.className}>{info.label}</Badge>
+  const info = map[resultado] || { text: resultado, cls: "" }
+  return <Badge className={info.cls}>{info.text}</Badge>
 }
 
-function tipoBadge(tipo: string) {
-  const map: Record<string, { label: string; className: string }> = {
-    natural: { label: "Natural", className: "bg-blue-100 text-blue-800 border-blue-200" },
-    ia: { label: "IA", className: "bg-purple-100 text-purple-800 border-purple-200" },
-    iatf: { label: "IATF", className: "bg-violet-100 text-violet-800 border-violet-200" },
-    mixto: { label: "Mixto", className: "bg-indigo-100 text-indigo-800 border-indigo-200" },
+function TipoBadge({ tipo }: { tipo: string }) {
+  const map: Record<string, { text: string; cls: string }> = {
+    natural: { text: "Natural", cls: "bg-blue-100 text-blue-800 border-blue-200" },
+    ia: { text: "IA", cls: "bg-purple-100 text-purple-800 border-purple-200" },
+    iatf: { text: "IATF", cls: "bg-violet-100 text-violet-800 border-violet-200" },
+    mixto: { text: "Mixto", cls: "bg-indigo-100 text-indigo-800 border-indigo-200" },
   }
-  const info = map[tipo] || { label: tipo, className: "" }
-  return <Badge className={info.className}>{info.label}</Badge>
+  const info = map[tipo] || { text: tipo, cls: "" }
+  return <Badge className={info.cls}>{info.text}</Badge>
 }
 
-function partoBadge(resultado: string) {
+function PartoBadge({ resultado }: { resultado: string }) {
   if (resultado === "vivo")
     return <Badge className="bg-green-100 text-green-800 border-green-200">Vivo</Badge>
   return <Badge className="bg-red-100 text-red-800 border-red-200">Muerto</Badge>
 }
 
-function metodoBadge(metodo: string | null) {
-  if (!metodo) return "-"
+function MetodoBadge({ metodo }: { metodo: string | null }) {
+  if (!metodo) return <span className="text-muted-foreground">-</span>
   const labels: Record<string, string> = {
     tradicional: "Tradicional",
     precoz: "Precoz",
@@ -173,322 +211,223 @@ function metodoBadge(metodo: string | null) {
   return <Badge variant="secondary">{labels[metodo] || metodo}</Badge>
 }
 
-// ============================================
-// Componente principal
-// ============================================
+// ────────────────────────────────────────────
+// Fetchers
+// ────────────────────────────────────────────
+
+async function fetchJson<T>(url: string): Promise<T[]> {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error("Error de red")
+  const json = await res.json()
+  if (json.success) return json.data
+  throw new Error(json.error || "Error al cargar datos")
+}
+
+async function postJson(url: string, body: Record<string, unknown>) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  const json = await res.json()
+  if (!res.ok || !json.success) throw new Error(json.error || "Error al guardar")
+  return json.data
+}
+
+// ────────────────────────────────────────────
+// Main Component
+// ────────────────────────────────────────────
 
 export default function ReproduccionPage() {
-  const [activeTab, setActiveTab] = useState("toradas")
-  const [loading, setLoading] = useState(true)
+  const { establecimientoActivo, isLoading: tenantLoading } = useTenant()
+  const queryClient = useQueryClient()
+  const estId = establecimientoActivo?.id || ""
 
-  // Data
-  const [toradas, setToradas] = useState<Torada[]>([])
-  const [servicios, setServicios] = useState<Servicio[]>([])
-  const [tactos, setTactos] = useState<Tacto[]>([])
-  const [pariciones, setPariciones] = useState<Paricion[]>([])
-  const [destetes, setDestetes] = useState<Destete[]>([])
+  const [activeTab, setActiveTab] = useState("servicios")
 
-  // Opciones para selects
-  const [hembras, setHembras] = useState<AnimalOption[]>([])
-  const [machos, setMachos] = useState<AnimalOption[]>([])
-  const [lotes, setLotes] = useState<LoteOption[]>([])
-
-  // Dialogs
-  const [dialogTorada, setDialogTorada] = useState(false)
   const [dialogServicio, setDialogServicio] = useState(false)
   const [dialogTacto, setDialogTacto] = useState(false)
   const [dialogParicion, setDialogParicion] = useState(false)
   const [dialogDestete, setDialogDestete] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [dialogTorada, setDialogTorada] = useState(false)
 
-  // Form states
-  const [formTorada, setFormTorada] = useState({
-    nombre: "", fechaInicio: "", fechaFin: "", tipo: "natural",
-    cantidadHembras: "", cantidadMachos: "", observ: "", loteId: "",
-  })
-  const [formServicio, setFormServicio] = useState({
-    fecha: "", tipo: "natural", hembraId: "", machoId: "",
-    toradaId: "", toroNombre: "", loteSemen: "", inseminador: "", observ: "",
-  })
-  const [formTacto, setFormTacto] = useState({
-    fecha: "", resultado: "preñada", mesesGest: "", fechaProbableParto: "",
-    metodo: "palpacion", veterinario: "", hembraId: "", servicioId: "", observ: "",
-  })
-  const [formParicion, setFormParicion] = useState({
-    fecha: "", resultado: "vivo", pesoNacerKg: "", tipoParto: "normal",
-    dificultad: "", sexoCria: "", madreId: "", padreId: "", padreExterno: "", observ: "",
-  })
-  const [formDestete, setFormDestete] = useState({
-    fecha: "", pesoKg: "", edadDias: "", metodo: "tradicional",
-    animalId: "", observ: "",
+  // ── Queries ──
+
+  const { data: toradas = [], isLoading: loadToradas } = useQuery({
+    queryKey: ["repro-toradas", estId],
+    queryFn: () => fetchJson<Torada>(`/api/reproduccion/toradas${estId ? `?establecimientoId=${estId}` : ""}`),
+    enabled: !!estId,
   })
 
-  // Búsqueda de animales
-  const [searchHembra, setSearchHembra] = useState("")
+  const { data: servicios = [], isLoading: loadServicios } = useQuery({
+    queryKey: ["repro-servicios", estId],
+    queryFn: () => fetchJson<Servicio>(`/api/reproduccion/servicios${estId ? `?establecimientoId=${estId}` : ""}`),
+    enabled: !!estId,
+  })
 
-  // ============================================
-  // Fetch data
-  // ============================================
+  const { data: tactos = [], isLoading: loadTactos } = useQuery({
+    queryKey: ["repro-tactos", estId],
+    queryFn: () => fetchJson<Tacto>(`/api/reproduccion/tactos${estId ? `?establecimientoId=${estId}` : ""}`),
+    enabled: !!estId,
+  })
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [torRes, srvRes, tacRes, parRes, desRes] = await Promise.all([
-        fetch("/api/reproduccion/toradas"),
-        fetch("/api/reproduccion/servicios"),
-        fetch("/api/reproduccion/tactos"),
-        fetch("/api/reproduccion/pariciones"),
-        fetch("/api/reproduccion/destetes"),
-      ])
+  const { data: pariciones = [], isLoading: loadPariciones } = useQuery({
+    queryKey: ["repro-pariciones", estId],
+    queryFn: () => fetchJson<Paricion>(`/api/reproduccion/pariciones${estId ? `?establecimientoId=${estId}` : ""}`),
+    enabled: !!estId,
+  })
 
-      const [torData, srvData, tacData, parData, desData] = await Promise.all([
-        torRes.json(), srvRes.json(), tacRes.json(), parRes.json(), desRes.json(),
-      ])
+  const { data: destetes = [], isLoading: loadDestetes } = useQuery({
+    queryKey: ["repro-destetes", estId],
+    queryFn: () => fetchJson<Destete>(`/api/reproduccion/destetes${estId ? `?establecimientoId=${estId}` : ""}`),
+    enabled: !!estId,
+  })
 
-      if (torData.success) setToradas(torData.data)
-      if (srvData.success) setServicios(srvData.data)
-      if (tacData.success) setTactos(tacData.data)
-      if (parData.success) setPariciones(parData.data)
-      if (desData.success) setDestetes(desData.data)
-    } catch {
-      toast.error("Error al cargar datos de reproducción")
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const { data: animalesRaw = [] } = useQuery({
+    queryKey: ["repro-bovinos", estId],
+    queryFn: async () => {
+      const res = await fetch(`/api/ganado/bovinos?limit=500${estId ? `&establecimientoId=${estId}` : ""}`)
+      const json = await res.json()
+      if (json.success) return json.data as any[]
+      return []
+    },
+    enabled: !!estId,
+  })
 
-  const fetchOptions = useCallback(async () => {
-    try {
-      const bovinosRes = await fetch("/api/ganado/bovinos?limit=500")
-      const bovinosData = await bovinosRes.json()
-      if (bovinosData.success && bovinosData.data) {
-        const animales = bovinosData.data as any[]
-        setHembras(animales.filter((a: any) => a.sexo === "F").map((a: any) => ({
-          id: a.id, caravanaVisual: a.caravanaVisual || a.tagNumber, cuig: a.cuig, sexo: a.sexo,
-        })))
-        setMachos(animales.filter((a: any) => a.sexo === "M").map((a: any) => ({
-          id: a.id, caravanaVisual: a.caravanaVisual || a.tagNumber, cuig: a.cuig, sexo: a.sexo,
-        })))
-      }
-    } catch {
-      /* silenciar si no hay datos */
-    }
+  const { data: lotes = [] } = useQuery({
+    queryKey: ["repro-lotes", estId],
+    queryFn: async () => {
+      if (!estId) return []
+      const res = await fetch(`/api/establecimientos/${estId}/lotes`)
+      const json = await res.json()
+      if (json.success && json.data) return json.data as LoteOption[]
+      if (Array.isArray(json)) return json as LoteOption[]
+      return []
+    },
+    enabled: !!estId,
+  })
 
-    try {
-      const lotesRes = await fetch("/api/establecimientos/" + "all" + "/lotes")
-      const lotesData = await lotesRes.json()
-      if (lotesData.success && lotesData.data) {
-        setLotes(lotesData.data)
-      }
-    } catch {
-      /* silenciar */
-    }
-  }, [])
+  const hembras: AnimalOption[] = animalesRaw
+    .filter((a: any) => a.sexo === "F")
+    .map((a: any) => ({ id: a.id, caravanaVisual: a.caravanaVisual || a.tagNumber, cuig: a.cuig, sexo: a.sexo }))
 
-  useEffect(() => {
-    fetchAll()
-    fetchOptions()
-  }, [fetchAll, fetchOptions])
+  const machos: AnimalOption[] = animalesRaw
+    .filter((a: any) => a.sexo === "M")
+    .map((a: any) => ({ id: a.id, caravanaVisual: a.caravanaVisual || a.tagNumber, cuig: a.cuig, sexo: a.sexo }))
 
-  // ============================================
-  // KPIs
-  // ============================================
+  const allAnimals: AnimalOption[] = animalesRaw
+    .map((a: any) => ({ id: a.id, caravanaVisual: a.caravanaVisual || a.tagNumber, cuig: a.cuig, sexo: a.sexo }))
+
+  function invalidateAll() {
+    queryClient.invalidateQueries({ queryKey: ["repro-toradas", estId] })
+    queryClient.invalidateQueries({ queryKey: ["repro-servicios", estId] })
+    queryClient.invalidateQueries({ queryKey: ["repro-tactos", estId] })
+    queryClient.invalidateQueries({ queryKey: ["repro-pariciones", estId] })
+    queryClient.invalidateQueries({ queryKey: ["repro-destetes", estId] })
+  }
+
+  // ── KPIs ──
 
   const currentYear = new Date().getFullYear()
-  const serviciosAnio = servicios.filter(
-    (s) => new Date(s.fecha).getFullYear() === currentYear
-  )
-  const totalServicios = serviciosAnio.length
+  const vientresEnServicio = servicios.filter((s) => !s.tacto).length
+  const prenezConfirmada = tactos.filter((t) => t.resultado === "preñada").length
+  const partosAnio = pariciones.filter((p) => new Date(p.fecha).getFullYear() === currentYear).length
   const totalTactos = tactos.length
-  const tactosPreñadas = tactos.filter((t) => t.resultado === "preñada").length
-  const porcentajePreñez = totalTactos > 0 ? Math.round((tactosPreñadas / totalTactos) * 100) : 0
-  const totalPariciones = pariciones.filter(
-    (p) => new Date(p.fecha).getFullYear() === currentYear
-  ).length
-  const totalDestetes = destetes.filter(
-    (d) => new Date(d.fecha).getFullYear() === currentYear
-  ).length
+  const porcentajePreñez = totalTactos > 0 ? Math.round((prenezConfirmada / totalTactos) * 100) : 0
 
-  // ============================================
-  // Submit handlers
-  // ============================================
+  const loading = loadToradas || loadServicios || loadTactos || loadPariciones || loadDestetes
 
-  async function handleSubmitTorada() {
-    if (!formTorada.nombre || !formTorada.fechaInicio || !formTorada.loteId) {
-      toast.error("Completá los campos requeridos")
-      return
-    }
-    setSaving(true)
-    try {
-      const res = await fetch("/api/reproduccion/toradas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formTorada),
-      })
-      const data = await res.json()
-      if (data.success) {
-        toast.success("Torada creada correctamente")
-        setDialogTorada(false)
-        setFormTorada({ nombre: "", fechaInicio: "", fechaFin: "", tipo: "natural", cantidadHembras: "", cantidadMachos: "", observ: "", loteId: "" })
-        fetchAll()
-      } else {
-        toast.error(data.error || "Error al crear torada")
-      }
-    } catch {
-      toast.error("Error de conexión")
-    } finally {
-      setSaving(false)
-    }
+  // ── Tenant guard ──
+
+  if (tenantLoading) {
+    return (
+      <div className="space-y-6 p-4 md:p-6">
+        <Skeleton className="h-10 w-64" />
+        <div className="grid gap-4 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-28" />
+          ))}
+        </div>
+        <Skeleton className="h-96" />
+      </div>
+    )
   }
 
-  async function handleSubmitServicio() {
-    if (!formServicio.fecha || !formServicio.hembraId) {
-      toast.error("Completá los campos requeridos")
-      return
-    }
-    setSaving(true)
-    try {
-      const res = await fetch("/api/reproduccion/servicios", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formServicio),
-      })
-      const data = await res.json()
-      if (data.success) {
-        toast.success("Servicio registrado correctamente")
-        setDialogServicio(false)
-        setFormServicio({ fecha: "", tipo: "natural", hembraId: "", machoId: "", toradaId: "", toroNombre: "", loteSemen: "", inseminador: "", observ: "" })
-        fetchAll()
-      } else {
-        toast.error(data.error || "Error al registrar servicio")
-      }
-    } catch {
-      toast.error("Error de conexión")
-    } finally {
-      setSaving(false)
-    }
+  if (!establecimientoActivo) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 px-4 text-center">
+        <Heart className="h-16 w-16 text-muted-foreground/30 mb-4" />
+        <h2 className="text-xl font-semibold mb-2">Sin establecimiento seleccionado</h2>
+        <p className="text-muted-foreground max-w-md">
+          Seleccioná un establecimiento desde el menú superior para ver los datos reproductivos.
+        </p>
+      </div>
+    )
   }
 
-  async function handleSubmitTacto() {
-    if (!formTacto.fecha || !formTacto.hembraId || !formTacto.resultado) {
-      toast.error("Completá los campos requeridos")
-      return
-    }
-    setSaving(true)
-    try {
-      const res = await fetch("/api/reproduccion/tactos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formTacto),
-      })
-      const data = await res.json()
-      if (data.success) {
-        toast.success("Tacto registrado correctamente")
-        setDialogTacto(false)
-        setFormTacto({ fecha: "", resultado: "preñada", mesesGest: "", fechaProbableParto: "", metodo: "palpacion", veterinario: "", hembraId: "", servicioId: "", observ: "" })
-        fetchAll()
-      } else {
-        toast.error(data.error || "Error al registrar tacto")
-      }
-    } catch {
-      toast.error("Error de conexión")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleSubmitParicion() {
-    if (!formParicion.fecha || !formParicion.madreId || !formParicion.resultado) {
-      toast.error("Completá los campos requeridos")
-      return
-    }
-    setSaving(true)
-    try {
-      const res = await fetch("/api/reproduccion/pariciones", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formParicion),
-      })
-      const data = await res.json()
-      if (data.success) {
-        toast.success("Parición registrada correctamente")
-        setDialogParicion(false)
-        setFormParicion({ fecha: "", resultado: "vivo", pesoNacerKg: "", tipoParto: "normal", dificultad: "", sexoCria: "", madreId: "", padreId: "", padreExterno: "", observ: "" })
-        fetchAll()
-      } else {
-        toast.error(data.error || "Error al registrar parición")
-      }
-    } catch {
-      toast.error("Error de conexión")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleSubmitDestete() {
-    if (!formDestete.fecha || !formDestete.animalId) {
-      toast.error("Completá los campos requeridos")
-      return
-    }
-    setSaving(true)
-    try {
-      const res = await fetch("/api/reproduccion/destetes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formDestete),
-      })
-      const data = await res.json()
-      if (data.success) {
-        toast.success("Destete registrado correctamente")
-        setDialogDestete(false)
-        setFormDestete({ fecha: "", pesoKg: "", edadDias: "", metodo: "tradicional", animalId: "", observ: "" })
-        fetchAll()
-      } else {
-        toast.error(data.error || "Error al registrar destete")
-      }
-    } catch {
-      toast.error("Error de conexión")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // Helper para filtrar hembras en selects
-  const filteredHembras = searchHembra
-    ? hembras.filter(
-        (h) =>
-          (h.caravanaVisual || "").toLowerCase().includes(searchHembra.toLowerCase()) ||
-          (h.cuig || "").toLowerCase().includes(searchHembra.toLowerCase())
-      )
-    : hembras
-
-  // ============================================
-  // Render
-  // ============================================
+  // ── Render ──
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 md:p-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-          <Heart className="h-8 w-8 text-primary" />
-          Reproducción
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Gestión del ciclo reproductivo: toradas, servicio, tacto, parición y destete
-        </p>
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-3">
+            <Heart className="h-8 w-8 text-primary" />
+            Reproducción
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Gestión del ciclo reproductivo: toradas, servicio, tacto, parición y destete
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => { setActiveTab("servicios"); setDialogServicio(true) }}>
+            <Syringe className="h-4 w-4 mr-2" />
+            Nuevo servicio
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => { setActiveTab("tactos"); setDialogTacto(true) }}>
+            <Activity className="h-4 w-4 mr-2" />
+            Registrar tacto
+          </Button>
+          <Button size="sm" onClick={() => { setActiveTab("pariciones"); setDialogParicion(true) }}>
+            <Baby className="h-4 w-4 mr-2" />
+            Registrar parto
+          </Button>
+        </div>
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Servicios ({currentYear})</CardTitle>
+            <CardTitle className="text-sm font-medium">Vientres en servicio</CardTitle>
             <Syringe className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalServicios}</div>
-            <p className="text-xs text-muted-foreground">registrados este año</p>
+            <div className="text-2xl font-bold">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : vientresEnServicio}</div>
+            <p className="text-xs text-muted-foreground">sin tacto registrado</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Preñez confirmada</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : prenezConfirmada}</div>
+            <p className="text-xs text-muted-foreground">tactos positivos</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Partos ({currentYear})</CardTitle>
+            <Baby className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : partosAnio}</div>
+            <p className="text-xs text-muted-foreground">nacimientos este año</p>
           </CardContent>
         </Card>
 
@@ -499,33 +438,11 @@ export default function ReproduccionPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {totalTactos > 0 ? `${porcentajePreñez}%` : "-"}
+              {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : totalTactos > 0 ? `${porcentajePreñez}%` : "-"}
             </div>
             <p className="text-xs text-muted-foreground">
-              {tactosPreñadas} preñadas de {totalTactos} tactadas
+              {prenezConfirmada} preñadas de {totalTactos} tactadas
             </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pariciones ({currentYear})</CardTitle>
-            <Baby className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalPariciones}</div>
-            <p className="text-xs text-muted-foreground">nacimientos este año</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Destetes ({currentYear})</CardTitle>
-            <Milk className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalDestetes}</div>
-            <p className="text-xs text-muted-foreground">animales destetados</p>
           </CardContent>
         </Card>
       </div>
@@ -533,14 +450,222 @@ export default function ReproduccionPage() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="toradas">Toradas</TabsTrigger>
           <TabsTrigger value="servicios">Servicios</TabsTrigger>
           <TabsTrigger value="tactos">Tactos</TabsTrigger>
           <TabsTrigger value="pariciones">Pariciones</TabsTrigger>
           <TabsTrigger value="destetes">Destetes</TabsTrigger>
+          <TabsTrigger value="toradas">Toradas</TabsTrigger>
         </TabsList>
 
-        {/* ==================== TAB TORADAS ==================== */}
+        {/* ─── TAB: Servicios ─── */}
+        <TabsContent value="servicios">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Servicios realizados</CardTitle>
+              <Button onClick={() => setDialogServicio(true)}>
+                <Plus className="mr-2 h-4 w-4" /> Nuevo servicio
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {loadServicios ? (
+                <LoadingSpinner />
+              ) : servicios.length === 0 ? (
+                <EmptyState text="No hay servicios registrados." />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-2 font-medium">Fecha</th>
+                        <th className="text-left py-3 px-2 font-medium">Hembra</th>
+                        <th className="text-left py-3 px-2 font-medium">Tipo</th>
+                        <th className="text-left py-3 px-2 font-medium">Macho / Toro</th>
+                        <th className="text-left py-3 px-2 font-medium">Torada</th>
+                        <th className="text-left py-3 px-2 font-medium">Inseminador</th>
+                        <th className="text-left py-3 px-2 font-medium">Tacto</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {servicios.map((s) => (
+                        <tr key={s.id} className="border-b hover:bg-muted/50">
+                          <td className="py-3 px-2">{fmt(s.fecha)}</td>
+                          <td className="py-3 px-2 font-medium">{label(s.hembra)}</td>
+                          <td className="py-3 px-2"><TipoBadge tipo={s.tipo} /></td>
+                          <td className="py-3 px-2">{s.macho ? label(s.macho) : s.toroNombre || "-"}</td>
+                          <td className="py-3 px-2">{s.torada?.nombre || "-"}</td>
+                          <td className="py-3 px-2">{s.inseminador || "-"}</td>
+                          <td className="py-3 px-2">
+                            {s.tacto ? <ResultadoBadge resultado={s.tacto.resultado} /> : (
+                              <span className="text-muted-foreground">Pendiente</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ─── TAB: Tactos ─── */}
+        <TabsContent value="tactos">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Diagnósticos de preñez</CardTitle>
+              <Button onClick={() => setDialogTacto(true)}>
+                <Plus className="mr-2 h-4 w-4" /> Nuevo tacto
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {loadTactos ? (
+                <LoadingSpinner />
+              ) : tactos.length === 0 ? (
+                <EmptyState text="No hay tactos registrados." />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-2 font-medium">Fecha</th>
+                        <th className="text-left py-3 px-2 font-medium">Hembra</th>
+                        <th className="text-left py-3 px-2 font-medium">Resultado</th>
+                        <th className="text-left py-3 px-2 font-medium">Meses gest.</th>
+                        <th className="text-left py-3 px-2 font-medium">Fecha prob. parto</th>
+                        <th className="text-left py-3 px-2 font-medium">Método</th>
+                        <th className="text-left py-3 px-2 font-medium">Veterinario</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tactos.map((t) => (
+                        <tr key={t.id} className="border-b hover:bg-muted/50">
+                          <td className="py-3 px-2">{fmt(t.fecha)}</td>
+                          <td className="py-3 px-2 font-medium">{label(t.hembra)}</td>
+                          <td className="py-3 px-2"><ResultadoBadge resultado={t.resultado} /></td>
+                          <td className="py-3 px-2">{t.mesesGest ?? "-"}</td>
+                          <td className="py-3 px-2">{t.fechaProbableParto ? fmt(t.fechaProbableParto) : "-"}</td>
+                          <td className="py-3 px-2">
+                            <Badge variant="outline">
+                              {t.metodo === "ecografia" ? "Ecografía" : "Palpación"}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-2">{t.veterinario || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ─── TAB: Pariciones ─── */}
+        <TabsContent value="pariciones">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Pariciones</CardTitle>
+              <Button onClick={() => setDialogParicion(true)}>
+                <Plus className="mr-2 h-4 w-4" /> Nueva parición
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {loadPariciones ? (
+                <LoadingSpinner />
+              ) : pariciones.length === 0 ? (
+                <EmptyState text="No hay pariciones registradas." />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-2 font-medium">Fecha</th>
+                        <th className="text-left py-3 px-2 font-medium">Madre</th>
+                        <th className="text-left py-3 px-2 font-medium">Resultado</th>
+                        <th className="text-right py-3 px-2 font-medium">Peso (kg)</th>
+                        <th className="text-left py-3 px-2 font-medium">Tipo parto</th>
+                        <th className="text-left py-3 px-2 font-medium">Sexo cría</th>
+                        <th className="text-left py-3 px-2 font-medium">Padre</th>
+                        <th className="text-left py-3 px-2 font-medium">Cría</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pariciones.map((p) => (
+                        <tr key={p.id} className="border-b hover:bg-muted/50">
+                          <td className="py-3 px-2">{fmt(p.fecha)}</td>
+                          <td className="py-3 px-2 font-medium">{label(p.madre)}</td>
+                          <td className="py-3 px-2"><PartoBadge resultado={p.resultado} /></td>
+                          <td className="py-3 px-2 text-right">{p.pesoNacerKg ?? "-"}</td>
+                          <td className="py-3 px-2">
+                            {p.tipoParto ? (
+                              <Badge variant="outline">
+                                {p.tipoParto === "normal" ? "Normal" : p.tipoParto === "asistido" ? "Asistido" : "Cesárea"}
+                              </Badge>
+                            ) : "-"}
+                          </td>
+                          <td className="py-3 px-2">
+                            {p.sexoCria === "M" ? "Macho" : p.sexoCria === "F" ? "Hembra" : p.sexoCria || "-"}
+                          </td>
+                          <td className="py-3 px-2">{p.padre ? label(p.padre) : p.padreExterno || "-"}</td>
+                          <td className="py-3 px-2">{p.nacido ? label(p.nacido) : "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ─── TAB: Destetes ─── */}
+        <TabsContent value="destetes">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Destetes</CardTitle>
+              <Button onClick={() => setDialogDestete(true)}>
+                <Plus className="mr-2 h-4 w-4" /> Nuevo destete
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {loadDestetes ? (
+                <LoadingSpinner />
+              ) : destetes.length === 0 ? (
+                <EmptyState text="No hay destetes registrados." />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-2 font-medium">Fecha</th>
+                        <th className="text-left py-3 px-2 font-medium">Animal</th>
+                        <th className="text-left py-3 px-2 font-medium">Raza</th>
+                        <th className="text-right py-3 px-2 font-medium">Peso (kg)</th>
+                        <th className="text-right py-3 px-2 font-medium">Edad (días)</th>
+                        <th className="text-left py-3 px-2 font-medium">Método</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {destetes.map((d) => (
+                        <tr key={d.id} className="border-b hover:bg-muted/50">
+                          <td className="py-3 px-2">{fmt(d.fecha)}</td>
+                          <td className="py-3 px-2 font-medium">{label(d.animal)}</td>
+                          <td className="py-3 px-2">{d.animal.raza?.nombre || "-"}</td>
+                          <td className="py-3 px-2 text-right">{d.pesoKg ?? "-"}</td>
+                          <td className="py-3 px-2 text-right">{d.edadDias ?? "-"}</td>
+                          <td className="py-3 px-2"><MetodoBadge metodo={d.metodo} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ─── TAB: Toradas ─── */}
         <TabsContent value="toradas">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
@@ -550,14 +675,10 @@ export default function ReproduccionPage() {
               </Button>
             </CardHeader>
             <CardContent>
-              {loading ? (
-                <div className="flex justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
+              {loadToradas ? (
+                <LoadingSpinner />
               ) : toradas.length === 0 ? (
-                <p className="text-center py-12 text-muted-foreground">
-                  No hay toradas registradas. Creá una nueva para comenzar.
-                </p>
+                <EmptyState text="No hay toradas registradas. Creá una nueva para comenzar." />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -577,10 +698,10 @@ export default function ReproduccionPage() {
                       {toradas.map((t) => (
                         <tr key={t.id} className="border-b hover:bg-muted/50">
                           <td className="py-3 px-2 font-medium">{t.nombre}</td>
-                          <td className="py-3 px-2">{tipoBadge(t.tipo)}</td>
-                          <td className="py-3 px-2">{formatDate(t.fechaInicio)}</td>
+                          <td className="py-3 px-2"><TipoBadge tipo={t.tipo} /></td>
+                          <td className="py-3 px-2">{fmt(t.fechaInicio)}</td>
                           <td className="py-3 px-2">
-                            {t.fechaFin ? formatDate(t.fechaFin) : (
+                            {t.fechaFin ? fmt(t.fechaFin) : (
                               <Badge className="bg-green-100 text-green-800 border-green-200">Activa</Badge>
                             )}
                           </td>
@@ -597,669 +718,758 @@ export default function ReproduccionPage() {
             </CardContent>
           </Card>
         </TabsContent>
-
-        {/* ==================== TAB SERVICIOS ==================== */}
-        <TabsContent value="servicios">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Servicios realizados</CardTitle>
-              <Button onClick={() => setDialogServicio(true)}>
-                <Plus className="mr-2 h-4 w-4" /> Nuevo servicio
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : servicios.length === 0 ? (
-                <p className="text-center py-12 text-muted-foreground">
-                  No hay servicios registrados.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-3 px-2 font-medium">Fecha</th>
-                        <th className="text-left py-3 px-2 font-medium">Hembra</th>
-                        <th className="text-left py-3 px-2 font-medium">Tipo</th>
-                        <th className="text-left py-3 px-2 font-medium">Macho / Toro</th>
-                        <th className="text-left py-3 px-2 font-medium">Torada</th>
-                        <th className="text-left py-3 px-2 font-medium">Inseminador</th>
-                        <th className="text-left py-3 px-2 font-medium">Tacto</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {servicios.map((s) => (
-                        <tr key={s.id} className="border-b hover:bg-muted/50">
-                          <td className="py-3 px-2">{formatDate(s.fecha)}</td>
-                          <td className="py-3 px-2 font-medium">{animalLabel(s.hembra)}</td>
-                          <td className="py-3 px-2">{tipoBadge(s.tipo)}</td>
-                          <td className="py-3 px-2">
-                            {s.macho ? animalLabel(s.macho) : s.toroNombre || "-"}
-                          </td>
-                          <td className="py-3 px-2">{s.torada?.nombre || "-"}</td>
-                          <td className="py-3 px-2">{s.inseminador || "-"}</td>
-                          <td className="py-3 px-2">
-                            {s.tacto ? resultadoBadge(s.tacto.resultado) : (
-                              <span className="text-muted-foreground">Pendiente</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ==================== TAB TACTOS ==================== */}
-        <TabsContent value="tactos">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Diagnósticos de preñez</CardTitle>
-              <Button onClick={() => setDialogTacto(true)}>
-                <Plus className="mr-2 h-4 w-4" /> Nuevo tacto
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : tactos.length === 0 ? (
-                <p className="text-center py-12 text-muted-foreground">
-                  No hay tactos registrados.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-3 px-2 font-medium">Fecha</th>
-                        <th className="text-left py-3 px-2 font-medium">Hembra</th>
-                        <th className="text-left py-3 px-2 font-medium">Resultado</th>
-                        <th className="text-left py-3 px-2 font-medium">Meses gest.</th>
-                        <th className="text-left py-3 px-2 font-medium">Fecha prob. parto</th>
-                        <th className="text-left py-3 px-2 font-medium">Método</th>
-                        <th className="text-left py-3 px-2 font-medium">Veterinario</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tactos.map((t) => (
-                        <tr key={t.id} className="border-b hover:bg-muted/50">
-                          <td className="py-3 px-2">{formatDate(t.fecha)}</td>
-                          <td className="py-3 px-2 font-medium">{animalLabel(t.hembra)}</td>
-                          <td className="py-3 px-2">{resultadoBadge(t.resultado)}</td>
-                          <td className="py-3 px-2">{t.mesesGest ?? "-"}</td>
-                          <td className="py-3 px-2">
-                            {t.fechaProbableParto ? formatDate(t.fechaProbableParto) : "-"}
-                          </td>
-                          <td className="py-3 px-2">
-                            <Badge variant="outline">
-                              {t.metodo === "ecografia" ? "Ecografía" : "Palpación"}
-                            </Badge>
-                          </td>
-                          <td className="py-3 px-2">{t.veterinario || "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ==================== TAB PARICIONES ==================== */}
-        <TabsContent value="pariciones">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Pariciones</CardTitle>
-              <Button onClick={() => setDialogParicion(true)}>
-                <Plus className="mr-2 h-4 w-4" /> Nueva parición
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : pariciones.length === 0 ? (
-                <p className="text-center py-12 text-muted-foreground">
-                  No hay pariciones registradas.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-3 px-2 font-medium">Fecha</th>
-                        <th className="text-left py-3 px-2 font-medium">Madre</th>
-                        <th className="text-left py-3 px-2 font-medium">Resultado</th>
-                        <th className="text-right py-3 px-2 font-medium">Peso nacer (kg)</th>
-                        <th className="text-left py-3 px-2 font-medium">Tipo parto</th>
-                        <th className="text-left py-3 px-2 font-medium">Sexo cría</th>
-                        <th className="text-left py-3 px-2 font-medium">Padre</th>
-                        <th className="text-left py-3 px-2 font-medium">Cría</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pariciones.map((p) => (
-                        <tr key={p.id} className="border-b hover:bg-muted/50">
-                          <td className="py-3 px-2">{formatDate(p.fecha)}</td>
-                          <td className="py-3 px-2 font-medium">{animalLabel(p.madre)}</td>
-                          <td className="py-3 px-2">{partoBadge(p.resultado)}</td>
-                          <td className="py-3 px-2 text-right">{p.pesoNacerKg ?? "-"}</td>
-                          <td className="py-3 px-2">
-                            {p.tipoParto ? (
-                              <Badge variant="outline">
-                                {p.tipoParto === "normal" ? "Normal" : p.tipoParto === "asistido" ? "Asistido" : "Cesárea"}
-                              </Badge>
-                            ) : "-"}
-                          </td>
-                          <td className="py-3 px-2">
-                            {p.sexoCria === "M" ? "Macho" : p.sexoCria === "F" ? "Hembra" : p.sexoCria || "-"}
-                          </td>
-                          <td className="py-3 px-2">
-                            {p.padre ? animalLabel(p.padre) : p.padreExterno || "-"}
-                          </td>
-                          <td className="py-3 px-2">
-                            {p.nacido ? animalLabel(p.nacido) : "-"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ==================== TAB DESTETES ==================== */}
-        <TabsContent value="destetes">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Destetes</CardTitle>
-              <Button onClick={() => setDialogDestete(true)}>
-                <Plus className="mr-2 h-4 w-4" /> Nuevo destete
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : destetes.length === 0 ? (
-                <p className="text-center py-12 text-muted-foreground">
-                  No hay destetes registrados.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-3 px-2 font-medium">Fecha</th>
-                        <th className="text-left py-3 px-2 font-medium">Animal</th>
-                        <th className="text-left py-3 px-2 font-medium">Raza</th>
-                        <th className="text-right py-3 px-2 font-medium">Peso (kg)</th>
-                        <th className="text-right py-3 px-2 font-medium">Edad (días)</th>
-                        <th className="text-left py-3 px-2 font-medium">Método</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {destetes.map((d) => (
-                        <tr key={d.id} className="border-b hover:bg-muted/50">
-                          <td className="py-3 px-2">{formatDate(d.fecha)}</td>
-                          <td className="py-3 px-2 font-medium">{animalLabel(d.animal)}</td>
-                          <td className="py-3 px-2">{d.animal.raza?.nombre || "-"}</td>
-                          <td className="py-3 px-2 text-right">{d.pesoKg ?? "-"}</td>
-                          <td className="py-3 px-2 text-right">{d.edadDias ?? "-"}</td>
-                          <td className="py-3 px-2">{metodoBadge(d.metodo)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
 
-      {/* ================================================================ */}
-      {/* DIALOGS                                                          */}
-      {/* ================================================================ */}
+      {/* ─── Dialogs ─── */}
 
-      {/* ---- Dialog Torada ---- */}
-      <Dialog open={dialogTorada} onOpenChange={setDialogTorada}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Nueva torada</DialogTitle>
-            <DialogDescription>Registrá una nueva temporada de servicio</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
+      <ServicioDialog
+        open={dialogServicio}
+        onOpenChange={setDialogServicio}
+        hembras={hembras}
+        machos={machos}
+        toradas={toradas}
+        servicios={servicios}
+        onSuccess={invalidateAll}
+      />
+
+      <TactoDialog
+        open={dialogTacto}
+        onOpenChange={setDialogTacto}
+        hembras={hembras}
+        servicios={servicios}
+        onSuccess={invalidateAll}
+      />
+
+      <ParicionDialog
+        open={dialogParicion}
+        onOpenChange={setDialogParicion}
+        hembras={hembras}
+        machos={machos}
+        onSuccess={invalidateAll}
+      />
+
+      <DesteteDialog
+        open={dialogDestete}
+        onOpenChange={setDialogDestete}
+        animales={allAnimals}
+        lotes={lotes}
+        onSuccess={invalidateAll}
+      />
+
+      <ToradaDialog
+        open={dialogTorada}
+        onOpenChange={setDialogTorada}
+        lotes={lotes}
+        onSuccess={invalidateAll}
+      />
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────
+// Shared small components
+// ────────────────────────────────────────────
+
+function LoadingSpinner() {
+  return (
+    <div className="flex justify-center py-12">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  )
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <p className="text-center py-12 text-muted-foreground">{text}</p>
+}
+
+// ────────────────────────────────────────────
+// Animal search select (reusable)
+// ────────────────────────────────────────────
+
+function AnimalSelect({
+  value,
+  onChange,
+  animals,
+  placeholder,
+}: {
+  value: string
+  onChange: (id: string) => void
+  animals: AnimalOption[]
+  placeholder: string
+}) {
+  const [search, setSearch] = useState("")
+  const filtered = search
+    ? animals.filter(
+        (a) =>
+          (a.caravanaVisual || "").toLowerCase().includes(search.toLowerCase()) ||
+          (a.cuig || "").toLowerCase().includes(search.toLowerCase())
+      )
+    : animals
+
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger><SelectValue placeholder={placeholder} /></SelectTrigger>
+      <SelectContent>
+        <div className="p-2">
+          <div className="flex items-center gap-2 px-1 pb-2">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <input
+              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              placeholder="Buscar caravana..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        </div>
+        {filtered.length === 0 && (
+          <SelectItem value="__none" disabled>Sin resultados</SelectItem>
+        )}
+        {filtered.slice(0, 50).map((a) => (
+          <SelectItem key={a.id} value={a.id}>
+            {label(a)} {a.sexo === "M" ? "(M)" : a.sexo === "F" ? "(H)" : ""}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+// ────────────────────────────────────────────
+// Dialog: Servicio
+// ────────────────────────────────────────────
+
+function ServicioDialog({
+  open,
+  onOpenChange,
+  hembras,
+  machos,
+  toradas,
+  servicios,
+  onSuccess,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  hembras: AnimalOption[]
+  machos: AnimalOption[]
+  toradas: Torada[]
+  servicios: Servicio[]
+  onSuccess: () => void
+}) {
+  const [form, setForm] = useState({
+    fecha: "", tipo: "natural", hembraId: "", machoId: "",
+    toradaId: "", toroNombre: "", loteSemen: "", inseminador: "", observ: "",
+  })
+
+  const reset = () => setForm({
+    fecha: "", tipo: "natural", hembraId: "", machoId: "",
+    toradaId: "", toroNombre: "", loteSemen: "", inseminador: "", observ: "",
+  })
+
+  const mutation = useMutation({
+    mutationFn: () => postJson("/api/reproduccion/servicios", form),
+    onSuccess: () => {
+      toast.success("Servicio registrado correctamente")
+      reset()
+      onOpenChange(false)
+      onSuccess()
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  function submit() {
+    if (!form.fecha || !form.hembraId) {
+      toast.error("Completá los campos requeridos")
+      return
+    }
+    mutation.mutate()
+  }
+
+  const set = (patch: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...patch }))
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v) }}>
+      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Nuevo servicio</DialogTitle>
+          <DialogDescription>Registrá un servicio (monta natural o IA)</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="tor-nombre">Nombre *</Label>
-              <Input id="tor-nombre" placeholder="Servicio Otoño 2026" value={formTorada.nombre} onChange={(e) => setFormTorada({ ...formTorada, nombre: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="tor-inicio">Fecha inicio *</Label>
-                <Input id="tor-inicio" type="date" value={formTorada.fechaInicio} onChange={(e) => setFormTorada({ ...formTorada, fechaInicio: e.target.value })} />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="tor-fin">Fecha fin</Label>
-                <Input id="tor-fin" type="date" value={formTorada.fechaFin} onChange={(e) => setFormTorada({ ...formTorada, fechaFin: e.target.value })} />
-              </div>
+              <Label>Fecha *</Label>
+              <Input type="date" value={form.fecha} onChange={(e) => set({ fecha: e.target.value })} />
             </div>
             <div className="grid gap-2">
               <Label>Tipo *</Label>
-              <Select value={formTorada.tipo} onValueChange={(v) => setFormTorada({ ...formTorada, tipo: v })}>
+              <Select value={form.tipo} onValueChange={(v) => set({ tipo: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="natural">Natural</SelectItem>
                   <SelectItem value="ia">IA</SelectItem>
                   <SelectItem value="iatf">IATF</SelectItem>
-                  <SelectItem value="mixto">Mixto</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Lote *</Label>
-              <Select value={formTorada.loteId} onValueChange={(v) => setFormTorada({ ...formTorada, loteId: v })}>
-                <SelectTrigger><SelectValue placeholder="Seleccioná un lote" /></SelectTrigger>
-                <SelectContent>
-                  {lotes.length === 0 ? (
-                    <SelectItem value="__none" disabled>No hay lotes disponibles</SelectItem>
-                  ) : (
-                    lotes.map((l) => (
-                      <SelectItem key={l.id} value={l.id}>{l.nombre}</SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="tor-hembras">Cantidad hembras</Label>
-                <Input id="tor-hembras" type="number" value={formTorada.cantidadHembras} onChange={(e) => setFormTorada({ ...formTorada, cantidadHembras: e.target.value })} />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="tor-machos">Cantidad machos</Label>
-                <Input id="tor-machos" type="number" value={formTorada.cantidadMachos} onChange={(e) => setFormTorada({ ...formTorada, cantidadMachos: e.target.value })} />
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="tor-obs">Observaciones</Label>
-              <Input id="tor-obs" value={formTorada.observ} onChange={(e) => setFormTorada({ ...formTorada, observ: e.target.value })} />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogTorada(false)}>Cancelar</Button>
-            <Button onClick={handleSubmitTorada} disabled={saving}>
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Crear torada
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ---- Dialog Servicio ---- */}
-      <Dialog open={dialogServicio} onOpenChange={setDialogServicio}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Nuevo servicio</DialogTitle>
-            <DialogDescription>Registrá un servicio (monta natural o IA)</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="srv-fecha">Fecha *</Label>
-                <Input id="srv-fecha" type="date" value={formServicio.fecha} onChange={(e) => setFormServicio({ ...formServicio, fecha: e.target.value })} />
-              </div>
-              <div className="grid gap-2">
-                <Label>Tipo *</Label>
-                <Select value={formServicio.tipo} onValueChange={(v) => setFormServicio({ ...formServicio, tipo: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="natural">Natural</SelectItem>
-                    <SelectItem value="ia">IA</SelectItem>
-                    <SelectItem value="iatf">IATF</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label>Hembra *</Label>
-              <Select value={formServicio.hembraId} onValueChange={(v) => setFormServicio({ ...formServicio, hembraId: v })}>
-                <SelectTrigger><SelectValue placeholder="Seleccioná hembra" /></SelectTrigger>
-                <SelectContent>
-                  <div className="p-2">
-                    <div className="flex items-center gap-2 px-1 pb-2">
-                      <Search className="h-4 w-4 text-muted-foreground" />
-                      <input className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" placeholder="Buscar caravana..." value={searchHembra} onChange={(e) => setSearchHembra(e.target.value)} />
-                    </div>
-                  </div>
-                  {filteredHembras.slice(0, 50).map((h) => (
-                    <SelectItem key={h.id} value={h.id}>{animalLabel(h)}</SelectItem>
-                  ))}
-                  {filteredHembras.length === 0 && (
-                    <SelectItem value="__none" disabled>No hay hembras</SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            {formServicio.tipo === "natural" ? (
-              <div className="grid gap-2">
-                <Label>Macho</Label>
-                <Select value={formServicio.machoId} onValueChange={(v) => setFormServicio({ ...formServicio, machoId: v })}>
-                  <SelectTrigger><SelectValue placeholder="Seleccioná macho (opcional)" /></SelectTrigger>
-                  <SelectContent>
-                    {machos.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>{animalLabel(m)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : (
-              <>
-                <div className="grid gap-2">
-                  <Label htmlFor="srv-toro">Nombre del toro (semen)</Label>
-                  <Input id="srv-toro" value={formServicio.toroNombre} onChange={(e) => setFormServicio({ ...formServicio, toroNombre: e.target.value })} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="srv-lote">Lote semen</Label>
-                    <Input id="srv-lote" value={formServicio.loteSemen} onChange={(e) => setFormServicio({ ...formServicio, loteSemen: e.target.value })} />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="srv-insem">Inseminador</Label>
-                    <Input id="srv-insem" value={formServicio.inseminador} onChange={(e) => setFormServicio({ ...formServicio, inseminador: e.target.value })} />
-                  </div>
-                </div>
-              </>
-            )}
-            <div className="grid gap-2">
-              <Label>Torada</Label>
-              <Select value={formServicio.toradaId} onValueChange={(v) => setFormServicio({ ...formServicio, toradaId: v })}>
-                <SelectTrigger><SelectValue placeholder="Asociar a torada (opcional)" /></SelectTrigger>
-                <SelectContent>
-                  {toradas.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.nombre}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="srv-obs">Observaciones</Label>
-              <Input id="srv-obs" value={formServicio.observ} onChange={(e) => setFormServicio({ ...formServicio, observ: e.target.value })} />
-            </div>
+          <div className="grid gap-2">
+            <Label>Hembra *</Label>
+            <AnimalSelect value={form.hembraId} onChange={(v) => set({ hembraId: v })} animals={hembras} placeholder="Seleccioná hembra" />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogServicio(false)}>Cancelar</Button>
-            <Button onClick={handleSubmitServicio} disabled={saving}>
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Registrar servicio
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ---- Dialog Tacto ---- */}
-      <Dialog open={dialogTacto} onOpenChange={setDialogTacto}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Nuevo tacto</DialogTitle>
-            <DialogDescription>Registrá un diagnóstico de preñez</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="tac-fecha">Fecha *</Label>
-                <Input id="tac-fecha" type="date" value={formTacto.fecha} onChange={(e) => setFormTacto({ ...formTacto, fecha: e.target.value })} />
-              </div>
-              <div className="grid gap-2">
-                <Label>Resultado *</Label>
-                <Select value={formTacto.resultado} onValueChange={(v) => setFormTacto({ ...formTacto, resultado: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="preñada">Preñada</SelectItem>
-                    <SelectItem value="vacia">Vacía</SelectItem>
-                    <SelectItem value="dudosa">Dudosa</SelectItem>
-                    <SelectItem value="absorcion">Absorción</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+          {form.tipo === "natural" ? (
             <div className="grid gap-2">
-              <Label>Hembra *</Label>
-              <Select value={formTacto.hembraId} onValueChange={(v) => setFormTacto({ ...formTacto, hembraId: v })}>
-                <SelectTrigger><SelectValue placeholder="Seleccioná hembra" /></SelectTrigger>
-                <SelectContent>
-                  {hembras.slice(0, 50).map((h) => (
-                    <SelectItem key={h.id} value={h.id}>{animalLabel(h)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Macho</Label>
+              <AnimalSelect value={form.machoId} onChange={(v) => set({ machoId: v })} animals={machos} placeholder="Seleccioná macho (opcional)" />
             </div>
-            <div className="grid gap-2">
-              <Label>Método *</Label>
-              <Select value={formTacto.metodo} onValueChange={(v) => setFormTacto({ ...formTacto, metodo: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="palpacion">Palpación</SelectItem>
-                  <SelectItem value="ecografia">Ecografía</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {formTacto.resultado === "preñada" && (
+          ) : (
+            <>
+              <div className="grid gap-2">
+                <Label>Nombre del toro (semen)</Label>
+                <Input value={form.toroNombre} onChange={(e) => set({ toroNombre: e.target.value })} />
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="tac-meses">Meses gestación</Label>
-                  <Input id="tac-meses" type="number" step="0.5" value={formTacto.mesesGest} onChange={(e) => setFormTacto({ ...formTacto, mesesGest: e.target.value })} />
+                  <Label>Lote semen</Label>
+                  <Input value={form.loteSemen} onChange={(e) => set({ loteSemen: e.target.value })} />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="tac-fpp">Fecha prob. parto</Label>
-                  <Input id="tac-fpp" type="date" value={formTacto.fechaProbableParto} onChange={(e) => setFormTacto({ ...formTacto, fechaProbableParto: e.target.value })} />
+                  <Label>Inseminador</Label>
+                  <Input value={form.inseminador} onChange={(e) => set({ inseminador: e.target.value })} />
                 </div>
               </div>
-            )}
-            <div className="grid gap-2">
-              <Label>Servicio asociado</Label>
-              <Select value={formTacto.servicioId} onValueChange={(v) => setFormTacto({ ...formTacto, servicioId: v })}>
-                <SelectTrigger><SelectValue placeholder="Asociar a servicio (opcional)" /></SelectTrigger>
-                <SelectContent>
-                  {servicios.filter((s) => !s.tacto).map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {formatDate(s.fecha)} - {animalLabel(s.hembra)} ({s.tipo})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="tac-vet">Veterinario</Label>
-              <Input id="tac-vet" value={formTacto.veterinario} onChange={(e) => setFormTacto({ ...formTacto, veterinario: e.target.value })} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="tac-obs">Observaciones</Label>
-              <Input id="tac-obs" value={formTacto.observ} onChange={(e) => setFormTacto({ ...formTacto, observ: e.target.value })} />
-            </div>
+            </>
+          )}
+          <div className="grid gap-2">
+            <Label>Torada</Label>
+            <Select value={form.toradaId} onValueChange={(v) => set({ toradaId: v })}>
+              <SelectTrigger><SelectValue placeholder="Asociar a torada (opcional)" /></SelectTrigger>
+              <SelectContent>
+                {toradas.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>{t.nombre}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogTacto(false)}>Cancelar</Button>
-            <Button onClick={handleSubmitTacto} disabled={saving}>
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Registrar tacto
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ---- Dialog Parición ---- */}
-      <Dialog open={dialogParicion} onOpenChange={setDialogParicion}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Nueva parición</DialogTitle>
-            <DialogDescription>Registrá un nacimiento</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="par-fecha">Fecha *</Label>
-                <Input id="par-fecha" type="date" value={formParicion.fecha} onChange={(e) => setFormParicion({ ...formParicion, fecha: e.target.value })} />
-              </div>
-              <div className="grid gap-2">
-                <Label>Resultado *</Label>
-                <Select value={formParicion.resultado} onValueChange={(v) => setFormParicion({ ...formParicion, resultado: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="vivo">Vivo</SelectItem>
-                    <SelectItem value="muerto">Muerto</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label>Madre *</Label>
-              <Select value={formParicion.madreId} onValueChange={(v) => setFormParicion({ ...formParicion, madreId: v })}>
-                <SelectTrigger><SelectValue placeholder="Seleccioná la madre" /></SelectTrigger>
-                <SelectContent>
-                  {hembras.slice(0, 50).map((h) => (
-                    <SelectItem key={h.id} value={h.id}>{animalLabel(h)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Padre (del rodeo)</Label>
-                <Select value={formParicion.padreId} onValueChange={(v) => setFormParicion({ ...formParicion, padreId: v })}>
-                  <SelectTrigger><SelectValue placeholder="Opcional" /></SelectTrigger>
-                  <SelectContent>
-                    {machos.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>{animalLabel(m)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="par-padre-ext">Padre externo</Label>
-                <Input id="par-padre-ext" placeholder="Nombre toro IA" value={formParicion.padreExterno} onChange={(e) => setFormParicion({ ...formParicion, padreExterno: e.target.value })} />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="par-peso">Peso nacer (kg)</Label>
-                <Input id="par-peso" type="number" step="0.1" value={formParicion.pesoNacerKg} onChange={(e) => setFormParicion({ ...formParicion, pesoNacerKg: e.target.value })} />
-              </div>
-              <div className="grid gap-2">
-                <Label>Tipo parto</Label>
-                <Select value={formParicion.tipoParto} onValueChange={(v) => setFormParicion({ ...formParicion, tipoParto: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="normal">Normal</SelectItem>
-                    <SelectItem value="asistido">Asistido</SelectItem>
-                    <SelectItem value="cesarea">Cesárea</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Sexo cría</Label>
-                <Select value={formParicion.sexoCria} onValueChange={(v) => setFormParicion({ ...formParicion, sexoCria: v })}>
-                  <SelectTrigger><SelectValue placeholder="Sexo" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="M">Macho</SelectItem>
-                    <SelectItem value="F">Hembra</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="par-dif">Dificultad (1-5)</Label>
-              <Input id="par-dif" type="number" min="1" max="5" value={formParicion.dificultad} onChange={(e) => setFormParicion({ ...formParicion, dificultad: e.target.value })} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="par-obs">Observaciones</Label>
-              <Input id="par-obs" value={formParicion.observ} onChange={(e) => setFormParicion({ ...formParicion, observ: e.target.value })} />
-            </div>
+          <div className="grid gap-2">
+            <Label>Observaciones</Label>
+            <Input value={form.observ} onChange={(e) => set({ observ: e.target.value })} />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogParicion(false)}>Cancelar</Button>
-            <Button onClick={handleSubmitParicion} disabled={saving}>
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Registrar parición
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={submit} disabled={mutation.isPending}>
+            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Registrar servicio
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
-      {/* ---- Dialog Destete ---- */}
-      <Dialog open={dialogDestete} onOpenChange={setDialogDestete}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Nuevo destete</DialogTitle>
-            <DialogDescription>Registrá un destete</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
+// ────────────────────────────────────────────
+// Dialog: Tacto
+// ────────────────────────────────────────────
+
+function TactoDialog({
+  open,
+  onOpenChange,
+  hembras,
+  servicios,
+  onSuccess,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  hembras: AnimalOption[]
+  servicios: Servicio[]
+  onSuccess: () => void
+}) {
+  const [form, setForm] = useState({
+    fecha: "", resultado: "preñada", mesesGest: "", fechaProbableParto: "",
+    metodo: "palpacion", veterinario: "", hembraId: "", servicioId: "", observ: "",
+  })
+
+  const reset = () => setForm({
+    fecha: "", resultado: "preñada", mesesGest: "", fechaProbableParto: "",
+    metodo: "palpacion", veterinario: "", hembraId: "", servicioId: "", observ: "",
+  })
+
+  const mutation = useMutation({
+    mutationFn: () => postJson("/api/reproduccion/tactos", form),
+    onSuccess: () => {
+      toast.success("Tacto registrado correctamente")
+      reset()
+      onOpenChange(false)
+      onSuccess()
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  function submit() {
+    if (!form.fecha || !form.hembraId || !form.resultado) {
+      toast.error("Completá los campos requeridos")
+      return
+    }
+    mutation.mutate()
+  }
+
+  const set = (patch: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...patch }))
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v) }}>
+      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Nuevo tacto</DialogTitle>
+          <DialogDescription>Registrá un diagnóstico de preñez</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="des-fecha">Fecha *</Label>
-              <Input id="des-fecha" type="date" value={formDestete.fecha} onChange={(e) => setFormDestete({ ...formDestete, fecha: e.target.value })} />
+              <Label>Fecha *</Label>
+              <Input type="date" value={form.fecha} onChange={(e) => set({ fecha: e.target.value })} />
             </div>
             <div className="grid gap-2">
-              <Label>Animal *</Label>
-              <Select value={formDestete.animalId} onValueChange={(v) => setFormDestete({ ...formDestete, animalId: v })}>
-                <SelectTrigger><SelectValue placeholder="Seleccioná el animal" /></SelectTrigger>
-                <SelectContent>
-                  {[...hembras, ...machos].slice(0, 50).map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {animalLabel(a)} ({a.sexo})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="des-peso">Peso (kg)</Label>
-                <Input id="des-peso" type="number" step="0.1" value={formDestete.pesoKg} onChange={(e) => setFormDestete({ ...formDestete, pesoKg: e.target.value })} />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="des-edad">Edad (días)</Label>
-                <Input id="des-edad" type="number" value={formDestete.edadDias} onChange={(e) => setFormDestete({ ...formDestete, edadDias: e.target.value })} />
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label>Método</Label>
-              <Select value={formDestete.metodo} onValueChange={(v) => setFormDestete({ ...formDestete, metodo: v })}>
+              <Label>Resultado *</Label>
+              <Select value={form.resultado} onValueChange={(v) => set({ resultado: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="tradicional">Tradicional</SelectItem>
-                  <SelectItem value="precoz">Precoz</SelectItem>
-                  <SelectItem value="hiperprecoz">Hiperprecoz</SelectItem>
-                  <SelectItem value="destetador">Destetador</SelectItem>
+                  <SelectItem value="preñada">Preñada</SelectItem>
+                  <SelectItem value="vacia">Vacía</SelectItem>
+                  <SelectItem value="dudosa">Dudosa</SelectItem>
+                  <SelectItem value="absorcion">Absorción</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label>Hembra *</Label>
+            <AnimalSelect value={form.hembraId} onChange={(v) => set({ hembraId: v })} animals={hembras} placeholder="Seleccioná hembra" />
+          </div>
+          <div className="grid gap-2">
+            <Label>Método *</Label>
+            <Select value={form.metodo} onValueChange={(v) => set({ metodo: v })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="palpacion">Palpación</SelectItem>
+                <SelectItem value="ecografia">Ecografía</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {form.resultado === "preñada" && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Meses gestación</Label>
+                <Input type="number" step="0.5" value={form.mesesGest} onChange={(e) => set({ mesesGest: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Fecha prob. parto</Label>
+                <Input type="date" value={form.fechaProbableParto} onChange={(e) => set({ fechaProbableParto: e.target.value })} />
+              </div>
+            </div>
+          )}
+          <div className="grid gap-2">
+            <Label>Servicio asociado</Label>
+            <Select value={form.servicioId} onValueChange={(v) => set({ servicioId: v })}>
+              <SelectTrigger><SelectValue placeholder="Asociar a servicio (opcional)" /></SelectTrigger>
+              <SelectContent>
+                {servicios.filter((s) => !s.tacto).map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {fmt(s.fecha)} - {label(s.hembra)} ({s.tipo})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label>Veterinario</Label>
+            <Input value={form.veterinario} onChange={(e) => set({ veterinario: e.target.value })} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Observaciones</Label>
+            <Input value={form.observ} onChange={(e) => set({ observ: e.target.value })} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={submit} disabled={mutation.isPending}>
+            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Registrar tacto
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ────────────────────────────────────────────
+// Dialog: Parición
+// ────────────────────────────────────────────
+
+function ParicionDialog({
+  open,
+  onOpenChange,
+  hembras,
+  machos,
+  onSuccess,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  hembras: AnimalOption[]
+  machos: AnimalOption[]
+  onSuccess: () => void
+}) {
+  const [form, setForm] = useState({
+    fecha: "", resultado: "vivo", pesoNacerKg: "", tipoParto: "normal",
+    dificultad: "", sexoCria: "", madreId: "", padreId: "", padreExterno: "", observ: "",
+  })
+
+  const reset = () => setForm({
+    fecha: "", resultado: "vivo", pesoNacerKg: "", tipoParto: "normal",
+    dificultad: "", sexoCria: "", madreId: "", padreId: "", padreExterno: "", observ: "",
+  })
+
+  const mutation = useMutation({
+    mutationFn: () => postJson("/api/reproduccion/pariciones", form),
+    onSuccess: () => {
+      toast.success("Parición registrada correctamente")
+      reset()
+      onOpenChange(false)
+      onSuccess()
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  function submit() {
+    if (!form.fecha || !form.madreId || !form.resultado) {
+      toast.error("Completá los campos requeridos")
+      return
+    }
+    mutation.mutate()
+  }
+
+  const set = (patch: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...patch }))
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v) }}>
+      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Nueva parición</DialogTitle>
+          <DialogDescription>Registrá un nacimiento</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label>Fecha *</Label>
+              <Input type="date" value={form.fecha} onChange={(e) => set({ fecha: e.target.value })} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Resultado *</Label>
+              <Select value={form.resultado} onValueChange={(v) => set({ resultado: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="vivo">Vivo</SelectItem>
+                  <SelectItem value="muerto">Muerto</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label>Madre *</Label>
+            <AnimalSelect value={form.madreId} onChange={(v) => set({ madreId: v })} animals={hembras} placeholder="Seleccioná la madre" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label>Padre (del rodeo)</Label>
+              <AnimalSelect value={form.padreId} onChange={(v) => set({ padreId: v })} animals={machos} placeholder="Opcional" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Padre externo</Label>
+              <Input placeholder="Nombre toro IA" value={form.padreExterno} onChange={(e) => set({ padreExterno: e.target.value })} />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="grid gap-2">
+              <Label>Peso nacer (kg)</Label>
+              <Input type="number" step="0.1" value={form.pesoNacerKg} onChange={(e) => set({ pesoNacerKg: e.target.value })} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Tipo parto</Label>
+              <Select value={form.tipoParto} onValueChange={(v) => set({ tipoParto: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="normal">Normal</SelectItem>
+                  <SelectItem value="asistido">Asistido</SelectItem>
+                  <SelectItem value="cesarea">Cesárea</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="des-obs">Observaciones</Label>
-              <Input id="des-obs" value={formDestete.observ} onChange={(e) => setFormDestete({ ...formDestete, observ: e.target.value })} />
+              <Label>Sexo cría</Label>
+              <Select value={form.sexoCria} onValueChange={(v) => set({ sexoCria: v })}>
+                <SelectTrigger><SelectValue placeholder="Sexo" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="M">Macho</SelectItem>
+                  <SelectItem value="F">Hembra</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogDestete(false)}>Cancelar</Button>
-            <Button onClick={handleSubmitDestete} disabled={saving}>
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Registrar destete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+          <div className="grid gap-2">
+            <Label>Dificultad (1-5)</Label>
+            <Input type="number" min="1" max="5" value={form.dificultad} onChange={(e) => set({ dificultad: e.target.value })} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Observaciones</Label>
+            <Input value={form.observ} onChange={(e) => set({ observ: e.target.value })} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={submit} disabled={mutation.isPending}>
+            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Registrar parición
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ────────────────────────────────────────────
+// Dialog: Destete
+// ────────────────────────────────────────────
+
+function DesteteDialog({
+  open,
+  onOpenChange,
+  animales,
+  lotes,
+  onSuccess,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  animales: AnimalOption[]
+  lotes: LoteOption[]
+  onSuccess: () => void
+}) {
+  const [form, setForm] = useState({
+    fecha: "", pesoKg: "", edadDias: "", metodo: "tradicional",
+    animalId: "", loteDesteteId: "", observ: "",
+  })
+
+  const reset = () => setForm({
+    fecha: "", pesoKg: "", edadDias: "", metodo: "tradicional",
+    animalId: "", loteDesteteId: "", observ: "",
+  })
+
+  const mutation = useMutation({
+    mutationFn: () => postJson("/api/reproduccion/destetes", form),
+    onSuccess: () => {
+      toast.success("Destete registrado correctamente")
+      reset()
+      onOpenChange(false)
+      onSuccess()
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  function submit() {
+    if (!form.fecha || !form.animalId) {
+      toast.error("Completá los campos requeridos")
+      return
+    }
+    mutation.mutate()
+  }
+
+  const set = (patch: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...patch }))
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v) }}>
+      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Nuevo destete</DialogTitle>
+          <DialogDescription>Registrá un destete</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label>Fecha *</Label>
+            <Input type="date" value={form.fecha} onChange={(e) => set({ fecha: e.target.value })} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Animal *</Label>
+            <AnimalSelect value={form.animalId} onChange={(v) => set({ animalId: v })} animals={animales} placeholder="Seleccioná el animal" />
+          </div>
+          <div className="grid gap-2">
+            <Label>Lote destino</Label>
+            <Select value={form.loteDesteteId} onValueChange={(v) => set({ loteDesteteId: v })}>
+              <SelectTrigger><SelectValue placeholder="Seleccioná lote destino (opcional)" /></SelectTrigger>
+              <SelectContent>
+                {lotes.length === 0 ? (
+                  <SelectItem value="__none" disabled>No hay lotes disponibles</SelectItem>
+                ) : (
+                  lotes.map((l) => (
+                    <SelectItem key={l.id} value={l.id}>{l.nombre}</SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label>Peso (kg)</Label>
+              <Input type="number" step="0.1" value={form.pesoKg} onChange={(e) => set({ pesoKg: e.target.value })} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Edad (días)</Label>
+              <Input type="number" value={form.edadDias} onChange={(e) => set({ edadDias: e.target.value })} />
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label>Método</Label>
+            <Select value={form.metodo} onValueChange={(v) => set({ metodo: v })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tradicional">Tradicional</SelectItem>
+                <SelectItem value="precoz">Precoz</SelectItem>
+                <SelectItem value="hiperprecoz">Hiperprecoz</SelectItem>
+                <SelectItem value="destetador">Destetador</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label>Observaciones</Label>
+            <Input value={form.observ} onChange={(e) => set({ observ: e.target.value })} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={submit} disabled={mutation.isPending}>
+            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Registrar destete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ────────────────────────────────────────────
+// Dialog: Torada
+// ────────────────────────────────────────────
+
+function ToradaDialog({
+  open,
+  onOpenChange,
+  lotes,
+  onSuccess,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  lotes: LoteOption[]
+  onSuccess: () => void
+}) {
+  const [form, setForm] = useState({
+    nombre: "", fechaInicio: "", fechaFin: "", tipo: "natural",
+    cantidadHembras: "", cantidadMachos: "", observ: "", loteId: "",
+  })
+
+  const reset = () => setForm({
+    nombre: "", fechaInicio: "", fechaFin: "", tipo: "natural",
+    cantidadHembras: "", cantidadMachos: "", observ: "", loteId: "",
+  })
+
+  const mutation = useMutation({
+    mutationFn: () => postJson("/api/reproduccion/toradas", form),
+    onSuccess: () => {
+      toast.success("Torada creada correctamente")
+      reset()
+      onOpenChange(false)
+      onSuccess()
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  function submit() {
+    if (!form.nombre || !form.fechaInicio || !form.loteId) {
+      toast.error("Completá los campos requeridos")
+      return
+    }
+    mutation.mutate()
+  }
+
+  const set = (patch: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...patch }))
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v) }}>
+      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Nueva torada</DialogTitle>
+          <DialogDescription>Registrá una nueva temporada de servicio</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label>Nombre *</Label>
+            <Input placeholder="Servicio Otoño 2026" value={form.nombre} onChange={(e) => set({ nombre: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label>Fecha inicio *</Label>
+              <Input type="date" value={form.fechaInicio} onChange={(e) => set({ fechaInicio: e.target.value })} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Fecha fin</Label>
+              <Input type="date" value={form.fechaFin} onChange={(e) => set({ fechaFin: e.target.value })} />
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label>Tipo *</Label>
+            <Select value={form.tipo} onValueChange={(v) => set({ tipo: v })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="natural">Natural</SelectItem>
+                <SelectItem value="ia">IA</SelectItem>
+                <SelectItem value="iatf">IATF</SelectItem>
+                <SelectItem value="mixto">Mixto</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label>Lote *</Label>
+            <Select value={form.loteId} onValueChange={(v) => set({ loteId: v })}>
+              <SelectTrigger><SelectValue placeholder="Seleccioná un lote" /></SelectTrigger>
+              <SelectContent>
+                {lotes.length === 0 ? (
+                  <SelectItem value="__none" disabled>No hay lotes disponibles</SelectItem>
+                ) : (
+                  lotes.map((l) => (
+                    <SelectItem key={l.id} value={l.id}>{l.nombre}</SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label>Cantidad hembras</Label>
+              <Input type="number" value={form.cantidadHembras} onChange={(e) => set({ cantidadHembras: e.target.value })} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Cantidad machos</Label>
+              <Input type="number" value={form.cantidadMachos} onChange={(e) => set({ cantidadMachos: e.target.value })} />
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label>Observaciones</Label>
+            <Input value={form.observ} onChange={(e) => set({ observ: e.target.value })} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={submit} disabled={mutation.isPending}>
+            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Crear torada
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

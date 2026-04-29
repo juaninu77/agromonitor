@@ -126,10 +126,34 @@ export default function RegisterPage() {
             <h2 className="text-xl font-semibold text-gray-900">
               ¡Cuenta creada exitosamente!
             </h2>
-            <p className="text-gray-600">
+
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-4 text-left space-y-2">
+              <p className="text-sm font-semibold text-emerald-800">
+                Guarda tus credenciales:
+              </p>
+              <div className="space-y-1">
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Email:</span>{" "}
+                  <span className="font-mono bg-white px-1.5 py-0.5 rounded border text-gray-900">
+                    {formData.email}
+                  </span>
+                </p>
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Contrasena:</span>{" "}
+                  <span className="font-mono bg-white px-1.5 py-0.5 rounded border text-gray-900">
+                    {"•".repeat(formData.password.length)}
+                  </span>
+                </p>
+              </div>
+              <p className="text-xs text-emerald-700 mt-2">
+                Si olvidas tu contrasena, podes restablecerla desde el inicio de sesion.
+              </p>
+            </div>
+
+            <p className="text-gray-600 text-sm">
               {necesitaConfiguracion 
-                ? 'Redirigiendo a la configuración inicial...'
-                : 'Redirigiendo al inicio de sesión...'}
+                ? 'Redirigiendo a la configuracion inicial...'
+                : 'Redirigiendo al inicio de sesion...'}
             </p>
           </div>
         </CardContent>

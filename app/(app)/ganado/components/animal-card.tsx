@@ -1,6 +1,7 @@
 "use client"
 
 import { memo } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -45,7 +46,7 @@ interface AnimalCardProps {
  * Compatible con datos de BD y datos mock
  */
 export const AnimalCard = memo(({ animal, onSelect, onEdit }: AnimalCardProps) => {
-  // Normalizar datos para soportar ambos formatos
+  const router = useRouter()
   const name = animal.name || animal.nombre || 'Sin nombre'
   const tagNumber = animal.tagNumber || animal.caravanaVisual || ''
   const breed = typeof animal.raza === 'object' ? animal.raza?.nombre : (animal.breed || animal.raza || '')
@@ -131,11 +132,11 @@ export const AnimalCard = memo(({ animal, onSelect, onEdit }: AnimalCardProps) =
               className="flex-1 bg-transparent"
               onClick={(e) => {
                 e.stopPropagation()
-                onSelect(animal)
+                router.push(`/ganado/${animal.id}`)
               }}
             >
               <Eye className="h-4 w-4 mr-1" />
-              Ver
+              Ficha
             </Button>
             <Button
               size="sm"

@@ -34,6 +34,7 @@ const navCommands = [
   { id: "potreros", label: "Potreros", icon: MapPin, action: "/potreros" },
   { id: "ventas", label: "Ventas y Compras", icon: ShoppingCart, action: "/ventas" },
   { id: "config", label: "Configuración", icon: Settings, action: "/configuracion/establecimientos" },
+  { id: "catalogo", label: "Catálogo (Razas, Categorías)", icon: Settings, action: "/configuracion/catalogo" },
 ]
 
 const quickActions = [

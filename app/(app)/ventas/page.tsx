@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -31,6 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   ShoppingCart,
   Plus,
@@ -39,17 +41,18 @@ import {
   Users,
   Truck,
   TrendingUp,
-  RefreshCw,
   Search,
   ArrowDownUp,
   Phone,
   Building2,
+  Loader2,
+  Weight,
+  AlertCircle,
 } from "lucide-react"
 import { toast } from "sonner"
+import { useTenant } from "@/lib/context/tenant-context"
 
-// ============================================
-// TIPOS
-// ============================================
+// ─── Tipos ───────────────────────────────────────────────
 
 interface Baja {
   id: string
@@ -69,10 +72,7 @@ interface Baja {
     raza: { nombre: string } | null
     categoria: { nombre: string } | null
   }
-  cliente: {
-    id: string
-    nombre: string
-  } | null
+  cliente: { id: string; nombre: string } | null
 }
 
 interface Cliente {
@@ -129,23 +129,21 @@ interface AnimalOption {
   category: string
 }
 
-// ============================================
-// HELPERS
-// ============================================
+// ─── Constantes ──────────────────────────────────────────
 
-const MOTIVO_BADGE: Record<string, { label: string; variant: string; className: string }> = {
-  venta: { label: "Venta", variant: "default", className: "bg-green-600 hover:bg-green-700" },
-  muerte: { label: "Muerte", variant: "destructive", className: "bg-red-600 hover:bg-red-700" },
-  faena: { label: "Faena", variant: "default", className: "bg-orange-500 hover:bg-orange-600" },
-  descarte: { label: "Descarte", variant: "secondary", className: "bg-gray-500 hover:bg-gray-600 text-white" },
-  robo: { label: "Robo", variant: "destructive", className: "bg-red-800 hover:bg-red-900" },
-  otro: { label: "Otro", variant: "outline", className: "bg-gray-400 hover:bg-gray-500 text-white" },
+const MOTIVO_BADGE: Record<string, { label: string; className: string }> = {
+  venta: { label: "Venta", className: "bg-green-600 hover:bg-green-700 text-white" },
+  muerte: { label: "Muerte", className: "bg-red-600 hover:bg-red-700 text-white" },
+  faena: { label: "Faena", className: "bg-orange-500 hover:bg-orange-600 text-white" },
+  descarte: { label: "Descarte", className: "bg-gray-500 hover:bg-gray-600 text-white" },
+  robo: { label: "Robo", className: "bg-red-800 hover:bg-red-900 text-white" },
+  otro: { label: "Otro", className: "bg-gray-400 hover:bg-gray-500 text-white" },
 }
 
 const ESTADO_BADGE: Record<string, { label: string; className: string }> = {
-  vigente: { label: "Vigente", className: "bg-green-600 hover:bg-green-700" },
-  usado: { label: "Usado", className: "bg-blue-600 hover:bg-blue-700" },
-  vencido: { label: "Vencido", className: "bg-red-600 hover:bg-red-700" },
+  vigente: { label: "Vigente", className: "bg-green-600 hover:bg-green-700 text-white" },
+  usado: { label: "Usado", className: "bg-blue-600 hover:bg-blue-700 text-white" },
+  vencido: { label: "Vencido", className: "bg-red-600 hover:bg-red-700 text-white" },
   anulado: { label: "Anulado", className: "bg-gray-500 hover:bg-gray-600 text-white" },
 }
 
@@ -155,6 +153,11 @@ const MOTIVO_DTA: Record<string, string> = {
   invernada: "Invernada",
   cambio_campo: "Cambio de campo",
 }
+
+const TIPOS_CLIENTE = ["invernador", "frigorifico", "consignatario", "feria", "particular"] as const
+const TIPOS_PROVEEDOR = ["insumos", "hacienda", "servicios", "frigorifico", "consignatario"] as const
+
+// ─── Helpers ─────────────────────────────────────────────
 
 function formatCurrency(value: number | null): string {
   if (value === null || value === undefined) return "-"
@@ -178,181 +181,235 @@ function formatWeight(kg: number | null): string {
   return `${kg.toLocaleString("es-AR")} kg`
 }
 
-// ============================================
-// COMPONENTE PRINCIPAL
-// ============================================
+// ─── Fetchers ────────────────────────────────────────────
+
+async function fetchJSON<T>(url: string): Promise<T> {
+  const res = await fetch(url)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `Error ${res.status}`)
+  }
+  const json = await res.json()
+  return json.success !== undefined ? json.data : json
+}
+
+async function postJSON<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error || "Error al guardar")
+  return json.data ?? json
+}
+
+// ─── Default form states ─────────────────────────────────
+
+const EMPTY_BAJA_FORM = {
+  animalId: "",
+  fecha: new Date().toISOString().split("T")[0],
+  motivo: "venta",
+  pesoVivoKg: "",
+  precioKg: "",
+  precioTotal: "",
+  dtaNumero: "",
+  facturaNumero: "",
+  clienteId: "",
+  observ: "",
+}
+
+const EMPTY_CLIENTE_FORM = {
+  nombre: "",
+  cuit: "",
+  tipo: [] as string[],
+  renspa: "",
+  contactoNombre: "",
+  contactoTel: "",
+  notas: "",
+}
+
+const EMPTY_PROVEEDOR_FORM = {
+  nombre: "",
+  cuit: "",
+  tipo: [] as string[],
+  contactoNombre: "",
+  contactoTel: "",
+  notas: "",
+}
+
+const EMPTY_DOCUMENTO_FORM = {
+  numeroDta: "",
+  tipo: "DTe",
+  fechaEmision: new Date().toISOString().split("T")[0],
+  fechaVencimiento: "",
+  renspaOrigen: "",
+  nombreOrigen: "",
+  renspaDestino: "",
+  nombreDestino: "",
+  especie: "bovino",
+  cantidadAnimales: "",
+  categorias: "",
+  motivo: "venta",
+  patenteCamion: "",
+  transportista: "",
+  observ: "",
+}
+
+// ─── Componente principal ────────────────────────────────
 
 export default function VentasPage() {
-  const [activeTab, setActiveTab] = useState("ventas")
+  const { organizacionActiva, establecimientoActivo, isLoading: tenantLoading } = useTenant()
+  const queryClient = useQueryClient()
 
-  // Data
-  const [bajas, setBajas] = useState<Baja[]>([])
-  const [clientes, setClientes] = useState<Cliente[]>([])
-  const [proveedores, setProveedores] = useState<Proveedor[]>([])
-  const [documentos, setDocumentos] = useState<Documento[]>([])
-  const [animales, setAnimales] = useState<AnimalOption[]>([])
+  const orgId = organizacionActiva?.id ?? ""
+  const estId = establecimientoActivo?.id ?? ""
 
-  // Loading
-  const [loadingBajas, setLoadingBajas] = useState(true)
-  const [loadingClientes, setLoadingClientes] = useState(true)
-  const [loadingProveedores, setLoadingProveedores] = useState(true)
-  const [loadingDocumentos, setLoadingDocumentos] = useState(true)
-
-  // Filters
+  const [activeTab, setActiveTab] = useState("operaciones")
   const [filtroMotivo, setFiltroMotivo] = useState("")
   const [filtroEstado, setFiltroEstado] = useState("")
   const [busquedaCliente, setBusquedaCliente] = useState("")
   const [busquedaProveedor, setBusquedaProveedor] = useState("")
+  const [busquedaAnimal, setBusquedaAnimal] = useState("")
 
-  // Dialogs
   const [bajaDialogOpen, setBajaDialogOpen] = useState(false)
   const [clienteDialogOpen, setClienteDialogOpen] = useState(false)
   const [proveedorDialogOpen, setProveedorDialogOpen] = useState(false)
   const [documentoDialogOpen, setDocumentoDialogOpen] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Forms
-  const [bajaForm, setBajaForm] = useState({
-    animalId: "",
-    fecha: new Date().toISOString().split("T")[0],
-    motivo: "venta",
-    pesoVivoKg: "",
-    precioKg: "",
-    precioTotal: "",
-    dtaNumero: "",
-    facturaNumero: "",
-    clienteId: "",
-    observ: "",
-  })
+  const [bajaForm, setBajaForm] = useState({ ...EMPTY_BAJA_FORM })
+  const [clienteForm, setClienteForm] = useState({ ...EMPTY_CLIENTE_FORM })
+  const [proveedorForm, setProveedorForm] = useState({ ...EMPTY_PROVEEDOR_FORM })
+  const [documentoForm, setDocumentoForm] = useState({ ...EMPTY_DOCUMENTO_FORM })
 
-  const [clienteForm, setClienteForm] = useState({
-    nombre: "",
-    cuit: "",
-    tipo: [] as string[],
-    renspa: "",
-    contactoNombre: "",
-    contactoTel: "",
-    notas: "",
-  })
+  // ─── Queries ─────────────────────────────────────────
 
-  const [proveedorForm, setProveedorForm] = useState({
-    nombre: "",
-    cuit: "",
-    tipo: [] as string[],
-    contactoNombre: "",
-    contactoTel: "",
-    notas: "",
-  })
-
-  const [documentoForm, setDocumentoForm] = useState({
-    numeroDta: "",
-    tipo: "DTe",
-    fechaEmision: new Date().toISOString().split("T")[0],
-    fechaVencimiento: "",
-    renspaOrigen: "",
-    nombreOrigen: "",
-    renspaDestino: "",
-    nombreDestino: "",
-    especie: "bovino",
-    cantidadAnimales: "",
-    categorias: "",
-    motivo: "venta",
-    patenteCamion: "",
-    transportista: "",
-    observ: "",
-  })
-
-  // ============================================
-  // FETCHERS
-  // ============================================
-
-  const fetchBajas = useCallback(async () => {
-    setLoadingBajas(true)
-    try {
+  const bajasQuery = useQuery({
+    queryKey: ["ventas", "bajas", estId, filtroMotivo],
+    queryFn: () => {
       const params = new URLSearchParams()
+      if (estId) params.set("establecimientoId", estId)
       if (filtroMotivo) params.set("motivo", filtroMotivo)
-      const res = await fetch(`/api/ventas/bajas?${params}`)
-      const data = await res.json()
-      if (data.success) setBajas(data.data)
-    } catch {
-      toast.error("Error al cargar ventas/bajas")
-    } finally {
-      setLoadingBajas(false)
-    }
-  }, [filtroMotivo])
+      return fetchJSON<Baja[]>(`/api/ventas/bajas?${params}`)
+    },
+    enabled: !!orgId,
+    staleTime: 30_000,
+  })
 
-  const fetchClientes = useCallback(async () => {
-    setLoadingClientes(true)
-    try {
-      const res = await fetch("/api/ventas/clientes")
-      const data = await res.json()
-      if (data.success) setClientes(data.data)
-    } catch {
-      toast.error("Error al cargar clientes")
-    } finally {
-      setLoadingClientes(false)
-    }
-  }, [])
-
-  const fetchProveedores = useCallback(async () => {
-    setLoadingProveedores(true)
-    try {
-      const res = await fetch("/api/ventas/proveedores")
-      const data = await res.json()
-      if (data.success) setProveedores(data.data)
-    } catch {
-      toast.error("Error al cargar proveedores")
-    } finally {
-      setLoadingProveedores(false)
-    }
-  }, [])
-
-  const fetchDocumentos = useCallback(async () => {
-    setLoadingDocumentos(true)
-    try {
+  const clientesQuery = useQuery({
+    queryKey: ["ventas", "clientes", orgId],
+    queryFn: () => {
       const params = new URLSearchParams()
+      if (orgId) params.set("organizacionId", orgId)
+      return fetchJSON<Cliente[]>(`/api/ventas/clientes?${params}`)
+    },
+    enabled: !!orgId,
+    staleTime: 60_000,
+  })
+
+  const proveedoresQuery = useQuery({
+    queryKey: ["ventas", "proveedores", orgId],
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (orgId) params.set("organizacionId", orgId)
+      return fetchJSON<Proveedor[]>(`/api/ventas/proveedores?${params}`)
+    },
+    enabled: !!orgId,
+    staleTime: 60_000,
+  })
+
+  const documentosQuery = useQuery({
+    queryKey: ["ventas", "documentos", estId, filtroEstado],
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (estId) params.set("establecimientoId", estId)
       if (filtroEstado) params.set("estado", filtroEstado)
-      const res = await fetch(`/api/ventas/documentos?${params}`)
+      return fetchJSON<Documento[]>(`/api/ventas/documentos?${params}`)
+    },
+    enabled: !!orgId,
+    staleTime: 30_000,
+  })
+
+  const animalesQuery = useQuery({
+    queryKey: ["ganado", "bovinos-list", estId],
+    queryFn: async () => {
+      const params = new URLSearchParams({ limit: "500" })
+      if (estId) params.set("establecimientoId", estId)
+      const res = await fetch(`/api/ganado/bovinos?${params}`)
       const data = await res.json()
-      if (data.success) setDocumentos(data.data)
-    } catch {
-      toast.error("Error al cargar documentos")
-    } finally {
-      setLoadingDocumentos(false)
-    }
-  }, [filtroEstado])
+      if (!data.success) return []
+      return data.data.map((a: any) => ({
+        id: a.id,
+        caravanaVisual: a.caravanaVisual || a.tagNumber,
+        cuig: a.cuig,
+        nombre: a.nombre || a.caravanaVisual || "Sin ID",
+        category: a.categoria?.nombre || a.category || "",
+      })) as AnimalOption[]
+    },
+    enabled: !!orgId,
+    staleTime: 60_000,
+  })
 
-  const fetchAnimales = useCallback(async () => {
-    try {
-      const res = await fetch("/api/ganado/bovinos?limit=500")
-      const data = await res.json()
-      if (data.success) {
-        setAnimales(
-          data.data.map((a: any) => ({
-            id: a.id,
-            caravanaVisual: a.caravanaVisual || a.tagNumber,
-            cuig: a.cuig,
-            nombre: a.nombre || a.caravanaVisual || "Sin ID",
-            category: a.category || "",
-          }))
-        )
-      }
-    } catch {
-      /* silenciar error */
-    }
-  }, [])
+  const bajas = bajasQuery.data ?? []
+  const clientes = clientesQuery.data ?? []
+  const proveedores = proveedoresQuery.data ?? []
+  const documentos = documentosQuery.data ?? []
+  const animales = animalesQuery.data ?? []
 
-  useEffect(() => {
-    fetchBajas()
-    fetchClientes()
-    fetchProveedores()
-    fetchDocumentos()
-    fetchAnimales()
-  }, [fetchBajas, fetchClientes, fetchProveedores, fetchDocumentos, fetchAnimales])
+  // ─── Mutations ───────────────────────────────────────
 
-  // ============================================
-  // KPIs
-  // ============================================
+  const bajaMutation = useMutation({
+    mutationFn: (data: typeof bajaForm) => postJSON("/api/ventas/bajas", data),
+    onSuccess: () => {
+      toast.success("Baja registrada correctamente")
+      setBajaDialogOpen(false)
+      setBajaForm({ ...EMPTY_BAJA_FORM })
+      queryClient.invalidateQueries({ queryKey: ["ventas", "bajas"] })
+      queryClient.invalidateQueries({ queryKey: ["ganado"] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  const clienteMutation = useMutation({
+    mutationFn: (data: typeof clienteForm) => postJSON("/api/ventas/clientes", data),
+    onSuccess: () => {
+      toast.success("Cliente creado correctamente")
+      setClienteDialogOpen(false)
+      setClienteForm({ ...EMPTY_CLIENTE_FORM })
+      queryClient.invalidateQueries({ queryKey: ["ventas", "clientes"] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  const proveedorMutation = useMutation({
+    mutationFn: (data: typeof proveedorForm) => postJSON("/api/ventas/proveedores", data),
+    onSuccess: () => {
+      toast.success("Proveedor creado correctamente")
+      setProveedorDialogOpen(false)
+      setProveedorForm({ ...EMPTY_PROVEEDOR_FORM })
+      queryClient.invalidateQueries({ queryKey: ["ventas", "proveedores"] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  const documentoMutation = useMutation({
+    mutationFn: (data: typeof documentoForm) => postJSON("/api/ventas/documentos", data),
+    onSuccess: () => {
+      toast.success("Documento creado correctamente")
+      setDocumentoDialogOpen(false)
+      setDocumentoForm({ ...EMPTY_DOCUMENTO_FORM })
+      queryClient.invalidateQueries({ queryKey: ["ventas", "documentos"] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  const isSubmitting =
+    bajaMutation.isPending ||
+    clienteMutation.isPending ||
+    proveedorMutation.isPending ||
+    documentoMutation.isPending
+
+  // ─── KPIs ────────────────────────────────────────────
 
   const kpis = useMemo(() => {
     const now = new Date()
@@ -366,24 +423,15 @@ export default function VentasPage() {
 
     const ventasDelMes = bajasDelMes.filter((b) => b.motivo === "venta")
 
-    const ingresosTotal = ventasDelMes.reduce(
-      (sum, b) => sum + (b.precioTotal || 0),
-      0
-    )
-
-    const dtasVigentes = documentos.filter((d) => d.estado === "vigente").length
-
     return {
       totalVentas: ventasDelMes.length,
-      ingresos: ingresosTotal,
-      dtasVigentes,
-      animalesVendidos: bajasDelMes.length,
+      kgTotales: ventasDelMes.reduce((s, b) => s + (b.pesoVivoKg || 0), 0),
+      facturacion: ventasDelMes.reduce((s, b) => s + (b.precioTotal || 0), 0),
+      dtasVigentes: documentos.filter((d) => d.estado === "vigente").length,
     }
   }, [bajas, documentos])
 
-  // ============================================
-  // FILTERED DATA
-  // ============================================
+  // ─── Filtrado local ──────────────────────────────────
 
   const clientesFiltrados = useMemo(() => {
     if (!busquedaCliente) return clientes
@@ -407,263 +455,137 @@ export default function VentasPage() {
     )
   }, [proveedores, busquedaProveedor])
 
-  // ============================================
-  // AUTO-CALCULAR PRECIO TOTAL
-  // ============================================
+  const animalesFiltrados = useMemo(() => {
+    if (!busquedaAnimal) return animales
+    const q = busquedaAnimal.toLowerCase()
+    return animales.filter(
+      (a) =>
+        a.caravanaVisual?.toLowerCase().includes(q) ||
+        a.cuig?.toLowerCase().includes(q) ||
+        a.nombre?.toLowerCase().includes(q)
+    )
+  }, [animales, busquedaAnimal])
+
+  // ─── Auto-calcular precio total ──────────────────────
 
   useEffect(() => {
     const peso = parseFloat(bajaForm.pesoVivoKg)
     const pKg = parseFloat(bajaForm.precioKg)
     if (!isNaN(peso) && !isNaN(pKg) && peso > 0 && pKg > 0) {
-      setBajaForm((prev) => ({
-        ...prev,
-        precioTotal: (peso * pKg).toFixed(2),
-      }))
+      setBajaForm((prev) => ({ ...prev, precioTotal: (peso * pKg).toFixed(2) }))
     }
   }, [bajaForm.pesoVivoKg, bajaForm.precioKg])
 
-  // ============================================
-  // SUBMIT HANDLERS
-  // ============================================
+  // ─── Submit handlers ─────────────────────────────────
 
-  async function handleSubmitBaja() {
+  function handleSubmitBaja() {
     if (!bajaForm.animalId || !bajaForm.motivo) {
       toast.error("Seleccioná un animal y un motivo")
       return
     }
-    setIsSubmitting(true)
-    try {
-      const res = await fetch("/api/ventas/bajas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(bajaForm),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        toast.error(data.error || "Error al registrar baja")
-        return
-      }
-      toast.success("Baja registrada correctamente")
-      setBajaDialogOpen(false)
-      resetBajaForm()
-      fetchBajas()
-      fetchAnimales()
-    } catch {
-      toast.error("Error de conexión")
-    } finally {
-      setIsSubmitting(false)
-    }
+    bajaMutation.mutate(bajaForm)
   }
 
-  async function handleSubmitCliente() {
+  function handleSubmitCliente() {
     if (!clienteForm.nombre) {
       toast.error("El nombre es requerido")
       return
     }
-    setIsSubmitting(true)
-    try {
-      const res = await fetch("/api/ventas/clientes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(clienteForm),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        toast.error(data.error || "Error al crear cliente")
-        return
-      }
-      toast.success("Cliente creado correctamente")
-      setClienteDialogOpen(false)
-      resetClienteForm()
-      fetchClientes()
-    } catch {
-      toast.error("Error de conexión")
-    } finally {
-      setIsSubmitting(false)
-    }
+    clienteMutation.mutate(clienteForm)
   }
 
-  async function handleSubmitProveedor() {
+  function handleSubmitProveedor() {
     if (!proveedorForm.nombre) {
       toast.error("El nombre es requerido")
       return
     }
-    setIsSubmitting(true)
-    try {
-      const res = await fetch("/api/ventas/proveedores", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(proveedorForm),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        toast.error(data.error || "Error al crear proveedor")
-        return
-      }
-      toast.success("Proveedor creado correctamente")
-      setProveedorDialogOpen(false)
-      resetProveedorForm()
-      fetchProveedores()
-    } catch {
-      toast.error("Error de conexión")
-    } finally {
-      setIsSubmitting(false)
-    }
+    proveedorMutation.mutate(proveedorForm)
   }
 
-  async function handleSubmitDocumento() {
-    if (
-      !documentoForm.numeroDta ||
-      !documentoForm.renspaOrigen ||
-      !documentoForm.renspaDestino
-    ) {
+  function handleSubmitDocumento() {
+    if (!documentoForm.numeroDta || !documentoForm.renspaOrigen || !documentoForm.renspaDestino) {
       toast.error("Número DTA, RENSPA origen y destino son requeridos")
       return
     }
-    setIsSubmitting(true)
-    try {
-      const res = await fetch("/api/ventas/documentos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(documentoForm),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        toast.error(data.error || "Error al crear documento")
-        return
-      }
-      toast.success("Documento creado correctamente")
-      setDocumentoDialogOpen(false)
-      resetDocumentoForm()
-      fetchDocumentos()
-    } catch {
-      toast.error("Error de conexión")
-    } finally {
-      setIsSubmitting(false)
-    }
+    documentoMutation.mutate(documentoForm)
   }
 
-  // ============================================
-  // RESET FORMS
-  // ============================================
-
-  function resetBajaForm() {
-    setBajaForm({
-      animalId: "",
-      fecha: new Date().toISOString().split("T")[0],
-      motivo: "venta",
-      pesoVivoKg: "",
-      precioKg: "",
-      precioTotal: "",
-      dtaNumero: "",
-      facturaNumero: "",
-      clienteId: "",
-      observ: "",
-    })
-  }
-
-  function resetClienteForm() {
-    setClienteForm({
-      nombre: "",
-      cuit: "",
-      tipo: [],
-      renspa: "",
-      contactoNombre: "",
-      contactoTel: "",
-      notas: "",
-    })
-  }
-
-  function resetProveedorForm() {
-    setProveedorForm({
-      nombre: "",
-      cuit: "",
-      tipo: [],
-      contactoNombre: "",
-      contactoTel: "",
-      notas: "",
-    })
-  }
-
-  function resetDocumentoForm() {
-    setDocumentoForm({
-      numeroDta: "",
-      tipo: "DTe",
-      fechaEmision: new Date().toISOString().split("T")[0],
-      fechaVencimiento: "",
-      renspaOrigen: "",
-      nombreOrigen: "",
-      renspaDestino: "",
-      nombreDestino: "",
-      especie: "bovino",
-      cantidadAnimales: "",
-      categorias: "",
-      motivo: "venta",
-      patenteCamion: "",
-      transportista: "",
-      observ: "",
-    })
-  }
-
-  // ============================================
-  // TOGGLE TIPO ARRAY (clientes y proveedores)
-  // ============================================
+  // ─── Toggle tipo arrays ──────────────────────────────
 
   function toggleClienteTipo(tipo: string) {
     setClienteForm((prev) => ({
       ...prev,
-      tipo: prev.tipo.includes(tipo)
-        ? prev.tipo.filter((t) => t !== tipo)
-        : [...prev.tipo, tipo],
+      tipo: prev.tipo.includes(tipo) ? prev.tipo.filter((t) => t !== tipo) : [...prev.tipo, tipo],
     }))
   }
 
   function toggleProveedorTipo(tipo: string) {
     setProveedorForm((prev) => ({
       ...prev,
-      tipo: prev.tipo.includes(tipo)
-        ? prev.tipo.filter((t) => t !== tipo)
-        : [...prev.tipo, tipo],
+      tipo: prev.tipo.includes(tipo) ? prev.tipo.filter((t) => t !== tipo) : [...prev.tipo, tipo],
     }))
   }
 
-  // ============================================
-  // RENDER
-  // ============================================
+  // ─── Loading guard ───────────────────────────────────
+
+  if (tenantLoading) {
+    return (
+      <div className="space-y-6 p-4 md:p-6">
+        <Skeleton className="h-10 w-64" />
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-28" />
+          ))}
+        </div>
+        <Skeleton className="h-96" />
+      </div>
+    )
+  }
+
+  if (!organizacionActiva) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 p-12 text-center">
+        <AlertCircle className="h-12 w-12 text-muted-foreground" />
+        <h2 className="text-xl font-semibold">Sin organización activa</h2>
+        <p className="text-muted-foreground max-w-md">
+          Seleccioná una organización desde el menú superior para poder ver las ventas y compras.
+        </p>
+      </div>
+    )
+  }
+
+  // ─── Render ──────────────────────────────────────────
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 md:p-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-            <ShoppingCart className="h-8 w-8 text-primary" />
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-3">
+            <ShoppingCart className="h-7 w-7 md:h-8 md:w-8 text-primary" />
             Ventas y Compras
           </h1>
           <p className="text-muted-foreground mt-1">
             Gestión de ventas, clientes, proveedores y documentos de tránsito
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            fetchBajas()
-            fetchClientes()
-            fetchProveedores()
-            fetchDocumentos()
-          }}
-        >
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Actualizar
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => setBajaDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Registrar venta
+          </Button>
+          <Button variant="outline" onClick={() => setClienteDialogOpen(true)}>
+            <Users className="h-4 w-4 mr-2" />
+            Nuevo cliente
+          </Button>
+        </div>
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ventas del mes</CardTitle>
+            <CardTitle className="text-sm font-medium">Vendidos este mes</CardTitle>
             <ShoppingCart className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -674,14 +596,23 @@ export default function VentasPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ingresos totales</CardTitle>
+            <CardTitle className="text-sm font-medium">Kg totales</CardTitle>
+            <Weight className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatWeight(kpis.kgTotales)}</div>
+            <p className="text-xs text-muted-foreground">peso vendido este mes</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Facturación total</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {formatCurrency(kpis.ingresos)}
-            </div>
-            <p className="text-xs text-muted-foreground">del mes actual</p>
+            <div className="text-2xl font-bold">{formatCurrency(kpis.facturacion)}</div>
+            <p className="text-xs text-muted-foreground">ingresos del mes</p>
           </CardContent>
         </Card>
 
@@ -695,54 +626,42 @@ export default function VentasPage() {
             <p className="text-xs text-muted-foreground">documentos activos</p>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Animales dados de baja
-            </CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{kpis.animalesVendidos}</div>
-            <p className="text-xs text-muted-foreground">en el mes actual</p>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="ventas" className="gap-2">
+          <TabsTrigger value="operaciones" className="gap-1.5">
             <ShoppingCart className="h-4 w-4" />
-            <span className="hidden sm:inline">Ventas</span>
+            <span className="hidden sm:inline">Operaciones</span>
           </TabsTrigger>
-          <TabsTrigger value="clientes" className="gap-2">
+          <TabsTrigger value="clientes" className="gap-1.5">
             <Users className="h-4 w-4" />
             <span className="hidden sm:inline">Clientes</span>
           </TabsTrigger>
-          <TabsTrigger value="proveedores" className="gap-2">
+          <TabsTrigger value="proveedores" className="gap-1.5">
             <Truck className="h-4 w-4" />
             <span className="hidden sm:inline">Proveedores</span>
           </TabsTrigger>
-          <TabsTrigger value="documentos" className="gap-2">
+          <TabsTrigger value="documentos" className="gap-1.5">
             <FileText className="h-4 w-4" />
             <span className="hidden sm:inline">Documentos</span>
           </TabsTrigger>
         </TabsList>
 
-        {/* ============================== */}
-        {/* TAB: VENTAS / BAJAS           */}
-        {/* ============================== */}
-        <TabsContent value="ventas" className="space-y-4">
+        {/* ─── Tab: Operaciones ───────────────────────── */}
+        <TabsContent value="operaciones" className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex gap-2 items-center">
-              <Select value={filtroMotivo} onValueChange={(v) => setFiltroMotivo(v === "todos" ? "" : v)}>
+              <Select
+                value={filtroMotivo || "todos"}
+                onValueChange={(v) => setFiltroMotivo(v === "todos" ? "" : v)}
+              >
                 <SelectTrigger className="w-[160px]">
                   <SelectValue placeholder="Filtrar motivo" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="todos">Todos los motivos</SelectItem>
                   <SelectItem value="venta">Venta</SelectItem>
                   <SelectItem value="muerte">Muerte</SelectItem>
                   <SelectItem value="faena">Faena</SelectItem>
@@ -771,19 +690,34 @@ export default function VentasPage() {
                       <TableHead>Fecha</TableHead>
                       <TableHead>Animal</TableHead>
                       <TableHead>Motivo</TableHead>
-                      <TableHead className="text-right">Peso</TableHead>
+                      <TableHead>Destino / Cliente</TableHead>
+                      <TableHead className="text-right">Peso venta</TableHead>
                       <TableHead className="text-right">$/kg</TableHead>
                       <TableHead className="text-right">Total</TableHead>
-                      <TableHead>Cliente</TableHead>
                       <TableHead>DTA</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {loadingBajas ? (
+                    {bajasQuery.isLoading ? (
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 8 }).map((_, j) => (
+                            <TableCell key={j}>
+                              <Skeleton className="h-4 w-full" />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : bajasQuery.isError ? (
                       <TableRow>
                         <TableCell colSpan={8} className="text-center py-8">
-                          <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />
-                          Cargando...
+                          <div className="flex flex-col items-center gap-2 text-destructive">
+                            <AlertCircle className="h-5 w-5" />
+                            <span>Error al cargar: {bajasQuery.error.message}</span>
+                            <Button size="sm" variant="outline" onClick={() => bajasQuery.refetch()}>
+                              Reintentar
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ) : bajas.length === 0 ? (
@@ -794,7 +728,7 @@ export default function VentasPage() {
                       </TableRow>
                     ) : (
                       bajas.map((baja) => {
-                        const badge = MOTIVO_BADGE[baja.motivo] || MOTIVO_BADGE.otro
+                        const badge = MOTIVO_BADGE[baja.motivo] ?? MOTIVO_BADGE.otro
                         return (
                           <TableRow key={baja.id}>
                             <TableCell className="whitespace-nowrap">
@@ -804,10 +738,9 @@ export default function VentasPage() {
                               {baja.animal.caravanaVisual || baja.animal.cuig || "S/ID"}
                             </TableCell>
                             <TableCell>
-                              <Badge className={badge.className}>
-                                {badge.label}
-                              </Badge>
+                              <Badge className={badge.className}>{badge.label}</Badge>
                             </TableCell>
+                            <TableCell>{baja.cliente?.nombre || "-"}</TableCell>
                             <TableCell className="text-right">
                               {formatWeight(baja.pesoVivoKg)}
                             </TableCell>
@@ -816,9 +749,6 @@ export default function VentasPage() {
                             </TableCell>
                             <TableCell className="text-right font-medium">
                               {formatCurrency(baja.precioTotal)}
-                            </TableCell>
-                            <TableCell>
-                              {baja.cliente?.nombre || "-"}
                             </TableCell>
                             <TableCell className="font-mono text-xs">
                               {baja.dtaNumero || "-"}
@@ -834,15 +764,13 @@ export default function VentasPage() {
           </Card>
         </TabsContent>
 
-        {/* ============================== */}
-        {/* TAB: CLIENTES                  */}
-        {/* ============================== */}
+        {/* ─── Tab: Clientes ──────────────────────────── */}
         <TabsContent value="clientes" className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="relative max-w-sm">
+            <div className="relative max-w-sm w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar cliente..."
+                placeholder="Buscar por nombre, CUIT..."
                 className="pl-9"
                 value={busquedaCliente}
                 onChange={(e) => setBusquedaCliente(e.target.value)}
@@ -850,7 +778,7 @@ export default function VentasPage() {
             </div>
             <Button onClick={() => setClienteDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
-              Agregar cliente
+              Nuevo cliente
             </Button>
           </div>
 
@@ -865,21 +793,37 @@ export default function VentasPage() {
                       <TableHead>Tipo</TableHead>
                       <TableHead>RENSPA</TableHead>
                       <TableHead>Contacto</TableHead>
+                      <TableHead className="text-center">Estado</TableHead>
                       <TableHead className="text-right">Ventas</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {loadingClientes ? (
+                    {clientesQuery.isLoading ? (
+                      Array.from({ length: 4 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 7 }).map((_, j) => (
+                            <TableCell key={j}>
+                              <Skeleton className="h-4 w-full" />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : clientesQuery.isError ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8">
-                          <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />
-                          Cargando...
+                        <TableCell colSpan={7} className="text-center py-8">
+                          <div className="flex flex-col items-center gap-2 text-destructive">
+                            <AlertCircle className="h-5 w-5" />
+                            <span>Error al cargar clientes</span>
+                            <Button size="sm" variant="outline" onClick={() => clientesQuery.refetch()}>
+                              Reintentar
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ) : clientesFiltrados.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                          No hay clientes registrados
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                          {busquedaCliente ? "Sin resultados para la búsqueda" : "No hay clientes registrados"}
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -887,7 +831,7 @@ export default function VentasPage() {
                         <TableRow key={cliente.id}>
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
-                              <Building2 className="h-4 w-4 text-muted-foreground" />
+                              <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
                               {cliente.nombre}
                             </div>
                           </TableCell>
@@ -897,10 +841,13 @@ export default function VentasPage() {
                           <TableCell>
                             <div className="flex gap-1 flex-wrap">
                               {cliente.tipo.map((t) => (
-                                <Badge key={t} variant="outline" className="text-xs">
+                                <Badge key={t} variant="outline" className="text-xs capitalize">
                                   {t}
                                 </Badge>
                               ))}
+                              {cliente.tipo.length === 0 && (
+                                <span className="text-muted-foreground text-xs">-</span>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell className="font-mono text-sm">
@@ -918,6 +865,18 @@ export default function VentasPage() {
                             )}
                             {!cliente.contactoNombre && !cliente.contactoTel && "-"}
                           </TableCell>
+                          <TableCell className="text-center">
+                            <Badge
+                              variant={cliente.activo ? "default" : "secondary"}
+                              className={
+                                cliente.activo
+                                  ? "bg-green-100 text-green-800 hover:bg-green-200"
+                                  : "bg-gray-100 text-gray-600"
+                              }
+                            >
+                              {cliente.activo ? "Activo" : "Inactivo"}
+                            </Badge>
+                          </TableCell>
                           <TableCell className="text-right font-medium">
                             {cliente._count.ventas}
                           </TableCell>
@@ -931,15 +890,13 @@ export default function VentasPage() {
           </Card>
         </TabsContent>
 
-        {/* ============================== */}
-        {/* TAB: PROVEEDORES               */}
-        {/* ============================== */}
+        {/* ─── Tab: Proveedores ───────────────────────── */}
         <TabsContent value="proveedores" className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="relative max-w-sm">
+            <div className="relative max-w-sm w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar proveedor..."
+                placeholder="Buscar por nombre, CUIT..."
                 className="pl-9"
                 value={busquedaProveedor}
                 onChange={(e) => setBusquedaProveedor(e.target.value)}
@@ -947,7 +904,7 @@ export default function VentasPage() {
             </div>
             <Button onClick={() => setProveedorDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
-              Agregar proveedor
+              Nuevo proveedor
             </Button>
           </div>
 
@@ -961,21 +918,37 @@ export default function VentasPage() {
                       <TableHead>CUIT</TableHead>
                       <TableHead>Tipo</TableHead>
                       <TableHead>Contacto</TableHead>
+                      <TableHead className="text-center">Estado</TableHead>
                       <TableHead className="text-right">Animales</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {loadingProveedores ? (
+                    {proveedoresQuery.isLoading ? (
+                      Array.from({ length: 4 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 6 }).map((_, j) => (
+                            <TableCell key={j}>
+                              <Skeleton className="h-4 w-full" />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : proveedoresQuery.isError ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8">
-                          <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />
-                          Cargando...
+                        <TableCell colSpan={6} className="text-center py-8">
+                          <div className="flex flex-col items-center gap-2 text-destructive">
+                            <AlertCircle className="h-5 w-5" />
+                            <span>Error al cargar proveedores</span>
+                            <Button size="sm" variant="outline" onClick={() => proveedoresQuery.refetch()}>
+                              Reintentar
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ) : proveedoresFiltrados.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                          No hay proveedores registrados
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          {busquedaProveedor ? "Sin resultados para la búsqueda" : "No hay proveedores registrados"}
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -983,20 +956,21 @@ export default function VentasPage() {
                         <TableRow key={prov.id}>
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
-                              <Truck className="h-4 w-4 text-muted-foreground" />
+                              <Truck className="h-4 w-4 text-muted-foreground shrink-0" />
                               {prov.nombre}
                             </div>
                           </TableCell>
-                          <TableCell className="font-mono text-sm">
-                            {prov.cuit || "-"}
-                          </TableCell>
+                          <TableCell className="font-mono text-sm">{prov.cuit || "-"}</TableCell>
                           <TableCell>
                             <div className="flex gap-1 flex-wrap">
                               {prov.tipo.map((t) => (
-                                <Badge key={t} variant="outline" className="text-xs">
+                                <Badge key={t} variant="outline" className="text-xs capitalize">
                                   {t}
                                 </Badge>
                               ))}
+                              {prov.tipo.length === 0 && (
+                                <span className="text-muted-foreground text-xs">-</span>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -1011,6 +985,18 @@ export default function VentasPage() {
                             )}
                             {!prov.contactoNombre && !prov.contactoTel && "-"}
                           </TableCell>
+                          <TableCell className="text-center">
+                            <Badge
+                              variant={prov.activo ? "default" : "secondary"}
+                              className={
+                                prov.activo
+                                  ? "bg-green-100 text-green-800 hover:bg-green-200"
+                                  : "bg-gray-100 text-gray-600"
+                              }
+                            >
+                              {prov.activo ? "Activo" : "Inactivo"}
+                            </Badge>
+                          </TableCell>
                           <TableCell className="text-right font-medium">
                             {prov._count.animalesComprados}
                           </TableCell>
@@ -1024,18 +1010,19 @@ export default function VentasPage() {
           </Card>
         </TabsContent>
 
-        {/* ============================== */}
-        {/* TAB: DOCUMENTOS DE TRÁNSITO    */}
-        {/* ============================== */}
+        {/* ─── Tab: Documentos ────────────────────────── */}
         <TabsContent value="documentos" className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex gap-2 items-center">
-              <Select value={filtroEstado} onValueChange={(v) => setFiltroEstado(v === "todos" ? "" : v)}>
+              <Select
+                value={filtroEstado || "todos"}
+                onValueChange={(v) => setFiltroEstado(v === "todos" ? "" : v)}
+              >
                 <SelectTrigger className="w-[160px]">
                   <SelectValue placeholder="Filtrar estado" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="todos">Todos los estados</SelectItem>
                   <SelectItem value="vigente">Vigente</SelectItem>
                   <SelectItem value="usado">Usado</SelectItem>
                   <SelectItem value="vencido">Vencido</SelectItem>
@@ -1048,7 +1035,7 @@ export default function VentasPage() {
             </div>
             <Button onClick={() => setDocumentoDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
-              Crear DTA
+              Crear DTA/DTe
             </Button>
           </div>
 
@@ -1058,34 +1045,48 @@ export default function VentasPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Número</TableHead>
+                      <TableHead>Nº DTA</TableHead>
                       <TableHead>Tipo</TableHead>
-                      <TableHead>Emisión</TableHead>
-                      <TableHead>Vencimiento</TableHead>
-                      <TableHead>Origen → Destino</TableHead>
-                      <TableHead>Especie</TableHead>
-                      <TableHead className="text-right">Cant.</TableHead>
+                      <TableHead>Fecha salida</TableHead>
+                      <TableHead>RENSPA origen</TableHead>
+                      <TableHead>RENSPA destino</TableHead>
+                      <TableHead className="text-right">Animales</TableHead>
                       <TableHead>Motivo</TableHead>
                       <TableHead>Estado</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {loadingDocumentos ? (
+                    {documentosQuery.isLoading ? (
+                      Array.from({ length: 4 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 8 }).map((_, j) => (
+                            <TableCell key={j}>
+                              <Skeleton className="h-4 w-full" />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : documentosQuery.isError ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center py-8">
-                          <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />
-                          Cargando...
+                        <TableCell colSpan={8} className="text-center py-8">
+                          <div className="flex flex-col items-center gap-2 text-destructive">
+                            <AlertCircle className="h-5 w-5" />
+                            <span>Error al cargar documentos</span>
+                            <Button size="sm" variant="outline" onClick={() => documentosQuery.refetch()}>
+                              Reintentar
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ) : documentos.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                           No hay documentos registrados
                         </TableCell>
                       </TableRow>
                     ) : (
                       documentos.map((doc) => {
-                        const estadoBadge = ESTADO_BADGE[doc.estado] || ESTADO_BADGE.anulado
+                        const estadoBadge = ESTADO_BADGE[doc.estado] ?? ESTADO_BADGE.anulado
                         return (
                           <TableRow key={doc.id}>
                             <TableCell className="font-mono font-medium text-sm">
@@ -1097,31 +1098,28 @@ export default function VentasPage() {
                             <TableCell className="whitespace-nowrap">
                               {formatDate(doc.fechaEmision)}
                             </TableCell>
-                            <TableCell className="whitespace-nowrap">
-                              {formatDate(doc.fechaVencimiento)}
+                            <TableCell>
+                              <div className="text-sm">
+                                <span className="font-medium">{doc.nombreOrigen || doc.renspaOrigen}</span>
+                                {doc.nombreOrigen && (
+                                  <div className="text-xs text-muted-foreground font-mono">{doc.renspaOrigen}</div>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>
                               <div className="text-sm">
-                                <span className="font-medium">
-                                  {doc.nombreOrigen || doc.renspaOrigen}
-                                </span>
-                                <span className="text-muted-foreground mx-1">→</span>
-                                <span className="font-medium">
-                                  {doc.nombreDestino || doc.renspaDestino}
-                                </span>
+                                <span className="font-medium">{doc.nombreDestino || doc.renspaDestino}</span>
+                                {doc.nombreDestino && (
+                                  <div className="text-xs text-muted-foreground font-mono">{doc.renspaDestino}</div>
+                                )}
                               </div>
                             </TableCell>
-                            <TableCell className="capitalize">{doc.especie}</TableCell>
                             <TableCell className="text-right font-medium">
                               {doc.cantidadAnimales}
                             </TableCell>
+                            <TableCell>{MOTIVO_DTA[doc.motivo] || doc.motivo}</TableCell>
                             <TableCell>
-                              {MOTIVO_DTA[doc.motivo] || doc.motivo}
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={estadoBadge.className}>
-                                {estadoBadge.label}
-                              </Badge>
+                              <Badge className={estadoBadge.className}>{estadoBadge.label}</Badge>
                             </TableCell>
                           </TableRow>
                         )
@@ -1135,38 +1133,48 @@ export default function VentasPage() {
         </TabsContent>
       </Tabs>
 
-      {/* ============================== */}
-      {/* DIALOG: REGISTRAR BAJA / VENTA */}
-      {/* ============================== */}
+      {/* ─── Dialog: Registrar baja / venta ───────────── */}
       <Dialog open={bajaDialogOpen} onOpenChange={setBajaDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Registrar baja / venta</DialogTitle>
-            <DialogDescription>
-              Registrá la salida de un animal del rodeo
-            </DialogDescription>
+            <DialogDescription>Registrá la salida de un animal del rodeo</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-2">
               <Label>Animal *</Label>
-              <Select
-                value={bajaForm.animalId}
-                onValueChange={(v) =>
-                  setBajaForm((prev) => ({ ...prev, animalId: v }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar animal" />
-                </SelectTrigger>
-                <SelectContent>
-                  {animales.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.caravanaVisual || a.cuig || a.nombre}
-                      {a.category ? ` (${a.category})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="space-y-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar por caravana..."
+                    className="pl-9"
+                    value={busquedaAnimal}
+                    onChange={(e) => setBusquedaAnimal(e.target.value)}
+                  />
+                </div>
+                <Select
+                  value={bajaForm.animalId}
+                  onValueChange={(v) => setBajaForm((prev) => ({ ...prev, animalId: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar animal" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {animalesFiltrados.length === 0 && (
+                      <div className="px-4 py-3 text-sm text-muted-foreground text-center">
+                        Sin resultados
+                      </div>
+                    )}
+                    {animalesFiltrados.slice(0, 50).map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.caravanaVisual || a.cuig || a.nombre}
+                        {a.category ? ` (${a.category})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -1175,117 +1183,36 @@ export default function VentasPage() {
                 <Input
                   type="date"
                   value={bajaForm.fecha}
-                  onChange={(e) =>
-                    setBajaForm((prev) => ({ ...prev, fecha: e.target.value }))
-                  }
+                  onChange={(e) => setBajaForm((prev) => ({ ...prev, fecha: e.target.value }))}
                 />
               </div>
               <div className="grid gap-2">
                 <Label>Motivo *</Label>
                 <Select
                   value={bajaForm.motivo}
-                  onValueChange={(v) =>
-                    setBajaForm((prev) => ({ ...prev, motivo: v }))
-                  }
+                  onValueChange={(v) => setBajaForm((prev) => ({ ...prev, motivo: v }))}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="venta">Venta</SelectItem>
-                    <SelectItem value="muerte">Muerte</SelectItem>
-                    <SelectItem value="faena">Faena</SelectItem>
                     <SelectItem value="descarte">Descarte</SelectItem>
+                    <SelectItem value="muerte">Muerte</SelectItem>
                     <SelectItem value="robo">Robo</SelectItem>
+                    <SelectItem value="faena">Faena</SelectItem>
                     <SelectItem value="otro">Otro</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="grid gap-2">
-                <Label>Peso vivo (kg)</Label>
-                <Input
-                  type="number"
-                  placeholder="450"
-                  value={bajaForm.pesoVivoKg}
-                  onChange={(e) =>
-                    setBajaForm((prev) => ({
-                      ...prev,
-                      pesoVivoKg: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Precio/kg ($)</Label>
-                <Input
-                  type="number"
-                  placeholder="2500"
-                  value={bajaForm.precioKg}
-                  onChange={(e) =>
-                    setBajaForm((prev) => ({
-                      ...prev,
-                      precioKg: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Precio total ($)</Label>
-                <Input
-                  type="number"
-                  placeholder="1125000"
-                  value={bajaForm.precioTotal}
-                  onChange={(e) =>
-                    setBajaForm((prev) => ({
-                      ...prev,
-                      precioTotal: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Nº DTA</Label>
-                <Input
-                  placeholder="DTA-001234"
-                  value={bajaForm.dtaNumero}
-                  onChange={(e) =>
-                    setBajaForm((prev) => ({
-                      ...prev,
-                      dtaNumero: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Nº Factura</Label>
-                <Input
-                  placeholder="0001-00001234"
-                  value={bajaForm.facturaNumero}
-                  onChange={(e) =>
-                    setBajaForm((prev) => ({
-                      ...prev,
-                      facturaNumero: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-            </div>
-
             <div className="grid gap-2">
               <Label>Cliente</Label>
               <Select
-                value={bajaForm.clienteId}
+                value={bajaForm.clienteId || "ninguno"}
                 onValueChange={(v) =>
-                  setBajaForm((prev) => ({
-                    ...prev,
-                    clienteId: v === "ninguno" ? "" : v,
-                  }))
+                  setBajaForm((prev) => ({ ...prev, clienteId: v === "ninguno" ? "" : v }))
                 }
               >
                 <SelectTrigger>
@@ -1302,42 +1229,98 @@ export default function VentasPage() {
               </Select>
             </div>
 
+            <div className="grid grid-cols-3 gap-4">
+              <div className="grid gap-2">
+                <Label>Peso venta (kg)</Label>
+                <Input
+                  type="number"
+                  placeholder="450"
+                  value={bajaForm.pesoVivoKg}
+                  onChange={(e) =>
+                    setBajaForm((prev) => ({ ...prev, pesoVivoKg: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Precio/kg ($)</Label>
+                <Input
+                  type="number"
+                  placeholder="2500"
+                  value={bajaForm.precioKg}
+                  onChange={(e) =>
+                    setBajaForm((prev) => ({ ...prev, precioKg: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Total ($)</Label>
+                <Input
+                  type="number"
+                  placeholder="Auto"
+                  value={bajaForm.precioTotal}
+                  onChange={(e) =>
+                    setBajaForm((prev) => ({ ...prev, precioTotal: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Nº DTA</Label>
+                <Input
+                  placeholder="DTA-001234"
+                  value={bajaForm.dtaNumero}
+                  onChange={(e) =>
+                    setBajaForm((prev) => ({ ...prev, dtaNumero: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Nº Factura</Label>
+                <Input
+                  placeholder="0001-00001234"
+                  value={bajaForm.facturaNumero}
+                  onChange={(e) =>
+                    setBajaForm((prev) => ({ ...prev, facturaNumero: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+
             <div className="grid gap-2">
               <Label>Observaciones</Label>
               <Textarea
                 placeholder="Notas adicionales..."
                 value={bajaForm.observ}
-                onChange={(e) =>
-                  setBajaForm((prev) => ({ ...prev, observ: e.target.value }))
-                }
+                onChange={(e) => setBajaForm((prev) => ({ ...prev, observ: e.target.value }))}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setBajaDialogOpen(false)}
-              disabled={isSubmitting}
-            >
+            <Button variant="outline" onClick={() => setBajaDialogOpen(false)} disabled={isSubmitting}>
               Cancelar
             </Button>
             <Button onClick={handleSubmitBaja} disabled={isSubmitting}>
-              {isSubmitting ? "Registrando..." : "Registrar baja"}
+              {bajaMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Registrando...
+                </>
+              ) : (
+                "Registrar baja"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ============================== */}
-      {/* DIALOG: CREAR CLIENTE          */}
-      {/* ============================== */}
+      {/* ─── Dialog: Nuevo cliente ────────────────────── */}
       <Dialog open={clienteDialogOpen} onOpenChange={setClienteDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nuevo cliente</DialogTitle>
-            <DialogDescription>
-              Agregá un nuevo comprador o consignatario
-            </DialogDescription>
+            <DialogDescription>Agregá un nuevo comprador o consignatario</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-2">
@@ -1345,12 +1328,7 @@ export default function VentasPage() {
               <Input
                 placeholder="Ej: Cabaña Don Juan"
                 value={clienteForm.nombre}
-                onChange={(e) =>
-                  setClienteForm((prev) => ({
-                    ...prev,
-                    nombre: e.target.value,
-                  }))
-                }
+                onChange={(e) => setClienteForm((prev) => ({ ...prev, nombre: e.target.value }))}
               />
             </div>
 
@@ -1358,14 +1336,9 @@ export default function VentasPage() {
               <div className="grid gap-2">
                 <Label>CUIT</Label>
                 <Input
-                  placeholder="20-12345678-9"
+                  placeholder="XX-XXXXXXXX-X"
                   value={clienteForm.cuit}
-                  onChange={(e) =>
-                    setClienteForm((prev) => ({
-                      ...prev,
-                      cuit: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => setClienteForm((prev) => ({ ...prev, cuit: e.target.value }))}
                 />
               </div>
               <div className="grid gap-2">
@@ -1373,12 +1346,7 @@ export default function VentasPage() {
                 <Input
                   placeholder="01.001.0.00001/00"
                   value={clienteForm.renspa}
-                  onChange={(e) =>
-                    setClienteForm((prev) => ({
-                      ...prev,
-                      renspa: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => setClienteForm((prev) => ({ ...prev, renspa: e.target.value }))}
                 />
               </div>
             </div>
@@ -1386,18 +1354,16 @@ export default function VentasPage() {
             <div className="grid gap-2">
               <Label>Tipo de cliente</Label>
               <div className="flex flex-wrap gap-2">
-                {["invernador", "frigorifico", "consignatario", "particular"].map(
-                  (t) => (
-                    <Badge
-                      key={t}
-                      variant={clienteForm.tipo.includes(t) ? "default" : "outline"}
-                      className="cursor-pointer"
-                      onClick={() => toggleClienteTipo(t)}
-                    >
-                      {t}
-                    </Badge>
-                  )
-                )}
+                {TIPOS_CLIENTE.map((t) => (
+                  <Badge
+                    key={t}
+                    variant={clienteForm.tipo.includes(t) ? "default" : "outline"}
+                    className="cursor-pointer capitalize"
+                    onClick={() => toggleClienteTipo(t)}
+                  >
+                    {t}
+                  </Badge>
+                ))}
               </div>
             </div>
 
@@ -1408,10 +1374,7 @@ export default function VentasPage() {
                   placeholder="Juan Pérez"
                   value={clienteForm.contactoNombre}
                   onChange={(e) =>
-                    setClienteForm((prev) => ({
-                      ...prev,
-                      contactoNombre: e.target.value,
-                    }))
+                    setClienteForm((prev) => ({ ...prev, contactoNombre: e.target.value }))
                   }
                 />
               </div>
@@ -1421,10 +1384,7 @@ export default function VentasPage() {
                   placeholder="+54 11 1234-5678"
                   value={clienteForm.contactoTel}
                   onChange={(e) =>
-                    setClienteForm((prev) => ({
-                      ...prev,
-                      contactoTel: e.target.value,
-                    }))
+                    setClienteForm((prev) => ({ ...prev, contactoTel: e.target.value }))
                   }
                 />
               </div>
@@ -1435,43 +1395,34 @@ export default function VentasPage() {
               <Textarea
                 placeholder="Información adicional..."
                 value={clienteForm.notas}
-                onChange={(e) =>
-                  setClienteForm((prev) => ({
-                    ...prev,
-                    notas: e.target.value,
-                  }))
-                }
+                onChange={(e) => setClienteForm((prev) => ({ ...prev, notas: e.target.value }))}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setClienteDialogOpen(false)}
-              disabled={isSubmitting}
-            >
+            <Button variant="outline" onClick={() => setClienteDialogOpen(false)} disabled={isSubmitting}>
               Cancelar
             </Button>
             <Button onClick={handleSubmitCliente} disabled={isSubmitting}>
-              {isSubmitting ? "Creando..." : "Crear cliente"}
+              {clienteMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creando...
+                </>
+              ) : (
+                "Crear cliente"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ============================== */}
-      {/* DIALOG: CREAR PROVEEDOR        */}
-      {/* ============================== */}
-      <Dialog
-        open={proveedorDialogOpen}
-        onOpenChange={setProveedorDialogOpen}
-      >
+      {/* ─── Dialog: Nuevo proveedor ──────────────────── */}
+      <Dialog open={proveedorDialogOpen} onOpenChange={setProveedorDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nuevo proveedor</DialogTitle>
-            <DialogDescription>
-              Agregá un proveedor de hacienda, insumos o servicios
-            </DialogDescription>
+            <DialogDescription>Agregá un proveedor de hacienda, insumos o servicios</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-2">
@@ -1479,39 +1430,27 @@ export default function VentasPage() {
               <Input
                 placeholder="Ej: Veterinaria del Campo"
                 value={proveedorForm.nombre}
-                onChange={(e) =>
-                  setProveedorForm((prev) => ({
-                    ...prev,
-                    nombre: e.target.value,
-                  }))
-                }
+                onChange={(e) => setProveedorForm((prev) => ({ ...prev, nombre: e.target.value }))}
               />
             </div>
 
             <div className="grid gap-2">
               <Label>CUIT</Label>
               <Input
-                placeholder="20-12345678-9"
+                placeholder="XX-XXXXXXXX-X"
                 value={proveedorForm.cuit}
-                onChange={(e) =>
-                  setProveedorForm((prev) => ({
-                    ...prev,
-                    cuit: e.target.value,
-                  }))
-                }
+                onChange={(e) => setProveedorForm((prev) => ({ ...prev, cuit: e.target.value }))}
               />
             </div>
 
             <div className="grid gap-2">
               <Label>Tipo de proveedor</Label>
               <div className="flex flex-wrap gap-2">
-                {["insumos", "hacienda", "servicios"].map((t) => (
+                {TIPOS_PROVEEDOR.map((t) => (
                   <Badge
                     key={t}
-                    variant={
-                      proveedorForm.tipo.includes(t) ? "default" : "outline"
-                    }
-                    className="cursor-pointer"
+                    variant={proveedorForm.tipo.includes(t) ? "default" : "outline"}
+                    className="cursor-pointer capitalize"
                     onClick={() => toggleProveedorTipo(t)}
                   >
                     {t}
@@ -1527,10 +1466,7 @@ export default function VentasPage() {
                   placeholder="Juan Pérez"
                   value={proveedorForm.contactoNombre}
                   onChange={(e) =>
-                    setProveedorForm((prev) => ({
-                      ...prev,
-                      contactoNombre: e.target.value,
-                    }))
+                    setProveedorForm((prev) => ({ ...prev, contactoNombre: e.target.value }))
                   }
                 />
               </div>
@@ -1540,10 +1476,7 @@ export default function VentasPage() {
                   placeholder="+54 11 1234-5678"
                   value={proveedorForm.contactoTel}
                   onChange={(e) =>
-                    setProveedorForm((prev) => ({
-                      ...prev,
-                      contactoTel: e.target.value,
-                    }))
+                    setProveedorForm((prev) => ({ ...prev, contactoTel: e.target.value }))
                   }
                 />
               </div>
@@ -1554,56 +1487,44 @@ export default function VentasPage() {
               <Textarea
                 placeholder="Información adicional..."
                 value={proveedorForm.notas}
-                onChange={(e) =>
-                  setProveedorForm((prev) => ({
-                    ...prev,
-                    notas: e.target.value,
-                  }))
-                }
+                onChange={(e) => setProveedorForm((prev) => ({ ...prev, notas: e.target.value }))}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setProveedorDialogOpen(false)}
-              disabled={isSubmitting}
-            >
+            <Button variant="outline" onClick={() => setProveedorDialogOpen(false)} disabled={isSubmitting}>
               Cancelar
             </Button>
             <Button onClick={handleSubmitProveedor} disabled={isSubmitting}>
-              {isSubmitting ? "Creando..." : "Crear proveedor"}
+              {proveedorMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creando...
+                </>
+              ) : (
+                "Crear proveedor"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ============================== */}
-      {/* DIALOG: CREAR DOCUMENTO DTA    */}
-      {/* ============================== */}
-      <Dialog
-        open={documentoDialogOpen}
-        onOpenChange={setDocumentoDialogOpen}
-      >
+      {/* ─── Dialog: Nuevo documento DTA/DTe ──────────── */}
+      <Dialog open={documentoDialogOpen} onOpenChange={setDocumentoDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nuevo documento de tránsito</DialogTitle>
-            <DialogDescription>
-              Registrá un DTA o DTe para movimiento de hacienda
-            </DialogDescription>
+            <DialogDescription>Registrá un DTA o DTe para movimiento de hacienda</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="grid gap-2">
                 <Label>Número DTA *</Label>
                 <Input
                   placeholder="DTA-001234"
                   value={documentoForm.numeroDta}
                   onChange={(e) =>
-                    setDocumentoForm((prev) => ({
-                      ...prev,
-                      numeroDta: e.target.value,
-                    }))
+                    setDocumentoForm((prev) => ({ ...prev, numeroDta: e.target.value }))
                   }
                 />
               </div>
@@ -1611,9 +1532,7 @@ export default function VentasPage() {
                 <Label>Tipo</Label>
                 <Select
                   value={documentoForm.tipo}
-                  onValueChange={(v) =>
-                    setDocumentoForm((prev) => ({ ...prev, tipo: v }))
-                  }
+                  onValueChange={(v) => setDocumentoForm((prev) => ({ ...prev, tipo: v }))}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -1628,9 +1547,7 @@ export default function VentasPage() {
                 <Label>Motivo</Label>
                 <Select
                   value={documentoForm.motivo}
-                  onValueChange={(v) =>
-                    setDocumentoForm((prev) => ({ ...prev, motivo: v }))
-                  }
+                  onValueChange={(v) => setDocumentoForm((prev) => ({ ...prev, motivo: v }))}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -1652,10 +1569,7 @@ export default function VentasPage() {
                   type="date"
                   value={documentoForm.fechaEmision}
                   onChange={(e) =>
-                    setDocumentoForm((prev) => ({
-                      ...prev,
-                      fechaEmision: e.target.value,
-                    }))
+                    setDocumentoForm((prev) => ({ ...prev, fechaEmision: e.target.value }))
                   }
                 />
               </div>
@@ -1665,10 +1579,7 @@ export default function VentasPage() {
                   type="date"
                   value={documentoForm.fechaVencimiento}
                   onChange={(e) =>
-                    setDocumentoForm((prev) => ({
-                      ...prev,
-                      fechaVencimiento: e.target.value,
-                    }))
+                    setDocumentoForm((prev) => ({ ...prev, fechaVencimiento: e.target.value }))
                   }
                 />
               </div>
@@ -1683,10 +1594,7 @@ export default function VentasPage() {
                     placeholder="01.001.0.00001/00"
                     value={documentoForm.renspaOrigen}
                     onChange={(e) =>
-                      setDocumentoForm((prev) => ({
-                        ...prev,
-                        renspaOrigen: e.target.value,
-                      }))
+                      setDocumentoForm((prev) => ({ ...prev, renspaOrigen: e.target.value }))
                     }
                   />
                 </div>
@@ -1696,10 +1604,7 @@ export default function VentasPage() {
                     placeholder="Estancia La Pampa"
                     value={documentoForm.nombreOrigen}
                     onChange={(e) =>
-                      setDocumentoForm((prev) => ({
-                        ...prev,
-                        nombreOrigen: e.target.value,
-                      }))
+                      setDocumentoForm((prev) => ({ ...prev, nombreOrigen: e.target.value }))
                     }
                   />
                 </div>
@@ -1715,10 +1620,7 @@ export default function VentasPage() {
                     placeholder="01.002.0.00002/00"
                     value={documentoForm.renspaDestino}
                     onChange={(e) =>
-                      setDocumentoForm((prev) => ({
-                        ...prev,
-                        renspaDestino: e.target.value,
-                      }))
+                      setDocumentoForm((prev) => ({ ...prev, renspaDestino: e.target.value }))
                     }
                   />
                 </div>
@@ -1728,10 +1630,7 @@ export default function VentasPage() {
                     placeholder="Frigorífico Sur"
                     value={documentoForm.nombreDestino}
                     onChange={(e) =>
-                      setDocumentoForm((prev) => ({
-                        ...prev,
-                        nombreDestino: e.target.value,
-                      }))
+                      setDocumentoForm((prev) => ({ ...prev, nombreDestino: e.target.value }))
                     }
                   />
                 </div>
@@ -1740,14 +1639,12 @@ export default function VentasPage() {
 
             <div className="border-t pt-4">
               <p className="text-sm font-medium mb-3">Hacienda</p>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="grid gap-2">
                   <Label>Especie</Label>
                   <Select
                     value={documentoForm.especie}
-                    onValueChange={(v) =>
-                      setDocumentoForm((prev) => ({ ...prev, especie: v }))
-                    }
+                    onValueChange={(v) => setDocumentoForm((prev) => ({ ...prev, especie: v }))}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -1767,10 +1664,7 @@ export default function VentasPage() {
                     placeholder="25"
                     value={documentoForm.cantidadAnimales}
                     onChange={(e) =>
-                      setDocumentoForm((prev) => ({
-                        ...prev,
-                        cantidadAnimales: e.target.value,
-                      }))
+                      setDocumentoForm((prev) => ({ ...prev, cantidadAnimales: e.target.value }))
                     }
                   />
                 </div>
@@ -1780,10 +1674,7 @@ export default function VentasPage() {
                     placeholder="Novillos, vacas"
                     value={documentoForm.categorias}
                     onChange={(e) =>
-                      setDocumentoForm((prev) => ({
-                        ...prev,
-                        categorias: e.target.value,
-                      }))
+                      setDocumentoForm((prev) => ({ ...prev, categorias: e.target.value }))
                     }
                   />
                 </div>
@@ -1799,10 +1690,7 @@ export default function VentasPage() {
                     placeholder="AB123CD"
                     value={documentoForm.patenteCamion}
                     onChange={(e) =>
-                      setDocumentoForm((prev) => ({
-                        ...prev,
-                        patenteCamion: e.target.value,
-                      }))
+                      setDocumentoForm((prev) => ({ ...prev, patenteCamion: e.target.value }))
                     }
                   />
                 </div>
@@ -1812,10 +1700,7 @@ export default function VentasPage() {
                     placeholder="Transportes Pampa SRL"
                     value={documentoForm.transportista}
                     onChange={(e) =>
-                      setDocumentoForm((prev) => ({
-                        ...prev,
-                        transportista: e.target.value,
-                      }))
+                      setDocumentoForm((prev) => ({ ...prev, transportista: e.target.value }))
                     }
                   />
                 </div>
@@ -1828,24 +1713,24 @@ export default function VentasPage() {
                 placeholder="Notas adicionales..."
                 value={documentoForm.observ}
                 onChange={(e) =>
-                  setDocumentoForm((prev) => ({
-                    ...prev,
-                    observ: e.target.value,
-                  }))
+                  setDocumentoForm((prev) => ({ ...prev, observ: e.target.value }))
                 }
               />
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDocumentoDialogOpen(false)}
-              disabled={isSubmitting}
-            >
+            <Button variant="outline" onClick={() => setDocumentoDialogOpen(false)} disabled={isSubmitting}>
               Cancelar
             </Button>
             <Button onClick={handleSubmitDocumento} disabled={isSubmitting}>
-              {isSubmitting ? "Creando..." : "Crear documento"}
+              {documentoMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creando...
+                </>
+              ) : (
+                "Crear documento"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

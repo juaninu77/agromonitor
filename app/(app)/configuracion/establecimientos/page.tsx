@@ -189,6 +189,30 @@ export default function EstablecimientosPage() {
           organizacionId={organizacionActiva.id}
         />
       )}
+
+      <div className="mt-8 border-t pt-6">
+        <h3 className="text-lg font-semibold mb-4">Otras configuraciones</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card
+            className="cursor-pointer hover:bg-accent/50 transition-colors"
+            onClick={() => router.push("/configuracion/catalogo")}
+          >
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Catálogo</CardTitle>
+              <CardDescription>Razas, categorías y especies</CardDescription>
+            </CardHeader>
+          </Card>
+          <Card
+            className="cursor-pointer hover:bg-accent/50 transition-colors"
+            onClick={() => router.push("/configuracion/auditoria")}
+          >
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Auditoría</CardTitle>
+              <CardDescription>Registro de actividad del sistema</CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      </div>
     </div>
   )
 }

@@ -9,7 +9,7 @@ import { navItems } from "@/lib/config/navigation"
 import { Nav } from "@/components/layout/nav"
 import OfflineBanner from "../shared/offline-banner"
 import { Header } from "./header"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 
 interface AppShellProps {
   defaultLayout: number[] | undefined
@@ -86,7 +86,7 @@ export function AppShell({
             <div className="flex h-full flex-col">
               <Header onMenuClick={() => {}} />
               <OfflineBanner />
-              <main className="flex-1 overflow-auto p-4 md:p-6">{children}</main>
+              <main className="flex-1 overflow-auto px-4 pb-6 pt-5 md:px-6 md:pb-8 md:pt-6">{children}</main>
             </div>
           </ResizablePanel>
         </ResizablePanelGroup>
@@ -94,14 +94,22 @@ export function AppShell({
         <div className="flex h-screen flex-col">
           <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
             <Header onMenuClick={() => setIsSheetOpen(true)} />
-            <SheetContent side="left" className="p-0">
-              <div className="flex h-14 items-center justify-center px-2">{/* You can add a logo here */}</div>
-              <Separator />
-              <Nav isCollapsed={false} links={navItems} />
+            <SheetContent side="left" className="flex w-[min(100vw-2rem,20rem)] flex-col p-0 sm:max-w-xs">
+              <SheetTitle className="sr-only">Menú principal</SheetTitle>
+              <div className="flex h-14 shrink-0 items-center border-b border-border px-4">
+                <span className="text-sm font-semibold tracking-tight text-foreground">AgroMonitor</span>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <Nav
+                  isCollapsed={false}
+                  links={navItems}
+                  onNavigate={() => setIsSheetOpen(false)}
+                />
+              </div>
             </SheetContent>
           </Sheet>
           <OfflineBanner />
-          <main className="flex-1 overflow-auto p-4 md:p-6">{children}</main>
+          <main className="flex-1 overflow-auto px-4 pb-6 pt-5 md:px-6 md:pb-8 md:pt-6">{children}</main>
         </div>
       )}
     </TooltipProvider>

@@ -18,6 +18,8 @@ interface NavProps {
     icon: LucideIcon
     href: string
   }[]
+  /** Ej. cerrar drawer móvil al navegar */
+  onNavigate?: () => void
 }
 
 // Componente memoizado para cada link
@@ -25,12 +27,14 @@ const NavLink = memo(({
   link, 
   isActive, 
   isCollapsed, 
-  index 
+  index,
+  onNavigate,
 }: { 
   link: { title: string; label?: string; icon: LucideIcon; href: string }
   isActive: boolean
   isCollapsed: boolean
   index: number
+  onNavigate?: () => void
 }) => {
   if (isCollapsed) {
     return (
@@ -44,6 +48,7 @@ const NavLink = memo(({
               "h-10 w-10 rounded-xl",
               isActive && "shadow-md",
             )}
+            onClick={() => onNavigate?.()}
           >
             <link.icon className="h-4 w-4" />
             <span className="sr-only">{link.title}</span>
@@ -62,6 +67,7 @@ const NavLink = memo(({
       key={index}
       href={link.href}
       prefetch={true}
+      onClick={() => onNavigate?.()}
       className={cn(
         "group flex items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 hover:bg-accent hover:text-accent-foreground relative overflow-hidden",
         isActive
@@ -88,7 +94,7 @@ const NavLink = memo(({
 
 NavLink.displayName = "NavLink"
 
-export const Nav = memo(function Nav({ links, isCollapsed }: NavProps) {
+export const Nav = memo(function Nav({ links, isCollapsed, onNavigate }: NavProps) {
   const pathname = usePathname()
 
   // Memoizar los links procesados
@@ -111,6 +117,7 @@ export const Nav = memo(function Nav({ links, isCollapsed }: NavProps) {
               isActive={isActive}
               isCollapsed={isCollapsed}
               index={index}
+              onNavigate={onNavigate}
             />
           ))}
         </nav>

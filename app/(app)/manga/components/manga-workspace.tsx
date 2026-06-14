@@ -23,6 +23,7 @@ import { CsvUpload } from "./csv-upload"
 import { SyncStatus } from "./sync-status"
 
 import { saveHerd, findAnimalByEID, getHerdCount } from "@/lib/hardware/herd-cache"
+import { normalizeEID } from "@/lib/hardware/eid"
 
 interface MangaWorkspaceProps {
   session: any
@@ -53,6 +54,45 @@ function useElapsedTime(startDate: string) {
   return elapsed
 }
 
+// --- Audio feedback para escaneo ---
+let audioCtx: AudioContext | null = null
+
+function getAudioContext(): AudioContext | null {
+  if (typeof window === "undefined") return null
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)()
+  }
+  return audioCtx
+}
+
+function playBeep(frequency: number, durationMs: number) {
+  const ctx = getAudioContext()
+  if (!ctx) return
+  const oscillator = ctx.createOscillator()
+  const gain = ctx.createGain()
+  oscillator.connect(gain)
+  gain.connect(ctx.destination)
+  oscillator.frequency.value = frequency
+  oscillator.type = "sine"
+  gain.gain.value = 0.15
+  oscillator.start()
+  oscillator.stop(ctx.currentTime + durationMs / 1000)
+}
+
+function feedbackValid() {
+  playBeep(880, 120)
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+    navigator.vibrate(100)
+  }
+}
+
+function feedbackInvalid() {
+  playBeep(300, 250)
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+    navigator.vibrate([100, 50, 100])
+  }
+}
+
 const TIPO_LABELS: Record<string, string> = {
   pesada_rodeo: "Pesada de rodeo",
   vacunacion: "Vacunación",
@@ -72,6 +112,8 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
   const [confirmingFinalize, setConfirmingFinalize] = useState(false)
   const [herdCacheCount, setHerdCacheCount] = useState<number>(0)
   const eidRef = useRef<HTMLInputElement>(null)
+  const lastEidRef = useRef<{ eid: string; time: number }>({ eid: "", time: 0 })
+  const DEDUPE_MS = 3000
 
   const elapsed = useElapsedTime(session.iniciadaAt || session.fecha || new Date().toISOString())
   const items: any[] = session.items || []
@@ -170,15 +212,39 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
     }
   }, [])
 
-  const handleReaderEID = useCallback((eid: string) => {
+  const processEid = useCallback((raw: string) => {
+    const eid = normalizeEID(raw)
+    if (!eid) {
+      feedbackInvalid()
+      toast.error("EID inválido")
+      focusEid()
+      return
+    }
+
+    // Dedupe: ignorar si se leyó el mismo EID en los últimos 3 segundos
+    const now = Date.now()
+    if (
+      lastEidRef.current.eid === eid &&
+      now - lastEidRef.current.time < DEDUPE_MS
+    ) {
+      focusEid()
+      return
+    }
+    lastEidRef.current = { eid, time: now }
+
+    feedbackValid()
     setEidInput("")
     searchAnimal(eid)
-  }, [searchAnimal])
+    focusEid()
+  }, [searchAnimal, focusEid])
+
+  const handleReaderEID = useCallback((eid: string) => {
+    processEid(eid)
+  }, [processEid])
 
   function handleEidSubmit() {
     if (eidInput.trim()) {
-      searchAnimal(eidInput.trim())
-      setEidInput("")
+      processEid(eidInput.trim())
     }
   }
 

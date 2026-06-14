@@ -13,8 +13,18 @@ import {
   Loader2,
   CheckCircle2,
   Database,
+  Keyboard,
+  Cable,
 } from "lucide-react"
 import { toast } from "sonner"
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import { AnimalQuickCard } from "./animal-quick-card"
 import { ActionPanel } from "./action-panel"
@@ -111,9 +121,27 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
   const [searching, setSearching] = useState(false)
   const [confirmingFinalize, setConfirmingFinalize] = useState(false)
   const [herdCacheCount, setHerdCacheCount] = useState<number>(0)
+  const [serialSupported, setSerialSupported] = useState(false)
+  const [connectionMode, setConnectionMode] = useState<"hid" | "serial">("hid")
   const eidRef = useRef<HTMLInputElement>(null)
   const lastEidRef = useRef<{ eid: string; time: number }>({ eid: "", time: 0 })
   const DEDUPE_MS = 3000
+
+  // Detectar si Web Serial está disponible y cargar preferencia
+  useEffect(() => {
+    const supported =
+      typeof window !== "undefined" &&
+      "serial" in navigator &&
+      typeof (navigator as any).serial?.requestPort === "function"
+    setSerialSupported(supported)
+
+    const saved = localStorage.getItem("agromonitor-connection-mode")
+    if (saved === "serial" && supported) {
+      setConnectionMode("serial")
+    } else {
+      setConnectionMode("hid")
+    }
+  }, [])
 
   const elapsed = useElapsedTime(session.iniciadaAt || session.fecha || new Date().toISOString())
   const items: any[] = session.items || []
@@ -156,6 +184,15 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
   const focusEid = useCallback(() => {
     setTimeout(() => eidRef.current?.focus(), 100)
   }, [])
+
+  function handleConnectionModeChange(mode: string) {
+    const m = mode as "hid" | "serial"
+    setConnectionMode(m)
+    localStorage.setItem("agromonitor-connection-mode", m)
+    if (m === "hid") {
+      focusEid()
+    }
+  }
 
   const searchAnimal = useCallback(async (eid: string) => {
     if (!eid.trim()) return
@@ -307,7 +344,35 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
             </div>
 
             <div className="flex items-center gap-2 shrink-0 flex-wrap">
-              <ReaderConnect onEIDRead={handleReaderEID} />
+              {serialSupported && (
+                <Select value={connectionMode} onValueChange={handleConnectionModeChange}>
+                  <SelectTrigger className="h-9 w-[160px] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="hid">
+                      <span className="flex items-center gap-1.5">
+                        <Keyboard className="h-3.5 w-3.5" />
+                        Teclado (HID)
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="serial">
+                      <span className="flex items-center gap-1.5">
+                        <Cable className="h-3.5 w-3.5" />
+                        Avanzado (Serial)
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+              {connectionMode === "serial" ? (
+                <ReaderConnect onEIDRead={handleReaderEID} />
+              ) : (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-200">
+                  <Keyboard className="h-3.5 w-3.5 text-blue-500" />
+                  <span>Escaneá en el campo de EID</span>
+                </div>
+              )}
               <SyncStatus sessionId={session.id} onSyncComplete={onRefresh} />
               {herdCacheCount > 0 && (
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-white/80 px-2.5 py-1.5 rounded-lg border">

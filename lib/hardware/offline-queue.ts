@@ -16,6 +16,9 @@ export interface PendingItem {
   observaciones?: string | null
   animalId?: string | null
   esNuevoRegistro?: boolean
+  caravanaVisual?: string | null
+  sexo?: string | null
+  categoria?: string | null
   createdAt: string
 }
 
@@ -128,6 +131,9 @@ export async function syncPendingItems(sessionId: string): Promise<{ synced: num
           observaciones: item.observaciones,
           animalId: item.animalId,
           esNuevoRegistro: item.esNuevoRegistro,
+          caravanaVisual: item.caravanaVisual,
+          sexo: item.sexo,
+          categoria: item.categoria,
         }),
       })
 

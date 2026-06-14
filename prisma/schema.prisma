@@ -1146,6 +1146,9 @@ model SesionMangaItem {
   observaciones  String?
 
   esNuevoRegistro Boolean @default(false) @map("es_nuevo_registro")
+  caravanaVisual  String? @map("caravana_visual_reg")
+  sexo            String? @map("sexo_reg")
+  categoria       String? @map("categoria_reg")
 
   sesionId String      @map("sesion_id") @db.Uuid
   sesion   SesionManga @relation(fields: [sesionId], references: [id], onDelete: Cascade)

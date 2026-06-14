@@ -125,6 +125,12 @@ export function ActionPanel({
         payload.apartadoA = apartadoDestino
       }
 
+      if (showRegistro) {
+        if (regCaravanaVisual) payload.caravanaVisual = regCaravanaVisual
+        if (regSexo) payload.sexo = regSexo
+        if (regCategoria) payload.categoria = regCategoria
+      }
+
       if (typeof navigator !== "undefined" && !navigator.onLine) {
         const { addPendingItem } = await import("@/lib/hardware/offline-queue")
         await addPendingItem({
@@ -139,6 +145,9 @@ export function ActionPanel({
           apartadoA: payload.apartadoA,
           animalId: payload.animalId,
           esNuevoRegistro: payload.esNuevoRegistro,
+          caravanaVisual: payload.caravanaVisual,
+          sexo: payload.sexo,
+          categoria: payload.categoria,
           createdAt: new Date().toISOString(),
         })
         toast.info("Sin conexión — guardado localmente", {

@@ -15,6 +15,9 @@ const crearItemSchema = z.object({
   observaciones: z.string().optional().nullable(),
   animalId: z.string().uuid().optional().nullable(),
   esNuevoRegistro: z.boolean().optional(),
+  caravanaVisual: z.string().optional().nullable(),
+  sexo: z.string().optional().nullable(),
+  categoria: z.string().optional().nullable(),
 })
 
 export async function GET(
@@ -103,6 +106,27 @@ export async function POST(
 
     const nuevoOrden = (maxOrden._max.orden ?? 0) + 1
 
+    let animalId = parsed.data.animalId ?? null
+
+    // Si es un registro nuevo y trae datos del animal, crear el Animal
+    if (parsed.data.esNuevoRegistro && parsed.data.sexo) {
+      const especieBovina = await prisma.especie.findFirst({
+        where: { nombre: "bovino" },
+      })
+
+      if (especieBovina) {
+        const nuevoAnimal = await prisma.animal.create({
+          data: {
+            especieId: especieBovina.id,
+            sexo: parsed.data.sexo,
+            caravanaVisual: parsed.data.caravanaVisual ?? null,
+            caravanaRfid: parsed.data.eidLeido,
+          },
+        })
+        animalId = nuevoAnimal.id
+      }
+    }
+
     const [item] = await prisma.$transaction([
       prisma.sesionMangaItem.create({
         data: {
@@ -117,8 +141,11 @@ export async function POST(
           accionSanidad: parsed.data.accionSanidad ?? false,
           apartadoA: parsed.data.apartadoA ?? null,
           observaciones: parsed.data.observaciones ?? null,
-          animalId: parsed.data.animalId ?? null,
+          animalId,
           esNuevoRegistro: parsed.data.esNuevoRegistro ?? false,
+          caravanaVisual: parsed.data.caravanaVisual ?? null,
+          sexo: parsed.data.sexo ?? null,
+          categoria: parsed.data.categoria ?? null,
         },
       }),
       prisma.sesionManga.update({

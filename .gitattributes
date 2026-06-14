@@ -1,0 +1,21 @@
+# Normaliza fines de línea: en el repo siempre LF, evita el ruido de CRLF en Windows.
+* text=auto eol=lf
+
+# Scripts que SÍ deben quedar con CRLF en Windows
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Archivos binarios: que git no toque saltos de línea
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+*.zip   binary

@@ -65,3 +65,11 @@ detailed_analysis.json
 *.swo
 *~
 .env*.local
+
+# env extra (nunca commitear credenciales)
+.env.dev
+.env.*
+!.env.example
+
+# Windows: archivo basura generado por redirecciones a "nul"
+nul

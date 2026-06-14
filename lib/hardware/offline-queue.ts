@@ -1,5 +1,5 @@
 const DB_NAME = "agromonitor-manga"
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORE_NAME = "pending-items"
 
 export interface PendingItem {
@@ -28,6 +28,10 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const store = db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true })
         store.createIndex("sessionId", "sessionId", { unique: false })
+      }
+      if (!db.objectStoreNames.contains("herd")) {
+        const herdStore = db.createObjectStore("herd", { keyPath: "eid" })
+        herdStore.createIndex("establecimientoId", "establecimientoId", { unique: false })
       }
     }
 

@@ -12,6 +12,7 @@ import {
   Search,
   Loader2,
   CheckCircle2,
+  Database,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -20,6 +21,8 @@ import { ActionPanel } from "./action-panel"
 import { ReaderConnect } from "./reader-connect"
 import { CsvUpload } from "./csv-upload"
 import { SyncStatus } from "./sync-status"
+
+import { saveHerd, findAnimalByEID, getHerdCount } from "@/lib/hardware/herd-cache"
 
 interface MangaWorkspaceProps {
   session: any
@@ -67,11 +70,42 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
   const [isAnimalNew, setIsAnimalNew] = useState(false)
   const [searching, setSearching] = useState(false)
   const [confirmingFinalize, setConfirmingFinalize] = useState(false)
+  const [herdCacheCount, setHerdCacheCount] = useState<number>(0)
   const eidRef = useRef<HTMLInputElement>(null)
 
   const elapsed = useElapsedTime(session.iniciadaAt || session.fecha || new Date().toISOString())
   const items: any[] = session.items || []
   const accionesHabilitadas: string[] = session.accionesHabilitadas || []
+  const establecimientoId: string = session.establecimientoId || ""
+
+  // --- Caché del rodeo: descargar al abrir la sesión si hay conexión ---
+  useEffect(() => {
+    if (!establecimientoId) return
+
+    async function downloadHerd() {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        const count = await getHerdCount(establecimientoId)
+        setHerdCacheCount(count)
+        return
+      }
+
+      try {
+        const res = await fetch(
+          `/api/ganado/bovinos?establecimientoId=${encodeURIComponent(establecimientoId)}&limit=5000`
+        )
+        if (!res.ok) throw new Error("Error descargando rodeo")
+        const json = await res.json()
+        const animales = json.data || json || []
+        const saved = await saveHerd(establecimientoId, animales)
+        setHerdCacheCount(saved)
+      } catch {
+        const count = await getHerdCount(establecimientoId)
+        setHerdCacheCount(count)
+      }
+    }
+
+    downloadHerd()
+  }, [establecimientoId])
 
   useEffect(() => {
     eidRef.current?.focus()
@@ -87,6 +121,22 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
     setCurrentAnimal(null)
     setIsAnimalNew(false)
     setCurrentEid(eid.trim())
+
+    const isOffline = typeof navigator !== "undefined" && !navigator.onLine
+
+    if (isOffline) {
+      // Búsqueda offline en el caché local
+      const cached = await findAnimalByEID(eid)
+      if (cached) {
+        setCurrentAnimal(cached)
+        setIsAnimalNew(false)
+      } else {
+        setCurrentAnimal(null)
+        setIsAnimalNew(true)
+      }
+      setSearching(false)
+      return
+    }
 
     try {
       const res = await fetch(
@@ -105,8 +155,16 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
         setIsAnimalNew(true)
       }
     } catch {
-      toast.error("Error al buscar el animal")
-      setIsAnimalNew(true)
+      // Si el fetch falla (red caída), usar caché
+      const cached = await findAnimalByEID(eid)
+      if (cached) {
+        setCurrentAnimal(cached)
+        setIsAnimalNew(false)
+        toast.info("Resultado desde caché local")
+      } else {
+        toast.error("Sin conexión y animal no encontrado en caché")
+        setIsAnimalNew(true)
+      }
     } finally {
       setSearching(false)
     }
@@ -185,6 +243,12 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
             <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <ReaderConnect onEIDRead={handleReaderEID} />
               <SyncStatus sessionId={session.id} onSyncComplete={onRefresh} />
+              {herdCacheCount > 0 && (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-white/80 px-2.5 py-1.5 rounded-lg border">
+                  <Database className="h-3.5 w-3.5 text-blue-500" />
+                  <span>Caché: {herdCacheCount}</span>
+                </div>
+              )}
               <div className="flex items-center gap-1.5 text-sm text-muted-foreground bg-white/80 px-3 py-1.5 rounded-lg border">
                 <Clock className="h-3.5 w-3.5" />
                 <span className="font-mono">{elapsed}</span>

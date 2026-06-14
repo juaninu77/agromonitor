@@ -23,7 +23,7 @@ import {
   ClipboardList,
   Fingerprint
 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { useTenant } from "@/lib/context/tenant-context"
 import { VisualIdGuide } from "./visual-id-guide"
 import { cn } from "@/lib/utils"
@@ -34,10 +34,16 @@ interface AnimalFormProps {
   initialData?: Partial<AnimalFormData>
 }
 
+interface EspecieOpt {
+  id: string
+  nombre: string
+}
+
 interface Raza {
   id: string
   nombre: string
 }
+
 
 interface Categoria {
   id: string
@@ -64,79 +70,141 @@ const STEPS = [
 export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormProps) {
   const { establecimientoActivo } = useTenant()
   const [step, setStep] = useState(1)
+  const [especies, setEspecies] = useState<EspecieOpt[]>([])
   const [razas, setRazas] = useState<Raza[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [lotes, setLotes] = useState<Lote[]>([])
   const [loadingOptions, setLoadingOptions] = useState(true)
+  const prevEspecieRef = useRef<string | null>(null)
 
   const {
     register,
     handleSubmit,
-    formState: { errors, isValid },
+    formState: { errors },
     setValue,
     watch,
     trigger,
   } = useForm<AnimalFormData>({
     resolver: zodResolver(animalFormSchema),
     mode: "onChange",
-    defaultValues: initialData || {
+    defaultValues: {
       sexo: "M",
       origen: "cria_propia",
       esCabana: false,
+      especieId: initialData?.especieId ?? "",
+      ...initialData,
     },
   })
 
   const esCabana = watch("esCabana")
   const selectedSexo = watch("sexo")
+  const especieIdWatch = watch("especieId")
 
-  // Cargar razas, categorías y lotes
-  useEffect(() => {
-    const loadOptions = async () => {
-      try {
-        setLoadingOptions(true)
-        const [razasRes, categoriasRes] = await Promise.all([
-          fetch('/api/razas'),
-          fetch('/api/categorias?especie=bovino')
-        ])
+  const cargarCatalogos = useCallback(
+    async (nombreEspecie: string, especieUuid: string) => {
+      const [razasRes, categoriasRes] = await Promise.all([
+        fetch(`/api/razas?especie=${encodeURIComponent(nombreEspecie)}`),
+        fetch(`/api/categorias?especie=${encodeURIComponent(nombreEspecie)}`),
+      ])
+      if (razasRes.ok) {
+        const razasData = await razasRes.json()
+        setRazas(
+          (razasData.data || []).map((r: { id: string; nombre: string }) => ({
+            id: r.id,
+            nombre: r.nombre,
+          }))
+        )
+      } else {
+        setRazas([])
+      }
+      if (categoriasRes.ok) {
+        const categoriasData = await categoriasRes.json()
+        setCategorias(
+          (categoriasData.data || []).map((c: { id: string; nombre: string }) => ({
+            id: c.id,
+            nombre: c.nombre,
+          }))
+        )
+      } else {
+        setCategorias([])
+      }
 
-        if (razasRes.ok) {
-          const razasData = await razasRes.json()
-          setRazas(razasData.data || [])
-        }
-
-        if (categoriasRes.ok) {
-          const categoriasData = await categoriasRes.json()
-          setCategorias(categoriasData.data || [])
-        }
-
-        if (establecimientoActivo) {
-          try {
-            const lotesRes = await fetch(`/api/establecimientos/${establecimientoActivo.id}/lotes`)
-            if (lotesRes.ok) {
-              const lotesData = await lotesRes.json()
-              const lotesBovinos = lotesData.filter((lote: Lote) => 
-                lote.especie?.nombre === 'bovino'
-              )
-              setLotes(lotesBovinos)
-            }
-          } catch (error) {
-            console.error('Error loading lotes:', error)
+      if (establecimientoActivo) {
+        try {
+          const lotesRes = await fetch(`/api/establecimientos/${establecimientoActivo.id}/lotes`)
+          if (lotesRes.ok) {
+            const lotesData = await lotesRes.json()
+            setLotes(
+              (lotesData || []).filter((lote: Lote) => lote.especie?.id === especieUuid)
+            )
           }
+        } catch (error) {
+          console.error("Error loading lotes:", error)
         }
-      } catch (error) {
-        console.error('Error loading options:', error)
-      } finally {
+      }
+    },
+    [establecimientoActivo]
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch("/api/especies")
+        const data = await res.json()
+        if (!data.success || cancelled) return
+        const list = data.data as EspecieOpt[]
+        setEspecies(list)
+        if (list.length === 0) {
+          setLoadingOptions(false)
+          return
+        }
+        const existing = initialData?.especieId
+        if (existing && list.some((e) => e.id === existing)) {
+          setValue("especieId", existing)
+        } else {
+          const bov = list.find((e) => e.nombre === "bovino")
+          if (bov) setValue("especieId", bov.id)
+        }
+      } catch (e) {
+        console.error(e)
         setLoadingOptions(false)
       }
+    })()
+    return () => {
+      cancelled = true
     }
+  }, [initialData?.especieId, setValue])
 
-    loadOptions()
-  }, [establecimientoActivo])
+  useEffect(() => {
+    if (!especieIdWatch || especies.length === 0) return
+    const esp = especies.find((e) => e.id === especieIdWatch)
+    if (!esp) return
+
+    if (prevEspecieRef.current !== null && prevEspecieRef.current !== especieIdWatch) {
+      setValue("razaId", "")
+      setValue("categoriaId", "")
+    }
+    prevEspecieRef.current = especieIdWatch
+
+    let cancelled = false
+    ;(async () => {
+      setLoadingOptions(true)
+      try {
+        await cargarCatalogos(esp.nombre, esp.id)
+      } finally {
+        if (!cancelled) setLoadingOptions(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [especieIdWatch, especies, cargarCatalogos, setValue])
 
   const nextStep = async () => {
     let fieldsToValidate: any[] = []
     if (step === 1) fieldsToValidate = ["caravanaVisual", "caravanaRfid", "cuig", "otroId"]
-    if (step === 2) fieldsToValidate = ["razaId", "categoriaId", "sexo", "fechaNacimiento", "origen"]
+    if (step === 2) fieldsToValidate = ["especieId", "razaId", "categoriaId", "sexo", "fechaNacimiento", "origen"]
     
     const isStepValid = await trigger(fieldsToValidate)
     if (isStepValid) setStep((s) => Math.min(s + 1, 4))
@@ -281,11 +349,35 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-2 md:col-span-2">
+                <Label className="flex items-center gap-2">Especie *</Label>
+                <Select
+                  value={especieIdWatch || undefined}
+                  onValueChange={(value) => setValue("especieId", value)}
+                  disabled={loadingOptions || especies.length === 0}
+                >
+                  <SelectTrigger className={cn("h-11 border-2", errors.especieId ? "border-red-500" : "border-slate-200")}>
+                    <SelectValue placeholder={loadingOptions ? "Cargando especies…" : "Seleccionar especie"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {especies.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.nombre.charAt(0).toUpperCase() + e.nombre.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {errors.especieId && (
+                  <p className="text-xs text-red-600 font-medium">{errors.especieId.message}</p>
+                )}
+              </div>
+
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">Raza *</Label>
                 <Select
+                  key={`raza-${especieIdWatch}`}
                   onValueChange={(value) => setValue("razaId", value)}
-                  defaultValue={initialData?.razaId}
+                  value={watch("razaId") || undefined}
                   disabled={loadingOptions}
                 >
                   <SelectTrigger className={cn("h-11 border-2", errors.razaId ? "border-red-500" : "border-slate-200")}>
@@ -307,8 +399,9 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">Categoría *</Label>
                 <Select
+                  key={`cat-${especieIdWatch}`}
                   onValueChange={(value) => setValue("categoriaId", value)}
-                  defaultValue={initialData?.categoriaId}
+                  value={watch("categoriaId") || undefined}
                   disabled={loadingOptions}
                 >
                   <SelectTrigger className={cn("h-11 border-2", errors.categoriaId ? "border-red-500" : "border-slate-200")}>

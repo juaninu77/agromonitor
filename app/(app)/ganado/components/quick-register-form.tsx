@@ -72,11 +72,13 @@ export function QuickRegisterForm({ onSubmit, isSubmitting }: QuickRegisterFormP
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/razas').then(r => r.json()),
-      fetch('/api/categorias?especie=bovino').then(r => r.json())
+      fetch("/api/razas?especie=bovino").then((r) => r.json()),
+      fetch("/api/categorias?especie=bovino").then((r) => r.json()),
     ]).then(([razasData, categoriasData]) => {
-      if (razasData.success) setRazas(razasData.data)
-      if (categoriasData.success) setCategorias(categoriasData.data)
+      if (razasData.success)
+        setRazas((razasData.data || []).map((r: { id: string; nombre: string }) => ({ id: r.id, nombre: r.nombre })))
+      if (categoriasData.success)
+        setCategorias((categoriasData.data || []).map((c: { id: string; nombre: string }) => ({ id: c.id, nombre: c.nombre })))
     }).finally(() => setLoading(false))
   }, [])
 

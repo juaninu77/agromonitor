@@ -9,9 +9,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 })
     }
 
-    const especieId = request.nextUrl.searchParams.get("especieId")
+    const especieIdParam = request.nextUrl.searchParams.get("especieId")
+    const especieNombre = request.nextUrl.searchParams.get("especie")
+
     const where: Record<string, unknown> = {}
-    if (especieId) where.especieId = especieId
+
+    if (especieIdParam) {
+      where.especieId = especieIdParam
+    } else if (especieNombre) {
+      const especie = await prisma.especie.findFirst({
+        where: { nombre: especieNombre.toLowerCase() },
+      })
+      if (especie) where.especieId = especie.id
+    }
 
     const razas = await prisma.raza.findMany({
       where: where as any,

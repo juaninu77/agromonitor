@@ -96,11 +96,11 @@ interface AnimalDetail {
   eventosSanidad: SanidadEvent[]
   serviciosHembra: ServicioEvent[]
   tactos: TactoEvent[]
-  partosMadre: PartoEvent[]
+  partosComoMadre: PartoEvent[]
   eventosMovimiento: MovimientoEvent[]
   ubicacionHist: UbicacionHist[]
   loteHist: LoteHist[]
-  bajas: BajaEvent[]
+  eventoBaja: BajaEvent | null
 }
 
 interface PesadaEvent {
@@ -419,7 +419,7 @@ export default function AnimalDetailPage() {
     animal.tactos?.forEach((e) =>
       events.push({ fecha: e.fecha, tipo: "Tacto", icono: "activity", descripcion: `${e.resultado}${e.mesesGest ? ` — ${e.mesesGest} meses` : ""}` })
     )
-    animal.partosMadre?.forEach((e) =>
+    animal.partosComoMadre?.forEach((e) =>
       events.push({ fecha: e.fecha, tipo: "Parto", icono: "baby", descripcion: `Resultado: ${e.resultado}` })
     )
     animal.eventosMovimiento?.forEach((e) =>
@@ -439,7 +439,7 @@ export default function AnimalDetailPage() {
     animal.tactos?.forEach((e) =>
       events.push({ fecha: e.fecha, tipo: "Tacto", detalle: `${e.resultado}${e.mesesGest ? ` (${e.mesesGest}m)` : ""}` })
     )
-    animal.partosMadre?.forEach((e) =>
+    animal.partosComoMadre?.forEach((e) =>
       events.push({ fecha: e.fecha, tipo: "Parto", detalle: e.resultado })
     )
 

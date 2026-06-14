@@ -1,6 +1,9 @@
 import { z } from "zod"
 
 export const animalFormSchema = z.object({
+  // Especie (bovino, ovino, equino, etc.)
+  especieId: z.string().uuid("Seleccioná una especie válida"),
+
   // Identificación
   caravanaVisual: z.string().min(1, "La caravana visual es requerida"),
   caravanaRfid: z.string().optional(),

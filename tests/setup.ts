@@ -7,8 +7,7 @@
 
 import { beforeAll, afterAll, afterEach } from 'vitest'
 
-// Configurar variables de entorno para tests
-process.env.NODE_ENV = 'test'
+// NODE_ENV lo fija `cross-env` en los scripts de test; aquí solo secrets auxiliares.
 process.env.NEXTAUTH_SECRET = 'test-secret-for-testing-only'
 process.env.NEXTAUTH_URL = 'http://localhost:3000'
 

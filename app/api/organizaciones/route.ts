@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { nombre, descripcion } = body
+    const { nombre } = body
 
     if (!nombre || typeof nombre !== "string") {
       return NextResponse.json(
@@ -114,7 +114,6 @@ export async function POST(request: Request) {
         data: {
           nombre,
           slug,
-          descripcion,
         },
       })
 

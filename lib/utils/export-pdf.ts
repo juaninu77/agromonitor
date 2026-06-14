@@ -28,9 +28,9 @@ export function exportAnimalsToPDF(options: PDFExportOptions) {
   // Crear documento PDF
   const doc = new jsPDF('landscape')
 
-  // Configuración de colores
-  const primaryColor = [37, 99, 235] // Blue-600
-  const secondaryColor = [243, 244, 246] // Gray-100
+  // Configuración de colores (tupla RGB para tipos de jspdf-autotable)
+  const primaryColor: [number, number, number] = [37, 99, 235] // Blue-600
+  const secondaryColor: [number, number, number] = [243, 244, 246] // Gray-100
 
   let yPosition = 20
 

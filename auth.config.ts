@@ -85,13 +85,11 @@ export const authConfig = {
             token.rol = realUser.rol
           } else {
             console.error('❌ No se pudo reparar: usuario no encontrado o inactivo')
-            // Invalidar token retornando uno vacío
-            return {}
+            return null
           }
         } catch (error) {
           console.error('❌ Error al reparar token:', error)
-          // Invalidar token
-          return {}
+          return null
         }
       }
 

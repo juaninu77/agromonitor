@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback } from "react"
+import dynamic from "next/dynamic"
 import {
   Dialog,
   DialogContent,
@@ -9,16 +10,44 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { IntuitiveRegisterWizard } from "./intuitive-register-wizard"
-import { BatchRegisterForm } from "./batch-register-form"
 import { toast } from "sonner"
-import { 
-  Zap, 
-  Layers, 
-  CheckCircle2, 
+import {
+  Zap,
+  Layers,
   AlertCircle,
-  Sparkles
+  Sparkles,
+  Loader2,
 } from "lucide-react"
+
+const IntuitiveRegisterWizard = dynamic(
+  () =>
+    import("./intuitive-register-wizard").then((m) => ({
+      default: m.IntuitiveRegisterWizard,
+    })),
+  {
+    loading: () => (
+      <div className="flex flex-col items-center justify-center py-16 gap-3">
+        <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+        <p className="text-sm text-slate-500">Cargando asistente de registro…</p>
+      </div>
+    ),
+  }
+)
+
+const BatchRegisterForm = dynamic(
+  () =>
+    import("./batch-register-form").then((m) => ({
+      default: m.BatchRegisterForm,
+    })),
+  {
+    loading: () => (
+      <div className="flex flex-col items-center justify-center py-16 gap-3">
+        <Loader2 className="h-10 w-10 animate-spin text-slate-600" />
+        <p className="text-sm text-slate-500">Cargando registro masivo…</p>
+      </div>
+    ),
+  }
+)
 
 interface RegisterDialogProps {
   open: boolean

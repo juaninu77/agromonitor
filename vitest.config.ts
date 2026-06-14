@@ -9,8 +9,8 @@ export default defineConfig({
     // Incluir archivos de test
     include: ['**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
     
-    // Excluir
-    exclude: ['node_modules', '.next', 'dist'],
+    // Excluir (navigation-performance requiere @playwright/test instalado por separado)
+    exclude: ['node_modules', '.next', 'dist', 'tests/navigation-performance.test.ts'],
     
     // Globals (describe, it, expect sin importar)
     globals: true,

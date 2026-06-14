@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -45,6 +45,7 @@ import {
 
 // Schema de validación
 const registerSchema = z.object({
+  especieId: z.string().min(1, "Seleccioná el tipo de animal"),
   caravanaVisual: z.string().min(1, "La caravana es obligatoria"),
   razaId: z.string().min(1, "Selecciona una raza"),
   categoriaId: z.string().min(1, "Selecciona una categoría"),
@@ -57,10 +58,16 @@ const registerSchema = z.object({
 
 type RegisterData = z.infer<typeof registerSchema>
 
+interface EspecieOpt {
+  id: string
+  nombre: string
+}
+
 interface Raza {
   id: string
   nombre: string
 }
+
 
 interface Categoria {
   id: string
@@ -105,8 +112,10 @@ function CategorySelector({
 
   // Sugerir categoría basada en edad
   const categoriaSugerida = edadMeses !== null ? categoriasFiltradas.find(cat => {
-    if (cat.edadMinMeses !== null && edadMeses < cat.edadMinMeses) return false
-    if (cat.edadMaxMeses !== null && edadMeses > cat.edadMaxMeses) return false
+    const min = cat.edadMinMeses
+    const max = cat.edadMaxMeses
+    if (min != null && edadMeses < min) return false
+    if (max != null && edadMeses > max) return false
     return true
   }) : null
 
@@ -116,6 +125,8 @@ function CategorySelector({
     if (lower.includes("toro")) return Crown
     if (lower.includes("vaca")) return Heart
     if (lower.includes("novillo") || lower.includes("vaquillona")) return Target
+    if (lower.includes("cordero") || lower.includes("cordera") || lower.includes("oveja") || lower.includes("carnero") || lower.includes("borrego")) return Heart
+    if (lower.includes("potrill") || lower.includes("potranc") || lower.includes("caballo") || lower.includes("yegua") || lower.includes("semiental") || lower.includes("semental")) return Zap
     return Beef
   }
 
@@ -283,18 +294,21 @@ function RazaSelector({
 
 export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: IntuitiveRegisterWizardProps) {
   const [step, setStep] = useState(1)
+  const [especies, setEspecies] = useState<EspecieOpt[]>([])
   const [razas, setRazas] = useState<Raza[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loadingEspecies, setLoadingEspecies] = useState(true)
+  const [catalogosLoading, setCatalogosLoading] = useState(false)
   const [registeredCount, setRegisteredCount] = useState(0)
   const [continueRegistering, setContinueRegistering] = useState(true)
+  const prevEspecieRef = useRef<string | null>(null)
 
   const totalSteps = 3
 
   const {
     register,
     handleSubmit,
-    formState: { errors, isValid },
+    formState: { errors },
     setValue,
     watch,
     reset,
@@ -305,6 +319,7 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
     defaultValues: {
       sexo: "M",
       origen: "cria_propia",
+      especieId: "",
     },
   })
 
@@ -312,63 +327,135 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
   const selectedRaza = watch("razaId")
   const selectedCategoria = watch("categoriaId")
   const fechaNacimiento = watch("fechaNacimiento")
+  const especieIdWatch = watch("especieId")
 
-  // Cargar datos
-  useEffect(() => {
-    Promise.all([
-      fetch('/api/razas').then(r => r.json()),
-      fetch('/api/categorias?especie=bovino').then(r => r.json())
-    ]).then(([razasData, categoriasData]) => {
-      if (razasData.success) setRazas(razasData.data)
-      if (categoriasData.success) setCategorias(categoriasData.data)
-    }).finally(() => setLoading(false))
+  const cargarCatalogos = useCallback(async (nombreEspecie: string) => {
+    const [razasData, categoriasData] = await Promise.all([
+      fetch(`/api/razas?especie=${encodeURIComponent(nombreEspecie)}`).then((r) => r.json()),
+      fetch(`/api/categorias?especie=${encodeURIComponent(nombreEspecie)}`).then((r) => r.json()),
+    ])
+    if (razasData.success) {
+      setRazas((razasData.data || []).map((r: { id: string; nombre: string }) => ({ id: r.id, nombre: r.nombre })))
+    } else {
+      setRazas([])
+    }
+    if (categoriasData.success) {
+      setCategorias(
+        (categoriasData.data || []).map((c: Categoria) => ({
+          id: c.id,
+          nombre: c.nombre,
+          sexo: c.sexo,
+          edadMinMeses: c.edadMinMeses,
+          edadMaxMeses: c.edadMaxMeses,
+        }))
+      )
+    } else {
+      setCategorias([])
+    }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const espRes = await fetch("/api/especies")
+        const espJson = await espRes.json()
+        if (!espJson.success || cancelled) return
+        const list = espJson.data as EspecieOpt[]
+        setEspecies(list)
+        const bov = list.find((e) => e.nombre === "bovino")
+        const initialId = bov?.id ?? list[0]?.id
+        if (initialId) {
+          setValue("especieId", initialId)
+        }
+      } finally {
+        if (!cancelled) setLoadingEspecies(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [setValue])
+
+  useEffect(() => {
+    if (especies.length === 0 || !especieIdWatch) return
+    const nombre = especies.find((e) => e.id === especieIdWatch)?.nombre
+    if (!nombre) return
+
+    if (prevEspecieRef.current !== null && prevEspecieRef.current !== especieIdWatch) {
+      setValue("razaId", "")
+      setValue("categoriaId", "")
+    }
+    prevEspecieRef.current = especieIdWatch
+
+    let cancelled = false
+    ;(async () => {
+      setCatalogosLoading(true)
+      try {
+        await cargarCatalogos(nombre)
+      } finally {
+        if (!cancelled) setCatalogosLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [especieIdWatch, especies, cargarCatalogos, setValue])
 
   const nextStep = async () => {
     let fieldsToValidate: (keyof RegisterData)[] = []
-    
-    if (step === 1) fieldsToValidate = ["caravanaVisual", "sexo"]
+
+    if (step === 1) fieldsToValidate = ["especieId", "caravanaVisual", "sexo"]
     if (step === 2) fieldsToValidate = ["razaId", "categoriaId"]
-    
+
     const isStepValid = await trigger(fieldsToValidate)
-    if (isStepValid) setStep(s => Math.min(s + 1, totalSteps))
+    if (isStepValid) setStep((s) => Math.min(s + 1, totalSteps))
   }
 
-  const prevStep = () => setStep(s => Math.max(s - 1, 1))
+  const prevStep = () => setStep((s) => Math.max(s - 1, 1))
 
   const handleFormSubmit = async (data: RegisterData) => {
     try {
       await onSubmit(data)
-      setRegisteredCount(prev => prev + 1)
-      
+      setRegisteredCount((prev) => prev + 1)
+
       if (continueRegistering) {
-        // Resetear formulario para siguiente animal
         reset({
-          sexo: data.sexo, // Mantener el sexo
-          razaId: data.razaId, // Mantener la raza
+          especieId: data.especieId,
+          sexo: data.sexo,
+          razaId: data.razaId,
           origen: data.origen,
-          categoriaId: "", // Limpiar categoría
+          categoriaId: "",
           caravanaVisual: "",
           fechaNacimiento: "",
           pesoInicial: undefined,
           notas: "",
         })
-        setStep(1) // Volver al primer paso
-        
-        toast.success('¡Animal registrado!', {
+        setStep(1)
+
+        toast.success("¡Animal registrado!", {
           description: `#${data.caravanaVisual} agregado. Total: ${registeredCount + 1} animales`,
         })
       } else {
         onClose()
       }
-    } catch (error) {
+    } catch {
       // El error ya se maneja en el componente padre
     }
   }
 
   const progressPercent = (step / totalSteps) * 100
 
-  if (loading) {
+  const labelEspecie = (nombre: string) => {
+    const n = nombre.toLowerCase()
+    if (n === "bovino") return "Bovino"
+    if (n === "ovino") return "Ovino"
+    if (n === "equino") return "Equino"
+    if (n === "caprino") return "Caprino"
+    return nombre.charAt(0).toUpperCase() + nombre.slice(1)
+  }
+
+  if (loadingEspecies) {
     return (
       <div className="flex items-center justify-center py-16">
         <div className="text-center">
@@ -431,9 +518,40 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                 <div>
                   <p className="text-sm font-semibold text-blue-900">Identificación del animal</p>
                   <p className="text-xs text-blue-700">
-                    Ingresa el número de caravana visual y selecciona el sexo del animal.
+                    Elegí la especie (bovino, ovino, equino…), el número de caravana visual y el sexo.
                   </p>
                 </div>
+              </div>
+
+              {/* Especie */}
+              <div className="space-y-3">
+                <Label className="text-base font-bold text-slate-700">Tipo de animal</Label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {especies.map((esp) => {
+                    const active = especieIdWatch === esp.id
+                    return (
+                      <button
+                        key={esp.id}
+                        type="button"
+                        onClick={() => setValue("especieId", esp.id, { shouldValidate: true })}
+                        className={cn(
+                          "rounded-xl border-2 px-3 py-3 text-sm font-semibold transition-all",
+                          active
+                            ? "border-blue-600 bg-blue-50 text-blue-800 shadow-md"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                        )}
+                      >
+                        {labelEspecie(esp.nombre)}
+                      </button>
+                    )
+                  })}
+                </div>
+                {errors.especieId && (
+                  <p className="text-sm text-red-600 font-medium flex items-center gap-1">
+                    <X className="h-4 w-4" />
+                    {errors.especieId.message}
+                  </p>
+                )}
               </div>
 
               {/* Caravana Visual */}
@@ -546,11 +664,18 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
               {/* Selector de Raza */}
               <div className="space-y-3">
                 <Label className="text-base font-bold text-slate-700">Raza</Label>
-                <RazaSelector
-                  razas={razas}
-                  selectedRaza={selectedRaza || ""}
-                  onSelect={(id) => setValue("razaId", id)}
-                />
+                {catalogosLoading ? (
+                  <div className="flex items-center justify-center gap-2 py-10 text-slate-500">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                    <span className="text-sm">Cargando razas y categorías…</span>
+                  </div>
+                ) : (
+                  <RazaSelector
+                    razas={razas}
+                    selectedRaza={selectedRaza || ""}
+                    onSelect={(id) => setValue("razaId", id)}
+                  />
+                )}
                 {errors.razaId && (
                   <p className="text-sm text-red-600 font-medium flex items-center gap-1">
                     <X className="h-4 w-4" />
@@ -568,7 +693,7 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                   </span>
                 </Label>
                 <CategorySelector
-                  categorias={categorias}
+                  categorias={catalogosLoading ? [] : categorias}
                   selectedSexo={selectedSexo}
                   selectedCategoria={selectedCategoria || ""}
                   onSelect={(id) => setValue("categoriaId", id)}

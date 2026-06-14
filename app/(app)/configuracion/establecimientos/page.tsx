@@ -13,9 +13,9 @@ interface Establecimiento {
   id: string
   nombre: string
   hectareas: number | null
-  renspa: string | null
-  provincia: string | null
-  localidad: string | null
+  renspa?: string | null
+  provincia?: string | null
+  localidad?: string | null
 }
 
 export default function EstablecimientosPage() {
@@ -185,7 +185,17 @@ export default function EstablecimientosPage() {
           open={showForm}
           onOpenChange={setShowForm}
           onSubmit={handleCreate}
-          initialData={editingEstablecimiento || undefined}
+          initialData={
+            editingEstablecimiento
+              ? {
+                  nombre: editingEstablecimiento.nombre,
+                  hectareas: editingEstablecimiento.hectareas,
+                  renspa: editingEstablecimiento.renspa ?? "",
+                  provincia: editingEstablecimiento.provincia ?? "",
+                  localidad: editingEstablecimiento.localidad ?? "",
+                }
+              : undefined
+          }
           organizacionId={organizacionActiva.id}
         />
       )}

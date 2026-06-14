@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useMemo, useCallback, useEffect } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -48,6 +49,10 @@ import { QuickHealthForm } from "./components/quick-health-form"
 type TabValue = "lista" | "detalle" | "reportes"
 
 export default function GanadoPage() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const editHandledRef = useRef<string | null>(null)
+
   const [selectedTab, setSelectedTab] = useState<TabValue>("lista")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAnimalId, setEditingAnimalId] = useState<string | undefined>(undefined)
@@ -174,6 +179,14 @@ export default function GanadoPage() {
     setEditingAnimalId(animalId)
     setDialogOpen(true)
   }, [])
+
+  useEffect(() => {
+    const editId = searchParams.get("edit")
+    if (!editId || editHandledRef.current === editId) return
+    editHandledRef.current = editId
+    handleOpenEdit(editId)
+    router.replace("/ganado", { scroll: false })
+  }, [searchParams, router, handleOpenEdit])
 
   const handleQuickRegister = useCallback(
     async (data: any) => {

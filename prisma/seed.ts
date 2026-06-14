@@ -119,6 +119,10 @@ async function main() {
     data: { nombre: 'ovino', descripcion: 'Ganado ovino' }
   })
 
+  const equino = await prisma.especie.create({
+    data: { nombre: 'equino', descripcion: 'Caballos y otros équidos' }
+  })
+
   // ============================================
   // CATÁLOGOS: RAZAS BOVINAS
   // ============================================
@@ -166,6 +170,24 @@ async function main() {
     prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'capón', sexo: 'M', edadMinMeses: 12 } }),
     prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'oveja', sexo: 'F', edadMinMeses: 24 } }),
     prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'carnero', sexo: 'M', edadMinMeses: 24 } }),
+  ])
+
+  // ============================================
+  // CATÁLOGOS: RAZAS Y CATEGORÍAS EQUINAS
+  // ============================================
+  await Promise.all([
+    prisma.raza.create({ data: { especieId: equino.id, nombre: 'Criollo' } }),
+    prisma.raza.create({ data: { especieId: equino.id, nombre: 'Pura Sangre' } }),
+    prisma.raza.create({ data: { especieId: equino.id, nombre: 'Cuarto de Milla' } }),
+    prisma.raza.create({ data: { especieId: equino.id, nombre: 'Polo Argentino' } }),
+  ])
+
+  await Promise.all([
+    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'potrillo', sexo: 'M', edadMaxMeses: 36 } }),
+    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'potranca', sexo: 'F', edadMaxMeses: 36 } }),
+    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'caballo', sexo: 'M', edadMinMeses: 36 } }),
+    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'yegua', sexo: 'F', edadMinMeses: 36 } }),
+    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'semental', sexo: 'M', edadMinMeses: 36 } }),
   ])
 
   // ============================================

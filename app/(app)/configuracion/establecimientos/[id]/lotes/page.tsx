@@ -160,7 +160,21 @@ export default function LotesPage() {
         open={showForm}
         onOpenChange={setShowForm}
         onSubmit={handleCreate}
-        initialData={editingLote || undefined}
+        initialData={
+          editingLote
+            ? {
+                nombre: editingLote.nombre,
+                tipo: editingLote.tipo as
+                  | "recria"
+                  | "engorde"
+                  | "reproductivo"
+                  | "mixto"
+                  | "descarte",
+                objetivo: editingLote.objetivo ?? "",
+                especieId: editingLote.especieId,
+              }
+            : undefined
+        }
         establecimientoId={establecimientoId}
       />
     </div>

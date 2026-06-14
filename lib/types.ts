@@ -5,7 +5,7 @@ export type NavItem = {
   href: string
   icon: LucideIcon
   label?: string
-  badge?: number
+  badge?: number | string
 }
 
 export type KpiCardData = {

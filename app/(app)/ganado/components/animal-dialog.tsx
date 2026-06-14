@@ -44,6 +44,7 @@ export function AnimalDialog({
           if (result.success && result.data) {
             const animal = result.data
             setFormData({
+              especieId: animal.especieId || animal.especie?.id || '',
               caravanaVisual: animal.caravanaVisual || '',
               caravanaRfid: animal.caravanaRfid || '',
               cuig: animal.cuig || '',
@@ -167,6 +168,7 @@ export function AnimalDialog({
           </div>
         ) : (
           <AnimalForm
+            key={`${mode}-${animalId ?? "create"}`}
             onSubmit={handleSubmit}
             isSubmitting={isSubmitting}
             initialData={formData}

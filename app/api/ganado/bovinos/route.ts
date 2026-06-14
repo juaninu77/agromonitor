@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { validarRazaYCategoriaParaEspecie } from "@/lib/ganado/validate-especie"
 
 // ============================================
 // GET /api/ganado/bovinos
@@ -56,22 +57,12 @@ export async function GET(request: NextRequest) {
 
     const orderByClause = getOrderByClause()
 
-    // Buscar la especie bovina
-    const especieBovina = await prisma.especie.findFirst({
-      where: { nombre: 'bovino' }
-    })
+    const especieIdFilter = searchParams.get("especieId")
 
-    if (!especieBovina) {
-      return NextResponse.json({
-        success: true,
-        data: [],
-        stats: { total: 0 }
-      })
-    }
-
-    // Construir filtros
-    const where: Record<string, unknown> = {
-      especieId: especieBovina.id
+    // Sin especieId: lista todos los animales (bovinos, ovinos, equinos, etc.)
+    const where: Record<string, unknown> = {}
+    if (especieIdFilter) {
+      where.especieId = especieIdFilter
     }
 
     if (categoriaId) {
@@ -250,12 +241,7 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Estadísticas (calculadas sobre TODOS los animales, no solo la página actual)
-    const categorias = await prisma.categoria.findMany({
-      where: { especieId: especieBovina.id }
-    })
-
-    // Obtener todos los animales para estadísticas (sin paginación)
+    // Estadísticas (misma consulta `where` que la lista; puede incluir varias especies)
     const todosAnimales = await prisma.animal.findMany({
       where: where as any,
       include: {
@@ -273,9 +259,11 @@ export async function GET(request: NextRequest) {
       pesoPromedio: 0,
     }
 
-    // Contar por categoría
-    for (const cat of categorias) {
-      stats.porCategoria[cat.nombre] = todosAnimales.filter(a => a.categoriaId === cat.id).length
+    for (const a of todosAnimales) {
+      const nombreCat = a.categoria?.nombre
+      if (nombreCat) {
+        stats.porCategoria[nombreCat] = (stats.porCategoria[nombreCat] || 0) + 1
+      }
     }
 
     // Calcular peso promedio
@@ -332,16 +320,23 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
 
-    // Buscar especie bovina
-    const especieBovina = await prisma.especie.findFirst({
-      where: { nombre: 'bovino' }
-    })
-
-    if (!especieBovina) {
-      return NextResponse.json(
-        { error: "Especie bovina no encontrada" },
-        { status: 400 }
-      )
+    let especieId: string | undefined = body.especieId
+    if (!especieId) {
+      const especieBovina = await prisma.especie.findFirst({
+        where: { nombre: "bovino" },
+      })
+      if (!especieBovina) {
+        return NextResponse.json(
+          { error: "No hay especie bovina en catálogo; indicá especieId o ejecutá el seed." },
+          { status: 400 }
+        )
+      }
+      especieId = especieBovina.id
+    } else {
+      const esp = await prisma.especie.findUnique({ where: { id: especieId } })
+      if (!esp) {
+        return NextResponse.json({ error: "Especie no válida" }, { status: 400 })
+      }
     }
 
     // Validar raza
@@ -360,10 +355,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const comboErr = await validarRazaYCategoriaParaEspecie(
+      especieId,
+      body.razaId,
+      body.categoriaId
+    )
+    if (comboErr) {
+      return NextResponse.json({ error: comboErr }, { status: 400 })
+    }
+
     // Crear animal
     const animal = await prisma.animal.create({
       data: {
-        especieId: especieBovina.id,
+        especieId,
         razaId: body.razaId,
         categoriaId: body.categoriaId,
         sexo: body.sexo || 'M',
@@ -436,10 +440,9 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Verificar que el lote es de la especie bovina
-      if (lote.especieId !== especieBovina.id) {
+      if (lote.especieId !== especieId) {
         return NextResponse.json(
-          { error: "El lote seleccionado no es para bovinos" },
+          { error: "El lote seleccionado no corresponde a la especie del animal" },
           { status: 400 }
         )
       }

@@ -81,11 +81,6 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
     setTimeout(() => eidRef.current?.focus(), 100)
   }, [])
 
-  const handleReaderEID = useCallback((eid: string) => {
-    setEidInput("")
-    searchAnimal(eid)
-  }, [searchAnimal])
-
   const searchAnimal = useCallback(async (eid: string) => {
     if (!eid.trim()) return
     setSearching(true)
@@ -116,6 +111,11 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
       setSearching(false)
     }
   }, [])
+
+  const handleReaderEID = useCallback((eid: string) => {
+    setEidInput("")
+    searchAnimal(eid)
+  }, [searchAnimal])
 
   function handleEidSubmit() {
     if (eidInput.trim()) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { validarRazaYCategoriaParaEspecie } from "@/lib/ganado/validate-especie"
 
 // ============================================
 // GET /api/ganado/bovinos/[id]
@@ -49,7 +50,7 @@ export async function GET(
           orderBy: { fecha: 'desc' },
           ...(fullHistory ? {} : { take: 5 }),
         },
-        partosMadre: {
+        partosComoMadre: {
           orderBy: { fecha: 'desc' },
           ...(fullHistory ? {} : { take: 5 }),
         },
@@ -67,9 +68,7 @@ export async function GET(
           include: { lote: true },
           ...(fullHistory ? {} : { take: 3 }),
         },
-        bajas: {
-          take: 1,
-        },
+        eventoBaja: true,
       }
     })
 
@@ -136,8 +135,25 @@ export async function PATCH(
     if (body.otroId !== undefined) updateData.otroId = body.otroId
 
     // Relaciones
+    if (body.especieId !== undefined) {
+      const esp = await prisma.especie.findUnique({ where: { id: body.especieId } })
+      if (!esp) {
+        return NextResponse.json({ error: "Especie no válida" }, { status: 400 })
+      }
+      updateData.especieId = body.especieId
+    }
     if (body.razaId !== undefined) updateData.razaId = body.razaId
     if (body.categoriaId !== undefined) updateData.categoriaId = body.categoriaId
+
+    const especieFinal = (updateData.especieId ?? animalExistente.especieId) as string
+    const razaFinal = (updateData.razaId ?? animalExistente.razaId) as string | null
+    const catFinal = (updateData.categoriaId ?? animalExistente.categoriaId) as string | null
+    if (razaFinal && catFinal) {
+      const errCombo = await validarRazaYCategoriaParaEspecie(especieFinal, razaFinal, catFinal)
+      if (errCombo) {
+        return NextResponse.json({ error: errCombo }, { status: 400 })
+      }
+    }
 
     // Información básica
     if (body.sexo !== undefined) updateData.sexo = body.sexo
@@ -182,25 +198,30 @@ export async function PATCH(
     }
 
     // Si se cambia el lote, actualizar historial
-    if (body.loteId && body.loteId !== animalExistente.id) {
-      // Cerrar lote actual
-      await prisma.animalLoteHist.updateMany({
-        where: {
-          animalId: id,
-          hasta: null
-        },
-        data: {
-          hasta: new Date()
-        }
+    if (body.loteId) {
+      const abierto = await prisma.animalLoteHist.findFirst({
+        where: { animalId: id, hasta: null },
+        select: { loteId: true },
       })
+      if (abierto?.loteId !== body.loteId) {
+        await prisma.animalLoteHist.updateMany({
+          where: {
+            animalId: id,
+            hasta: null,
+          },
+          data: {
+            hasta: new Date(),
+          },
+        })
 
-      await prisma.animalLoteHist.create({
-        data: {
-          animalId: id,
-          loteId: body.loteId,
-          desde: new Date(),
-        }
-      })
+        await prisma.animalLoteHist.create({
+          data: {
+            animalId: id,
+            loteId: body.loteId,
+            desde: new Date(),
+          },
+        })
+      }
     }
 
     // Si se cambia el sector, actualizar historial

@@ -1,5 +1,7 @@
 // Client-only: Este módulo usa la Web Serial API y solo funciona en el navegador.
 
+import { normalizeEID } from './eid';
+
 // ─── Type augmentation para Web Serial API ───────────────────────────────────
 // TypeScript no incluye tipos para la Web Serial API por defecto.
 // Declaramos los tipos mínimos necesarios para interactuar con ella.
@@ -58,22 +60,49 @@ export type EIDReaderStatus =
 
 type StatusChangeCallback = (status: EIDReaderStatus) => void;
 
-// Bluetooth Classic SPP service class UUID
-const BLUETOOTH_SPP_SERVICE_CLASS_ID = 0x1101;
 const BAUD_RATE = 9600;
 
-// ISO 11784/11785: EID es un número decimal de 15 o 16 dígitos
-const EID_PATTERN = /^\d{15,16}$/;
+// Parámetros de línea del Tru-Test XRS2i/SRS2: 9600 8N1, sin control de flujo.
+const SERIAL_OPTIONS: SerialOptions = {
+  baudRate: BAUD_RATE,
+  dataBits: 8,
+  stopBits: 1,
+  parity: 'none',
+  bufferSize: 8192,
+  flowControl: 'none',
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Error interno para señalar que el dispositivo cerró el stream y conviene
+// intentar reconectar (en vez de terminar el bucle en silencio).
+class StreamClosedError extends Error {
+  constructor() {
+    super('El dispositivo cerró el stream serial.');
+    this.name = 'StreamClosedError';
+  }
+}
 
 // ─── EIDReaderService ────────────────────────────────────────────────────────
 
 export class EIDReaderService {
   private port: SerialPort | null = null;
   private reader: ReadableStreamDefaultReader<string> | null = null;
+  private readableStreamClosed: Promise<void> | null = null;
   private status: EIDReaderStatus = 'disconnected';
   private statusListeners: Set<StatusChangeCallback> = new Set();
   private abortController: AbortController | null = null;
   private readingActive = false;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 6;
+  private reconnecting = false;
+  // true cuando el usuario pidió desconectar: evita reconexiones automáticas.
+  private userDisconnected = false;
+  private disconnectListenerAttached = false;
+  private onEIDCallback: ((eid: string) => void) | null = null;
+  private onErrorCallback: ((error: Error) => void) | null = null;
 
   static isSupported(): boolean {
     return (
@@ -88,16 +117,21 @@ export class EIDReaderService {
       return;
     }
 
+    this.userDisconnected = false;
     this.setStatus('connecting');
 
     try {
-      this.port = await navigator.serial.requestPort({
-        filters: [
-          { bluetoothServiceClassId: BLUETOOTH_SPP_SERVICE_CLASS_ID },
-        ],
-      });
+      // Sin filtro: en Windows el bastón Tru-Test se expone como un puerto COM
+      // normal (ej. COM7) y NO con la clase de servicio Bluetooth SPP, por lo que
+      // filtrar por bluetoothServiceClassId lo oculta del selector de Chrome
+      // ("No se encontraron dispositivos compatibles"). Pedimos todos los puertos
+      // serie para que el COM del XRS2i aparezca y el usuario lo elija.
+      this.port = await navigator.serial.requestPort();
 
-      await this.port.open({ baudRate: BAUD_RATE });
+      this.attachDisconnectListener();
+      await this.openPort();
+
+      this.reconnectAttempts = 0;
       this.setStatus('connected');
     } catch (error) {
       this.setStatus('error');
@@ -105,17 +139,43 @@ export class EIDReaderService {
     }
   }
 
+  // Abre el puerto físico (COM saliente del bastón). Mantenerlo abierto es lo
+  // que evita que el XRS2i suelte el enlace Bluetooth y se re-anuncie en ciclo.
+  private async openPort(): Promise<void> {
+    if (!this.port) throw new Error('No hay puerto seleccionado.');
+    await this.port.open(SERIAL_OPTIONS);
+  }
+
+  // Se registra una sola vez sobre el objeto SerialPort. El evento 'disconnect'
+  // lo dispara el navegador cuando el dispositivo desaparece (fuera de rango,
+  // se apaga, etc.). Solo reconectamos si la desconexión no fue pedida por el usuario.
+  private attachDisconnectListener(): void {
+    if (!this.port || this.disconnectListenerAttached) return;
+    this.disconnectListenerAttached = true;
+    this.port.addEventListener('disconnect', () => {
+      console.warn('Puerto serial: evento disconnect');
+      if (!this.userDisconnected) {
+        void this.attemptReconnect();
+      }
+    });
+  }
+
   async disconnect(): Promise<void> {
-    await this.stopReading();
+    // Marca desconexión intencional: corta cualquier reintento automático.
+    this.userDisconnected = true;
+    this.reconnecting = false;
+
+    await this.teardownReader();
 
     if (this.port) {
       try {
         await this.port.close();
       } catch {
-        // El puerto puede ya estar cerrado
+        // El puerto puede ya estar cerrado.
       }
-      this.port = null;
     }
+    // No anulamos this.port para poder reabrir el mismo dispositivo sin volver
+    // a pedir permiso; se reemplaza en el próximo connect().
 
     this.setStatus('disconnected');
   }
@@ -132,76 +192,171 @@ export class EIDReaderService {
       return;
     }
 
+    this.onEIDCallback = onEID;
+    this.onErrorCallback = onError ?? null;
+    this.userDisconnected = false;
+
+    this.beginReadLoop();
+  }
+
+  // Inicia (o reanuda) el bucle de lectura sobre el puerto ya abierto.
+  // Reutilizable tras una reconexión sin volver a registrar callbacks.
+  private beginReadLoop(): void {
+    if (!this.port?.readable) return;
+    if (this.readingActive) return;
+
     this.readingActive = true;
     this.abortController = new AbortController();
     this.setStatus('reading');
 
-    // TextDecoderStream convierte los bytes crudos del puerto serial a texto UTF-8.
-    // pipeTo conecta el readable del puerto al decoder, usando el signal para poder cancelar.
+    // TextDecoderStream convierte los bytes crudos del puerto a texto.
     const textDecoder = new TextDecoderStream();
-    const readableStreamClosed = this.port.readable.pipeTo(
+    this.readableStreamClosed = this.port.readable.pipeTo(
       textDecoder.writable as WritableStream<Uint8Array>,
       { signal: this.abortController.signal }
     );
+    // Evita "unhandled rejection" cuando el stream se corta por una caída.
+    this.readableStreamClosed.catch(() => {});
 
     this.reader = textDecoder.readable.getReader();
 
-    // Buffer para acumular datos parciales entre lecturas.
-    // El SRS2 envía EIDs terminados en \r\n, pero una lectura del stream
-    // puede cortar un EID a la mitad si llega en múltiples chunks.
+    // Buffer para acumular datos parciales: un EID puede llegar partido en
+    // varios chunks. El XRS2i termina cada lectura en \r\n.
     let buffer = '';
 
-    const readLoop = async () => {
+    const readLoop = async (): Promise<void> => {
       try {
         while (this.readingActive) {
           const { value, done } = await this.reader!.read();
 
-          if (done) break;
+          if (done) {
+            // El dispositivo cerró el stream (caída transitoria del enlace).
+            // No detenemos en silencio: intentamos reconectar de forma controlada.
+            throw new StreamClosedError();
+          }
           if (!value) continue;
 
           buffer += value;
 
-          // Procesar todas las líneas completas del buffer
           let newlineIndex: number;
           while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-            const line = buffer.slice(0, newlineIndex).replace(/\r$/, '').trim();
+            const line = buffer.slice(0, newlineIndex);
             buffer = buffer.slice(newlineIndex + 1);
 
-            if (line && EID_PATTERN.test(line)) {
-              onEID(line);
+            // Normaliza cualquier formato decimal (incluye Decimal con espacio).
+            const eid = normalizeEID(line);
+            if (eid) {
+              this.onEIDCallback?.(eid);
             }
           }
         }
       } catch (error) {
+        // Cancelación intencional (stopReading / disconnect): no es un error.
         if (error instanceof Error && error.name === 'AbortError') {
           return;
         }
-        this.setStatus('error');
-        onError?.(error instanceof Error ? error : new Error(String(error)));
+
+        // Limpieza del lector actual antes de decidir si reconectar.
+        await this.teardownReader();
+
+        if (!this.userDisconnected) {
+          void this.attemptReconnect();
+        }
       }
     };
 
-    readLoop().finally(async () => {
-      this.reader?.releaseLock();
-      this.reader = null;
-      await readableStreamClosed.catch(() => {});
-    });
+    void readLoop();
   }
 
-  async stopReading(): Promise<void> {
+  // Reconexión controlada: cierra bien el puerto, espera con backoff y lo
+  // reabre, reanudando la lectura. Reemplaza al viejo handleDisconnection()
+  // que forcejeaba abriendo un puerto ya inválido.
+  private async attemptReconnect(): Promise<void> {
+    if (this.reconnecting || this.userDisconnected) return;
+    this.reconnecting = true;
+
+    await this.teardownReader();
+
+    while (
+      this.reconnectAttempts < this.maxReconnectAttempts &&
+      !this.userDisconnected
+    ) {
+      this.reconnectAttempts++;
+      this.setStatus('connecting');
+
+      const delay = Math.min(1000 * 2 ** (this.reconnectAttempts - 1), 8000);
+      console.log(
+        `Reintento de conexión ${this.reconnectAttempts}/${this.maxReconnectAttempts} en ${delay}ms...`
+      );
+      await sleep(delay);
+
+      if (this.userDisconnected) break;
+
+      try {
+        // Aseguramos que esté cerrado antes de reabrir (evita InvalidStateError).
+        try {
+          await this.port?.close();
+        } catch {
+          // ya cerrado
+        }
+
+        await this.openPort();
+
+        this.reconnectAttempts = 0;
+        this.reconnecting = false;
+        this.setStatus('connected');
+
+        // Reanudar la lectura si había una sesión activa.
+        if (this.onEIDCallback) {
+          this.beginReadLoop();
+        }
+        return;
+      } catch (err) {
+        console.warn(`Reconexión fallida (intento ${this.reconnectAttempts})`, err);
+      }
+    }
+
+    this.reconnecting = false;
+
+    if (!this.userDisconnected) {
+      this.setStatus('error');
+      this.onErrorCallback?.(
+        new Error('No se pudo restablecer la conexión con el bastón.')
+      );
+    }
+  }
+
+  // Cancela el bucle, libera el lock y espera que el pipe se cierre.
+  private async teardownReader(): Promise<void> {
     this.readingActive = false;
+
     this.abortController?.abort();
     this.abortController = null;
 
     if (this.reader) {
       try {
+        await this.reader.cancel();
+      } catch {
+        // puede fallar si ya está cerrado
+      }
+      try {
         this.reader.releaseLock();
       } catch {
-        // Puede fallar si el lock ya fue liberado
+        // el lock ya pudo liberarse
       }
       this.reader = null;
     }
 
+    if (this.readableStreamClosed) {
+      await this.readableStreamClosed.catch(() => {});
+      this.readableStreamClosed = null;
+    }
+  }
+
+  // Detiene la lectura pero deja el puerto abierto (sigue 'connected').
+  async stopReading(): Promise<void> {
+    this.userDisconnected = false;
+    await this.teardownReader();
     if (this.port) {
       this.setStatus('connected');
     }
@@ -224,3 +379,5 @@ export class EIDReaderService {
     this.statusListeners.forEach((cb) => cb(newStatus));
   }
 }
+// Lector EID por Web Serial — Tru-Test XRS2i (COM7 / SPP) — rev. conexión estable
+

@@ -104,6 +104,36 @@ add(
     /"db:audit"/.test(pkg)
 )
 
+// --- 11. Catálogos por organización ---
+const especieOrg = /model Especie[\s\S]*?organizacionId[\s\S]*?@@unique\(\[organizacionId, nombre\]\)/.test(schema)
+const razaOrg = /model Raza[\s\S]*?organizacionId String\?/.test(schema)
+const categoriaOrg = /model Categoria[\s\S]*?organizacionId String\?/.test(schema)
+add("Catálogos (especie/raza/categoría) por organización", especieOrg && razaOrg && categoriaOrg)
+
+// --- 12. validate-especie scopea por organización ---
+add(
+  "validate-especie acepta organizacionIds",
+  /organizacionIds\?/.test(read("lib/ganado/validate-especie.ts"))
+)
+
+// --- 13. Cobertura de auditoría en mutaciones sensibles ---
+const rutasConAudit = [
+  "app/api/ganado/bovinos/[id]/route.ts",
+  "app/api/ventas/bajas/route.ts",
+  "app/api/manga/[id]/route.ts",
+  "app/api/documentos-transito/route.ts",
+]
+const sinAudit = rutasConAudit.filter((r) => !/logAudit\(/.test(read(r)))
+add("Auditoría en mutaciones sensibles", sinAudit.length === 0, sinAudit.length ? `Faltan: ${sinAudit.join(", ")}` : undefined)
+
+// --- 14. Historiales sin mezcla Date/DateTime ---
+const bloqueLoteHist = schema.match(/model AnimalLoteHist \{[\s\S]*?\n\}/)?.[0] ?? ""
+add(
+  "AnimalLoteHist usa DateTime (no @db.Date)",
+  /desde  DateTime  @default\(now\(\)\)/.test(bloqueLoteHist) &&
+    !/@db\.Date/.test(bloqueLoteHist)
+)
+
 // ---- Reporte ----
 const pass = checks.filter((c) => c.ok).length
 const total = checks.length

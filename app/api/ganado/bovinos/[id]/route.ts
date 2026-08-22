@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { withAuth } from "@/lib/api/with-auth"
 import { animalDelTenant, loteDelTenant, sectorDelTenant } from "@/lib/api/tenant"
+import { logAudit } from "@/lib/api/audit-log"
 import { prisma } from "@/lib/prisma"
 import { validarRazaYCategoriaParaEspecie } from "@/lib/ganado/validate-especie"
 
@@ -109,9 +110,19 @@ export const PATCH = withAuth(async (request, ctx) => {
     if (body.cuig !== undefined) updateData.cuig = body.cuig
     if (body.otroId !== undefined) updateData.otroId = body.otroId
 
+    // Organización dueña del establecimiento del animal (para scopear el catálogo)
+    const organizacionDelAnimal = animalExistente.establecimientoId
+      ? ctx.organizacionDeEstablecimiento[animalExistente.establecimientoId]
+      : undefined
+    const organizacionIdsScope = organizacionDelAnimal
+      ? [organizacionDelAnimal]
+      : ctx.organizacionIds
+
     // Relaciones
     if (body.especieId !== undefined) {
-      const esp = await prisma.especie.findUnique({ where: { id: body.especieId } })
+      const esp = await prisma.especie.findFirst({
+        where: { id: body.especieId, organizacionId: { in: organizacionIdsScope } },
+      })
       if (!esp) {
         return NextResponse.json({ error: "Especie no válida" }, { status: 400 })
       }
@@ -124,7 +135,12 @@ export const PATCH = withAuth(async (request, ctx) => {
     const razaFinal = (updateData.razaId ?? animalExistente.razaId) as string | null
     const catFinal = (updateData.categoriaId ?? animalExistente.categoriaId) as string | null
     if (razaFinal && catFinal) {
-      const errCombo = await validarRazaYCategoriaParaEspecie(especieFinal, razaFinal, catFinal)
+      const errCombo = await validarRazaYCategoriaParaEspecie(
+        especieFinal,
+        razaFinal,
+        catFinal,
+        organizacionIdsScope
+      )
       if (errCombo) {
         return NextResponse.json({ error: errCombo }, { status: 400 })
       }
@@ -281,6 +297,17 @@ export const DELETE = withAuth(
       await prisma.animal.update({
         where: { id },
         data: { estadoVital: "baja" }
+      })
+
+      await logAudit({
+        userId: ctx.userId,
+        tabla: "animales",
+        rowPk: id,
+        accion: "DELETE",
+        detalle: { caravanaVisual: animal.caravanaVisual },
+        organizacionId: animal.establecimientoId
+          ? ctx.organizacionDeEstablecimiento[animal.establecimientoId]
+          : null,
       })
 
       return NextResponse.json({

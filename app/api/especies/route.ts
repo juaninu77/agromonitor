@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
+import { scopeOrganizacion } from "@/lib/api/tenant"
 
-export const GET = withAuth(async () => {
+export const GET = withAuth(async (request, ctx) => {
   try {
     const especies = await prisma.especie.findMany({
+      where: scopeOrganizacion(ctx.organizacionIds),
       include: {
         _count: { select: { razas: true, categorias: true, animales: true } },
       },
@@ -19,17 +21,36 @@ export const GET = withAuth(async () => {
 })
 
 export const POST = withAuth(
-  async (request) => {
+  async (request, ctx) => {
     try {
       const body = await request.json()
       if (!body.nombre?.trim()) {
         return NextResponse.json({ error: "El nombre es requerido" }, { status: 400 })
       }
 
+      // Resolver organización destino (scoping multi-tenant)
+      let organizacionId: string | undefined = body.organizacionId
+      if (organizacionId) {
+        if (!ctx.organizacionIds.includes(organizacionId)) {
+          return NextResponse.json(
+            { error: "No tienes acceso a esta organización" },
+            { status: 403 }
+          )
+        }
+      } else if (ctx.organizacionIds.length === 1) {
+        organizacionId = ctx.organizacionIds[0]
+      } else {
+        return NextResponse.json(
+          { error: "Se requiere organizacionId para crear la especie" },
+          { status: 400 }
+        )
+      }
+
       const especie = await prisma.especie.create({
         data: {
           nombre: body.nombre.trim().toLowerCase(),
           descripcion: body.descripcion?.trim() || null,
+          organizacionId,
         },
       })
 

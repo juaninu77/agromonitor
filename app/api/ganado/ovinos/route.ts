@@ -19,11 +19,24 @@ export const GET = withAuth(async (request, ctx) => {
       ? [establecimientoId]
       : ctx.establecimientoIds
 
-    const especieOvina = await prisma.especie.findFirst({
-      where: { nombre: { contains: "ovin", mode: "insensitive" } },
+    // Organizaciones dueñas de los establecimientos permitidos (scoping del catálogo)
+    const organizacionIdsScope = Array.from(
+      new Set(
+        establecimientosPermitidos
+          .map((estId) => ctx.organizacionDeEstablecimiento[estId])
+          .filter((orgId): orgId is string => Boolean(orgId))
+      )
+    )
+
+    const especiesOvinas = await prisma.especie.findMany({
+      where: {
+        nombre: { contains: "ovin", mode: "insensitive" },
+        organizacionId: { in: organizacionIdsScope },
+      },
+      select: { id: true },
     })
 
-    if (!especieOvina) {
+    if (especiesOvinas.length === 0) {
       return NextResponse.json({
         success: true,
         data: [],
@@ -32,7 +45,7 @@ export const GET = withAuth(async (request, ctx) => {
     }
 
     const where: any = {
-      especieId: especieOvina.id,
+      especieId: { in: especiesOvinas.map((e) => e.id) },
       estadoVital: "activo",
       ...scopeEstablecimiento(establecimientosPermitidos),
     }

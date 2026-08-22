@@ -331,10 +331,17 @@ export const POST = withAuth(async (request, ctx) => {
       )
     }
 
+    // Organización dueña del establecimiento destino (para scopear el catálogo)
+    const organizacionDestino =
+      ctx.organizacionDeEstablecimiento[establecimientoDestino]
+    const organizacionIdsScope = organizacionDestino
+      ? [organizacionDestino]
+      : ctx.organizacionIds
+
     let especieId: string | undefined = body.especieId
     if (!especieId) {
       const especieBovina = await prisma.especie.findFirst({
-        where: { nombre: "bovino" },
+        where: { nombre: "bovino", organizacionId: { in: organizacionIdsScope } },
       })
       if (!especieBovina) {
         return NextResponse.json(
@@ -344,7 +351,9 @@ export const POST = withAuth(async (request, ctx) => {
       }
       especieId = especieBovina.id
     } else {
-      const esp = await prisma.especie.findUnique({ where: { id: especieId } })
+      const esp = await prisma.especie.findFirst({
+        where: { id: especieId, organizacionId: { in: organizacionIdsScope } },
+      })
       if (!esp) {
         return NextResponse.json({ error: "Especie no válida" }, { status: 400 })
       }
@@ -369,7 +378,8 @@ export const POST = withAuth(async (request, ctx) => {
     const comboErr = await validarRazaYCategoriaParaEspecie(
       especieId,
       body.razaId,
-      body.categoriaId
+      body.categoriaId,
+      organizacionIdsScope
     )
     if (comboErr) {
       return NextResponse.json({ error: comboErr }, { status: 400 })

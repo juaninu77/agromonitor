@@ -60,9 +60,14 @@ async function backfillPorOrganizacionUnica() {
   if (organizaciones.length !== 1) {
     const productos = await prisma.producto.count({ where: { organizacionId: null } })
     const dietas = await prisma.dieta.count({ where: { organizacionId: null } })
+    const especies = await prisma.especie.count({ where: { organizacionId: null } })
+    const razas = await prisma.raza.count({ where: { organizacionId: null } })
+    const categorias = await prisma.categoria.count({ where: { organizacionId: null } })
     console.log(
       `Hay ${organizaciones.length} organizaciones: no se puede asignar automáticamente ` +
-        `organizacionId a ${productos} productos y ${dietas} dietas — asignar manualmente.`
+        `organizacionId a ${productos} productos, ${dietas} dietas, ${especies} especies, ` +
+        `${razas} razas y ${categorias} categorías — asignar manualmente ` +
+        `(los catálogos globales previos deben duplicarse por organización).`
     )
     return
   }
@@ -76,8 +81,24 @@ async function backfillPorOrganizacionUnica() {
     where: { organizacionId: null },
     data: { organizacionId: orgId },
   })
+  // Catálogos (especie/raza/categoría) que eran globales pasan a la única org.
+  const especies = await prisma.especie.updateMany({
+    where: { organizacionId: null },
+    data: { organizacionId: orgId },
+  })
+  const razas = await prisma.raza.updateMany({
+    where: { organizacionId: null },
+    data: { organizacionId: orgId },
+  })
+  const categorias = await prisma.categoria.updateMany({
+    where: { organizacionId: null },
+    data: { organizacionId: orgId },
+  })
   console.log(`Productos: ${productos.count} asignados a la organización única`)
   console.log(`Dietas: ${dietas.count} asignadas a la organización única`)
+  console.log(`Especies: ${especies.count} asignadas a la organización única`)
+  console.log(`Razas: ${razas.count} asignadas a la organización única`)
+  console.log(`Categorías: ${categorias.count} asignadas a la organización única`)
 }
 
 async function backfillDocumentosTransito() {

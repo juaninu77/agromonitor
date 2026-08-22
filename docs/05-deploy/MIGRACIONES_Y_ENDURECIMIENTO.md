@@ -52,8 +52,9 @@ datos históricos inconsistentes.
 
 Las columnas de scoping (`animales.establecimiento_id`,
 `productos.organizacion_id`, `dietas.organizacion_id`,
-`documentos_transito.establecimiento_id`, `lotes_producto.proveedor_id`) se
-agregaron **nullable** para no romper datos existentes. Completar los NULLs:
+`documentos_transito.establecimiento_id`, `lotes_producto.proveedor_id`, y los
+catálogos `especies/razas/categorias.organizacion_id`) se agregaron **nullable**
+para no romper datos existentes. Completar los NULLs:
 
 ```bash
 pnpm db:backfill-tenant    # solo completa NULLs, nunca pisa valores
@@ -61,6 +62,11 @@ pnpm db:backfill-tenant    # solo completa NULLs, nunca pisa valores
 
 Revisar la salida: reporta cuántas filas quedaron **sin resolver** (requieren
 asignación manual, p. ej. animales sin historial de ubicación/lote).
+
+> **Catálogos con varias organizaciones:** si hay más de una organización, los
+> catálogos globales previos (especie/raza/categoría) **no** se asignan solos
+> — el backfill lo reporta. Hay que **duplicarlos por organización** a mano
+> (una copia de cada especie/raza/categoría por org) antes de endurecer.
 
 ## 4. Endurecimiento a NOT NULL (DESTRUCTIVO — requiere confirmación)
 

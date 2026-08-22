@@ -108,6 +108,9 @@ model Organizacion {
   productos        Producto[]
   dietas           Dieta[]
   auditLogs        AuditLog[]
+  especies         Especie[]
+  razas            Raza[]
+  categorias       Categoria[]
 
   @@map("organizaciones")
 }
@@ -137,14 +140,20 @@ model Membresia {
 // Especie como tabla - extensible a equino, porcino, etc.
 model Especie {
   id          String  @id @default(uuid()) @db.Uuid
-  nombre      String  @unique // 'bovino' | 'ovino' | 'equino' | 'caprino'
+  nombre      String // 'bovino' | 'ovino' | 'equino' | 'caprino'
   descripcion String?
+
+  // Catálogo por organización (nullable para backfill; ver scripts/backfill-tenant.ts)
+  organizacionId String?       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
 
   razas      Raza[]
   categorias Categoria[]
   lotes      Lote[]
   animales   Animal[]
 
+  @@unique([organizacionId, nombre])
+  @@index([organizacionId])
   @@map("especies")
 }
 
@@ -157,9 +166,14 @@ model Raza {
   especieId String  @map("especie_id") @db.Uuid
   especie   Especie @relation(fields: [especieId], references: [id])
 
+  // Catálogo por organización (coincide con la org de su especie)
+  organizacionId String?       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
+
   animales Animal[]
 
   @@unique([especieId, nombre])
+  @@index([organizacionId])
   @@map("razas")
 }
 
@@ -175,9 +189,14 @@ model Categoria {
   especieId String  @map("especie_id") @db.Uuid
   especie   Especie @relation(fields: [especieId], references: [id])
 
+  // Catálogo por organización (coincide con la org de su especie)
+  organizacionId String?       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
+
   animales Animal[]
 
   @@unique([especieId, nombre])
+  @@index([organizacionId])
   @@map("categorias")
 }
 
@@ -599,8 +618,8 @@ model AnimalAttr {
 // Historial de pertenencia a lote/rodeo
 model AnimalLoteHist {
   id     String    @id @default(uuid()) @db.Uuid
-  desde  DateTime  @db.Date
-  hasta  DateTime? @db.Date
+  desde  DateTime  @default(now())
+  hasta  DateTime?
   motivo String?
 
   animalId String @map("animal_id") @db.Uuid

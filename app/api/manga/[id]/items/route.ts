@@ -111,22 +111,33 @@ export const POST = withAuth(async (request, ctx) => {
 
     // Si es un registro nuevo y trae datos del animal, crear el Animal
     if (parsed.data.esNuevoRegistro && parsed.data.sexo) {
-      const especieBovina = await prisma.especie.findFirst({
-        where: { nombre: "bovino" },
-      })
+      // La especie bovina debe pertenecer a la organización de la sesión
+      const organizacionSesion =
+        ctx.organizacionDeEstablecimiento[sesion.establecimientoId]
 
-      if (especieBovina) {
-        const nuevoAnimal = await prisma.animal.create({
-          data: {
-            especieId: especieBovina.id,
-            sexo: parsed.data.sexo,
-            caravanaVisual: parsed.data.caravanaVisual ?? null,
-            caravanaRfid: eidNormalizado,
-            establecimientoId: sesion.establecimientoId,
-          },
-        })
-        animalId = nuevoAnimal.id
+      const especieBovina = organizacionSesion
+        ? await prisma.especie.findFirst({
+            where: { nombre: "bovino", organizacionId: organizacionSesion },
+          })
+        : null
+
+      if (!especieBovina) {
+        return NextResponse.json(
+          { error: "No existe la especie bovino para esta organización" },
+          { status: 400 }
+        )
       }
+
+      const nuevoAnimal = await prisma.animal.create({
+        data: {
+          especieId: especieBovina.id,
+          sexo: parsed.data.sexo,
+          caravanaVisual: parsed.data.caravanaVisual ?? null,
+          caravanaRfid: eidNormalizado,
+          establecimientoId: sesion.establecimientoId,
+        },
+      })
+      animalId = nuevoAnimal.id
     }
 
     const [item] = await prisma.$transaction([

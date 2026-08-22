@@ -84,6 +84,7 @@ CREATE TABLE "especies" (
     "id" UUID NOT NULL,
     "nombre" TEXT NOT NULL,
     "descripcion" TEXT,
+    "organizacion_id" UUID,
 
     CONSTRAINT "especies_pkey" PRIMARY KEY ("id")
 );
@@ -94,6 +95,7 @@ CREATE TABLE "razas" (
     "nombre" TEXT NOT NULL,
     "descripcion" TEXT,
     "especie_id" UUID NOT NULL,
+    "organizacion_id" UUID,
 
     CONSTRAINT "razas_pkey" PRIMARY KEY ("id")
 );
@@ -107,6 +109,7 @@ CREATE TABLE "categorias" (
     "sexo" TEXT,
     "descripcion" TEXT,
     "especie_id" UUID NOT NULL,
+    "organizacion_id" UUID,
 
     CONSTRAINT "categorias_pkey" PRIMARY KEY ("id")
 );
@@ -322,8 +325,8 @@ CREATE TABLE "animal_attrs" (
 -- CreateTable
 CREATE TABLE "animal_lote_hist" (
     "id" UUID NOT NULL,
-    "desde" DATE NOT NULL,
-    "hasta" DATE,
+    "desde" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "hasta" TIMESTAMP(3),
     "motivo" TEXT,
     "animal_id" UUID NOT NULL,
     "lote_id" UUID NOT NULL,
@@ -739,10 +742,19 @@ CREATE INDEX "membresias_organizacion_id_idx" ON "membresias"("organizacion_id")
 CREATE UNIQUE INDEX "membresias_usuario_id_organizacion_id_key" ON "membresias"("usuario_id", "organizacion_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "especies_nombre_key" ON "especies"("nombre");
+CREATE INDEX "especies_organizacion_id_idx" ON "especies"("organizacion_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "especies_organizacion_id_nombre_key" ON "especies"("organizacion_id", "nombre");
+
+-- CreateIndex
+CREATE INDEX "razas_organizacion_id_idx" ON "razas"("organizacion_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "razas_especie_id_nombre_key" ON "razas"("especie_id", "nombre");
+
+-- CreateIndex
+CREATE INDEX "categorias_organizacion_id_idx" ON "categorias"("organizacion_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "categorias_especie_id_nombre_key" ON "categorias"("especie_id", "nombre");
@@ -1087,10 +1099,19 @@ ALTER TABLE "membresias" ADD CONSTRAINT "membresias_usuario_id_fkey" FOREIGN KEY
 ALTER TABLE "membresias" ADD CONSTRAINT "membresias_organizacion_id_fkey" FOREIGN KEY ("organizacion_id") REFERENCES "organizaciones"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "especies" ADD CONSTRAINT "especies_organizacion_id_fkey" FOREIGN KEY ("organizacion_id") REFERENCES "organizaciones"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "razas" ADD CONSTRAINT "razas_especie_id_fkey" FOREIGN KEY ("especie_id") REFERENCES "especies"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "razas" ADD CONSTRAINT "razas_organizacion_id_fkey" FOREIGN KEY ("organizacion_id") REFERENCES "organizaciones"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "categorias" ADD CONSTRAINT "categorias_especie_id_fkey" FOREIGN KEY ("especie_id") REFERENCES "especies"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "categorias" ADD CONSTRAINT "categorias_organizacion_id_fkey" FOREIGN KEY ("organizacion_id") REFERENCES "organizaciones"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "establecimientos" ADD CONSTRAINT "establecimientos_organizacion_id_fkey" FOREIGN KEY ("organizacion_id") REFERENCES "organizaciones"("id") ON DELETE CASCADE ON UPDATE CASCADE;

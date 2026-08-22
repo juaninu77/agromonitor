@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { prisma } from "@/lib/prisma"
 import { z } from "zod"
+import { withAuth } from "@/lib/api/with-auth"
+import { scopeEstablecimiento } from "@/lib/api/tenant"
+import { prisma } from "@/lib/prisma"
 
 const importSchema = z.object({
   sessionId: z.string().uuid(),
@@ -12,13 +13,8 @@ const importSchema = z.object({
   })),
 })
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
     const parsed = importSchema.safeParse(body)
     if (!parsed.success) {
@@ -27,8 +23,8 @@ export async function POST(request: Request) {
 
     const { sessionId, items } = parsed.data
 
-    const mangaSession = await prisma.sesionManga.findUnique({
-      where: { id: sessionId },
+    const mangaSession = await prisma.sesionManga.findFirst({
+      where: { id: sessionId, ...scopeEstablecimiento(ctx.establecimientoIds) },
       select: { id: true, estado: true },
     })
 
@@ -72,4 +68,4 @@ export async function POST(request: Request) {
     console.error("Error al importar CSV:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
-}
+})

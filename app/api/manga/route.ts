@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { prisma } from "@/lib/prisma"
+import { NextResponse } from "next/server"
 import { z } from "zod"
+import { withAuth } from "@/lib/api/with-auth"
+import { loteDelTenant } from "@/lib/api/tenant"
+import { prisma } from "@/lib/prisma"
 
 const crearSesionSchema = z.object({
   nombre: z.string().min(1, "El nombre es requerido"),
@@ -18,14 +19,8 @@ const crearSesionSchema = z.object({
   observaciones: z.string().optional().nullable(),
 })
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const establecimientoId = searchParams.get("establecimientoId")
     const estado = searchParams.get("estado")
@@ -37,6 +32,14 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    if (!ctx.establecimientoIds.includes(establecimientoId)) {
+      return NextResponse.json(
+        { error: "No tienes acceso a este establecimiento" },
+        { status: 403 }
+      )
+    }
+
+    // Ya validado contra ctx.establecimientoIds: la query queda scopeada al tenant
     const where: Record<string, unknown> = { establecimientoId }
 
     if (estado) {
@@ -64,16 +67,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
     const parsed = crearSesionSchema.safeParse(body)
 
@@ -100,6 +97,23 @@ export async function POST(request: NextRequest) {
       observaciones,
     } = parsed.data
 
+    if (!ctx.establecimientoIds.includes(establecimientoId)) {
+      return NextResponse.json(
+        { error: "No tienes acceso a este establecimiento" },
+        { status: 403 }
+      )
+    }
+
+    if (loteOrigenId) {
+      const lote = await loteDelTenant(loteOrigenId, ctx.establecimientoIds)
+      if (!lote) {
+        return NextResponse.json(
+          { error: "Lote no encontrado" },
+          { status: 404 }
+        )
+      }
+    }
+
     const sesion = await prisma.sesionManga.create({
       data: {
         nombre,
@@ -107,7 +121,7 @@ export async function POST(request: NextRequest) {
         tipo,
         accionesHabilitadas,
         establecimientoId,
-        operadorId: session.user.id,
+        operadorId: ctx.userId,
         loteOrigenId: loteOrigenId ?? null,
         productoSanidadId: productoSanidadId ?? null,
         dosisSanidad: dosisSanidad ?? null,
@@ -128,4 +142,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

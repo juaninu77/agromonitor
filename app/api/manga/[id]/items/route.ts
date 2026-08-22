@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { prisma } from "@/lib/prisma"
 import { z } from "zod"
+import { withAuth } from "@/lib/api/with-auth"
+import { animalDelTenant, scopeEstablecimiento } from "@/lib/api/tenant"
+import { prisma } from "@/lib/prisma"
 
 const crearItemSchema = z.object({
   eidLeido: z.string().min(1, "El EID es requerido"),
@@ -20,20 +21,13 @@ const crearItemSchema = z.object({
   categoria: z.string().optional().nullable(),
 })
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
+    const { id } = ctx.params
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const { id } = await params
-
-    const sesion = await prisma.sesionManga.findUnique({ where: { id } })
+    const sesion = await prisma.sesionManga.findFirst({
+      where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
+    })
 
     if (!sesion) {
       return NextResponse.json(
@@ -55,20 +49,11 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const { id } = await params
+    const { id } = ctx.params
     const body = await request.json()
     const parsed = crearItemSchema.safeParse(body)
 
@@ -83,7 +68,9 @@ export async function POST(
       )
     }
 
-    const sesion = await prisma.sesionManga.findUnique({ where: { id } })
+    const sesion = await prisma.sesionManga.findFirst({
+      where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
+    })
 
     if (!sesion) {
       return NextResponse.json(
@@ -99,14 +86,24 @@ export async function POST(
       )
     }
 
+    let animalId = parsed.data.animalId ?? null
+
+    if (animalId) {
+      const animal = await animalDelTenant(animalId, ctx.establecimientoIds)
+      if (!animal) {
+        return NextResponse.json(
+          { error: "Animal no encontrado" },
+          { status: 404 }
+        )
+      }
+    }
+
     const maxOrden = await prisma.sesionMangaItem.aggregate({
       where: { sesionId: id },
       _max: { orden: true },
     })
 
     const nuevoOrden = (maxOrden._max.orden ?? 0) + 1
-
-    let animalId = parsed.data.animalId ?? null
 
     // Si es un registro nuevo y trae datos del animal, crear el Animal
     if (parsed.data.esNuevoRegistro && parsed.data.sexo) {
@@ -121,6 +118,7 @@ export async function POST(
             sexo: parsed.data.sexo,
             caravanaVisual: parsed.data.caravanaVisual ?? null,
             caravanaRfid: parsed.data.eidLeido,
+            establecimientoId: sesion.establecimientoId,
           },
         })
         animalId = nuevoAnimal.id
@@ -162,4 +160,4 @@ export async function POST(
       { status: 500 }
     )
   }
-}
+})

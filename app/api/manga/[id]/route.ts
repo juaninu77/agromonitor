@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { prisma } from "@/lib/prisma"
 import { z } from "zod"
+import { withAuth } from "@/lib/api/with-auth"
+import { scopeEstablecimiento } from "@/lib/api/tenant"
+import { prisma } from "@/lib/prisma"
 
 const actualizarSesionSchema = z.object({
   nombre: z.string().min(1).optional(),
@@ -9,21 +10,12 @@ const actualizarSesionSchema = z.object({
   observaciones: z.string().nullable().optional(),
 })
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
+    const { id } = ctx.params
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const { id } = await params
-
-    const sesion = await prisma.sesionManga.findUnique({
-      where: { id },
+    const sesion = await prisma.sesionManga.findFirst({
+      where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
       include: {
         operador: {
           select: { id: true, nombre: true, apellido: true },
@@ -52,20 +44,11 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const PATCH = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const { id } = await params
+    const { id } = ctx.params
     const body = await request.json()
     const parsed = actualizarSesionSchema.safeParse(body)
 
@@ -80,7 +63,9 @@ export async function PATCH(
       )
     }
 
-    const existing = await prisma.sesionManga.findUnique({ where: { id } })
+    const existing = await prisma.sesionManga.findFirst({
+      where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
+    })
 
     if (!existing) {
       return NextResponse.json(
@@ -113,45 +98,41 @@ export async function PATCH(
       { status: 500 }
     )
   }
-}
+})
 
-export async function DELETE(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await auth()
+export const DELETE = withAuth(
+  async (request, ctx) => {
+    try {
+      const { id } = ctx.params
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
+      const existing = await prisma.sesionManga.findFirst({
+        where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
+      })
 
-    const { id } = await params
+      if (!existing) {
+        return NextResponse.json(
+          { error: "Sesión no encontrada" },
+          { status: 404 }
+        )
+      }
 
-    const existing = await prisma.sesionManga.findUnique({ where: { id } })
+      if (!["activa", "pausada"].includes(existing.estado)) {
+        return NextResponse.json(
+          { error: "Solo se pueden eliminar sesiones activas o pausadas" },
+          { status: 400 }
+        )
+      }
 
-    if (!existing) {
+      await prisma.sesionManga.delete({ where: { id } })
+
+      return NextResponse.json({ success: true, message: "Sesión eliminada" })
+    } catch (error) {
+      console.error("Error al eliminar sesión de manga:", error)
       return NextResponse.json(
-        { error: "Sesión no encontrada" },
-        { status: 404 }
+        { success: false, error: "Error interno del servidor" },
+        { status: 500 }
       )
     }
-
-    if (!["activa", "pausada"].includes(existing.estado)) {
-      return NextResponse.json(
-        { error: "Solo se pueden eliminar sesiones activas o pausadas" },
-        { status: 400 }
-      )
-    }
-
-    await prisma.sesionManga.delete({ where: { id } })
-
-    return NextResponse.json({ success: true, message: "Sesión eliminada" })
-  } catch (error) {
-    console.error("Error al eliminar sesión de manga:", error)
-    return NextResponse.json(
-      { success: false, error: "Error interno del servidor" },
-      { status: 500 }
-    )
-  }
-}
+  },
+  { roles: ["admin", "encargado"] }
+)

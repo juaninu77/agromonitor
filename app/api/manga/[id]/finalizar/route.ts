@@ -1,22 +1,14 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { withAuth } from "@/lib/api/with-auth"
+import { scopeEstablecimiento } from "@/lib/api/tenant"
 import { prisma } from "@/lib/prisma"
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
+    const { id } = ctx.params
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const { id } = await params
-
-    const sesion = await prisma.sesionManga.findUnique({
-      where: { id },
+    const sesion = await prisma.sesionManga.findFirst({
+      where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
       include: { items: true },
     })
 
@@ -105,4 +97,4 @@ export async function POST(
       { status: 500 }
     )
   }
-}
+})

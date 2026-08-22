@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { withAuth } from "@/lib/api/with-auth"
 import { animalDelTenant, scopeEstablecimiento } from "@/lib/api/tenant"
+import { normalizeEID } from "@/lib/hardware/eid"
 import { prisma } from "@/lib/prisma"
 
 const crearItemSchema = z.object({
@@ -86,6 +87,9 @@ export const POST = withAuth(async (request, ctx) => {
       )
     }
 
+    // Normalizar server-side: HID, Web Serial y CSV deben interpretar el EID igual
+    const eidNormalizado = normalizeEID(parsed.data.eidLeido) ?? parsed.data.eidLeido
+
     let animalId = parsed.data.animalId ?? null
 
     if (animalId) {
@@ -117,7 +121,7 @@ export const POST = withAuth(async (request, ctx) => {
             especieId: especieBovina.id,
             sexo: parsed.data.sexo,
             caravanaVisual: parsed.data.caravanaVisual ?? null,
-            caravanaRfid: parsed.data.eidLeido,
+            caravanaRfid: eidNormalizado,
             establecimientoId: sesion.establecimientoId,
           },
         })
@@ -130,7 +134,7 @@ export const POST = withAuth(async (request, ctx) => {
         data: {
           sesionId: id,
           orden: nuevoOrden,
-          eidLeido: parsed.data.eidLeido,
+          eidLeido: eidNormalizado,
           pesoKg: parsed.data.pesoKg ?? null,
           cc: parsed.data.cc ?? null,
           denticion: parsed.data.denticion ?? null,

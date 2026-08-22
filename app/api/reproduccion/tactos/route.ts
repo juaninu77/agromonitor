@@ -77,6 +77,21 @@ export const POST = withAuth(async (request, { establecimientoIds }) => {
       )
     }
 
+    if (body.servicioId) {
+      const servicio = await prisma.evtServicio.findFirst({
+        where: {
+          id: body.servicioId,
+          hembra: { establecimientoId: { in: establecimientoIds } },
+        },
+      })
+      if (!servicio) {
+        return NextResponse.json(
+          { error: "Servicio no encontrado" },
+          { status: 404 }
+        )
+      }
+    }
+
     const tacto = await prisma.evtTacto.create({
       data: {
         fecha: new Date(body.fecha),

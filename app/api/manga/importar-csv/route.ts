@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { withAuth } from "@/lib/api/with-auth"
 import { scopeEstablecimiento } from "@/lib/api/tenant"
+import { normalizeEID } from "@/lib/hardware/eid"
 import { prisma } from "@/lib/prisma"
 
 const importSchema = z.object({
@@ -50,7 +51,7 @@ export const POST = withAuth(async (request, ctx) => {
           data: {
             sesionId: sessionId,
             orden,
-            eidLeido: item.eidLeido,
+            eidLeido: normalizeEID(item.eidLeido) ?? item.eidLeido,
             pesoKg: item.pesoKg ?? undefined,
             timestampLectura: item.timestampLectura ? new Date(item.timestampLectura) : new Date(),
           },

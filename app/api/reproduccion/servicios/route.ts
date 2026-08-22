@@ -94,6 +94,21 @@ export const POST = withAuth(async (request, { establecimientoIds }) => {
       }
     }
 
+    if (body.toradaId) {
+      const torada = await prisma.torada.findFirst({
+        where: {
+          id: body.toradaId,
+          lote: { establecimientoId: { in: establecimientoIds } },
+        },
+      })
+      if (!torada) {
+        return NextResponse.json(
+          { error: "Torada no encontrada" },
+          { status: 404 }
+        )
+      }
+    }
+
     const servicio = await prisma.evtServicio.create({
       data: {
         fecha: new Date(body.fecha),

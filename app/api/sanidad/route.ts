@@ -95,7 +95,7 @@ export const GET = withAuth(async (request, { establecimientoIds }) => {
   }
 })
 
-export const POST = withAuth(async (request, { establecimientoIds }) => {
+export const POST = withAuth(async (request, { establecimientoIds, organizacionIds }) => {
   try {
     const body = await request.json()
 
@@ -120,8 +120,11 @@ export const POST = withAuth(async (request, { establecimientoIds }) => {
       )
     }
 
-    const producto = await prisma.producto.findUnique({
-      where: { id: body.productoId },
+    const producto = await prisma.producto.findFirst({
+      where: {
+        id: body.productoId,
+        organizacionId: { in: organizacionIds },
+      },
     })
 
     if (!producto) {
@@ -152,8 +155,8 @@ export const POST = withAuth(async (request, { establecimientoIds }) => {
     }
 
     if (body.loteProductoId) {
-      const loteProducto = await prisma.loteProducto.findUnique({
-        where: { id: body.loteProductoId },
+      const loteProducto = await prisma.loteProducto.findFirst({
+        where: { id: body.loteProductoId, productoId: body.productoId },
       })
       if (!loteProducto) {
         return NextResponse.json(

@@ -32,8 +32,12 @@ type AuthHandler = (
   context: AuthContext
 ) => Promise<NextResponse> | Promise<Response>
 
-function esRolValido(rol: string | undefined | null): rol is AppRole {
-  return rol === "admin" || rol === "encargado" || rol === "vet" || rol === "operario"
+// Las Membresias históricas usan también "propietario"/"administrador":
+// se normalizan a "admin" para el chequeo de permisos.
+function normalizarRol(rol: string | undefined | null): AppRole | null {
+  if (rol === "propietario" || rol === "administrador" || rol === "admin") return "admin"
+  if (rol === "encargado" || rol === "vet" || rol === "operario") return rol
+  return null
 }
 
 export function withAuth(handler: AuthHandler, options: AuthOptions = {}) {
@@ -68,9 +72,9 @@ export function withAuth(handler: AuthHandler, options: AuthOptions = {}) {
       // El rol por organización (Membresia) es la fuente de verdad;
       // Usuario.rol (sesión) queda como respaldo para cuentas sin membresía.
       const rolesMembresia = membresias
-        .map((m) => m.rol)
-        .filter(esRolValido)
-      const rolSesion = esRolValido(session.user.rol) ? session.user.rol : "operario"
+        .map((m) => normalizarRol(m.rol))
+        .filter((rol): rol is AppRole => rol !== null)
+      const rolSesion = normalizarRol(session.user.rol) ?? "operario"
       const userRole = rolesMembresia.reduce<AppRole>(
         (max, rol) => (JERARQUIA_ROLES[rol] > JERARQUIA_ROLES[max] ? rol : max),
         rolesMembresia.length > 0 ? rolesMembresia[0] : rolSesion

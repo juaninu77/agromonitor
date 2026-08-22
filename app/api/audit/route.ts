@@ -3,8 +3,17 @@ import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
 
 export const GET = withAuth(
-  async (request) => {
+  async (request, ctx) => {
     try {
+      // AuditLog es global (sin columna de tenant): solo admin de plataforma.
+      // Un rol "admin" derivado de una Membresia NO habilita ver el log global.
+      if (!ctx.esAdminPlataforma) {
+        return NextResponse.json(
+          { error: "No tienes permisos para esta accion" },
+          { status: 403 }
+        )
+      }
+
       const searchParams = request.nextUrl.searchParams
       const tabla = searchParams.get("tabla")
       const accion = searchParams.get("accion")
@@ -52,6 +61,5 @@ export const GET = withAuth(
         { status: 500 }
       )
     }
-  },
-  { roles: ["admin"] }
+  }
 )

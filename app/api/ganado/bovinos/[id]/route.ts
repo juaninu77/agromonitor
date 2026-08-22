@@ -265,7 +265,11 @@ export const DELETE = withAuth(
     try {
       const { id } = ctx.params
 
-      const animal = await animalDelTenant(id, ctx.establecimientoIds)
+      // Solo donde el usuario es admin/encargado de la org dueña del animal
+      const animal = await animalDelTenant(
+        id,
+        ctx.establecimientoIdsConRol(["admin", "encargado"])
+      )
 
       if (!animal) {
         return NextResponse.json(

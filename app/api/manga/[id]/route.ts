@@ -106,7 +106,10 @@ export const DELETE = withAuth(
       const { id } = ctx.params
 
       const existing = await prisma.sesionManga.findFirst({
-        where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
+        where: {
+          id,
+          ...scopeEstablecimiento(ctx.establecimientoIdsConRol(["admin", "encargado"])),
+        },
       })
 
       if (!existing) {

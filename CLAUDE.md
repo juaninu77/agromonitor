@@ -97,7 +97,9 @@ export const POST = withAuth(
 )
 ```
 
-It returns 401 when unauthenticated, 403 when the role check fails, resolves the user's accessible `establecimientoIds`/`organizacionIds` from active Membresias, and derives `userRole` from the highest active Membresia role (Usuario.rol is only a fallback). **Always filter queries by `establecimientoIds` (or `organizacionIds` for org-level models like Producto, Cliente, Proveedor, Dieta)** — never return cross-tenant data. Reusable tenant filters and ownership checks live in `lib/api/tenant.ts` (`scopeEstablecimiento`, `scopeEventoAnimalOLote`, `animalDelTenant`, etc.).
+It returns 401 when unauthenticated, 403 when the role check fails, and resolves the user's accessible `establecimientoIds`/`organizacionIds` from active Membresias. **Always filter queries by `establecimientoIds` (or `organizacionIds` for org-level models like Producto, Cliente, Proveedor, Dieta)** — never return cross-tenant data. Reusable tenant filters and ownership checks live in `lib/api/tenant.ts` (`scopeEstablecimiento`, `scopeEventoAnimalOLote`, `animalDelTenant`, etc.).
+
+**Roles are per-organization, never global.** The `{ roles: [...] }` option is only a coarse gate ("has this role in *some* org"); it is NOT the security boundary. For an action on a specific resource, resolve the role in the org that owns it: scope the lookup with `ctx.establecimientoIdsConRol([...])` / `ctx.organizacionIdsConRol([...])` (e.g. destructive DELETEs look up the resource only among establishments where the user is admin/encargado). Never collapse roles to a global max — a high role in one org must not grant permissions in another. `ctx.esAdminPlataforma` (true only when `Usuario.rol === "admin"`) gates truly global, tenant-less resources like `AuditLog`; an org's `propietario`/`administrador` is NOT a platform admin.
 
 For mutations on sensitive tables, record an audit entry with `logAudit()` from `lib/api/audit-log.ts` (writes to the `AuditLog` model; failures are swallowed so it never breaks the main operation).
 

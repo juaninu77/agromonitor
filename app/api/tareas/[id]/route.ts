@@ -138,7 +138,10 @@ export const DELETE = withAuth(
   async (_request, ctx) => {
     try {
       const { id } = ctx.params
-      const existingTarea = await getTareaDelTenant(id, ctx.establecimientoIds)
+      const existingTarea = await getTareaDelTenant(
+        id,
+        ctx.establecimientoIdsConRol(["admin", "encargado"])
+      )
 
       if (!existingTarea) {
         return NextResponse.json(

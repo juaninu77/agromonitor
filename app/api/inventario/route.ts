@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { scopeOrganizacion } from "@/lib/api/tenant"
 import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
+import { decimalToNumber } from "@/lib/api/serialize"
 
 const STOCK_BAJO_UMBRAL = 10
 const DIAS_VENCIMIENTO_ALERTA = 30
@@ -67,7 +68,7 @@ export const GET = withAuth(async (request, ctx) => {
           proveedor: lote.proveedor,
           cantidad: lote.cantidad,
           unidad: lote.unidad,
-          costo: lote.costo,
+          costo: decimalToNumber(lote.costo),
           proximoAVencer,
           vencido,
         }

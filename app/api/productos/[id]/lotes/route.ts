@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { decimalToNumber } from "@/lib/api/serialize"
 import { withAuth } from "@/lib/api/with-auth"
 import { scopeOrganizacion } from "@/lib/api/tenant"
 
@@ -26,7 +27,12 @@ export const GET = withAuth(async (request, ctx) => {
       orderBy: { vencimiento: "asc" },
     })
 
-    return NextResponse.json({ success: true, data: lotes })
+    const data = lotes.map((lote) => ({
+      ...lote,
+      costo: decimalToNumber(lote.costo),
+    }))
+
+    return NextResponse.json({ success: true, data })
   } catch (error) {
     console.error("Error al obtener lotes de producto:", error)
     return NextResponse.json(

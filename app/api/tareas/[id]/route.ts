@@ -118,6 +118,7 @@ export const PATCH = withAuth(async (request, ctx) => {
       rowPk: tarea.id,
       accion: "UPDATE",
       detalle: { cambios: data },
+      organizacionId: ctx.organizacionDeEstablecimiento[tarea.establecimientoId] ?? null,
     })
 
     return NextResponse.json({ success: true, data: tarea })
@@ -158,6 +159,7 @@ export const DELETE = withAuth(
         rowPk: id,
         accion: "DELETE",
         detalle: { titulo: existingTarea.titulo },
+        organizacionId: ctx.organizacionDeEstablecimiento[existingTarea.establecimientoId] ?? null,
       })
 
       return NextResponse.json({ success: true, message: "Tarea eliminada" })

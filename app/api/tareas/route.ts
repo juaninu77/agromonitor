@@ -163,6 +163,7 @@ export const POST = withAuth(async (request, ctx) => {
       rowPk: tarea.id,
       accion: "INSERT",
       detalle: { titulo: tarea.titulo, tipo: tarea.tipo },
+      organizacionId: ctx.organizacionDeEstablecimiento[tarea.establecimientoId] ?? null,
     })
 
     return NextResponse.json(

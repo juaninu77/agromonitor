@@ -107,6 +107,7 @@ model Organizacion {
   clientes         Cliente[]
   productos        Producto[]
   dietas           Dieta[]
+  auditLogs        AuditLog[]
 
   @@map("organizaciones")
 }
@@ -388,7 +389,7 @@ model LoteProducto {
   proveedor   String? // Legado: texto libre. Usar proveedorRef (FK) para datos nuevos.
   cantidad    Float?
   unidad      String?
-  costo       Float?
+  costo       Decimal?  @db.Decimal(12, 2)
   createdAt   DateTime  @default(now()) @map("created_at")
 
   productoId String   @map("producto_id") @db.Uuid
@@ -753,7 +754,7 @@ model EvtSanidad {
   carenciaDias Int?     @map("carencia_dias") // Override del producto
   aplicador    String?
   veterinario  String?
-  costo        Float?
+  costo        Decimal? @db.Decimal(12, 2)
   observ       String?
   createdAt    DateTime @default(now()) @map("created_at")
 
@@ -869,8 +870,8 @@ model EvtBaja {
   fecha       DateTime @db.Date
   motivo      String // 'venta' | 'muerte' | 'faena' | 'descarte' | 'robo' | 'otro'
   pesoVivoKg  Float?   @map("peso_vivo_kg")
-  precioKg    Float?   @map("precio_kg")
-  precioTotal Float?   @map("precio_total")
+  precioKg    Decimal? @map("precio_kg") @db.Decimal(12, 2)
+  precioTotal Decimal? @map("precio_total") @db.Decimal(12, 2)
 
   // Documentación
   dtaNumero     String? @map("dta_numero")
@@ -1016,8 +1017,14 @@ model AuditLog {
   usuarioId String?  @map("usuario_id") @db.Uuid
   usuario   Usuario? @relation(fields: [usuarioId], references: [id])
 
+  // Scoping de tenant: permite filtrar el log por organización.
+  // Nullable para acciones tenant-less y para filas históricas sin backfill.
+  organizacionId String?       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
+
   @@index([tabla])
   @@index([fecha])
+  @@index([organizacionId])
   @@map("audit_log")
 }
 

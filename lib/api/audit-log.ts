@@ -8,6 +8,8 @@ interface AuditLogParams {
   rowPk: string
   accion: AuditAction
   detalle?: Record<string, unknown>
+  /** Organización dueña del recurso, para poder filtrar el log por tenant. */
+  organizacionId?: string | null
 }
 
 export async function logAudit({
@@ -16,6 +18,7 @@ export async function logAudit({
   rowPk,
   accion,
   detalle,
+  organizacionId,
 }: AuditLogParams): Promise<void> {
   try {
     await prisma.auditLog.create({
@@ -25,6 +28,7 @@ export async function logAudit({
         rowPk,
         accion,
         detalle: detalle ? (detalle as any) : undefined,
+        organizacionId: organizacionId || null,
       },
     })
   } catch (error) {

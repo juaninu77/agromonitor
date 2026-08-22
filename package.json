@@ -49,6 +49,7 @@
     "db:check-safety": "tsx scripts/check-migration-safety.ts",
     "db:constraints": "prisma db execute --file prisma/constraints.sql --schema prisma/schema.prisma",
     "db:backfill-tenant": "tsx scripts/backfill-tenant.ts",
+    "db:audit": "tsx scripts/audit-db.ts",
     "import:excel": "node scripts/import-excel.js",
     "env:check": "tsx scripts/check-env.ts",
     "env:setup": "tsx scripts/setup-env.ts"

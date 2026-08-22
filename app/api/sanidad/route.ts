@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { decimalToNumber } from "@/lib/api/serialize"
 import { withAuth } from "@/lib/api/with-auth"
 import {
   animalDelTenant,
@@ -74,9 +75,14 @@ export const GET = withAuth(async (request, { establecimientoIds }) => {
 
     const totalPages = Math.ceil(total / limit)
 
+    const data = eventos.map((evento) => ({
+      ...evento,
+      costo: decimalToNumber(evento.costo),
+    }))
+
     return NextResponse.json({
       success: true,
-      data: eventos,
+      data,
       pagination: {
         page,
         limit,

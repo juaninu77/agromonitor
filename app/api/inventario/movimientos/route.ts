@@ -176,6 +176,7 @@ export const POST = withAuth(async (request, ctx) => {
       tabla: "movimientos_stock",
       rowPk: movimiento.id,
       accion: "INSERT",
+      organizacionId: producto.organizacionId ?? null,
       detalle: {
         productoId,
         productoNombre: producto.nombre,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { animalDelTenant, scopeEventoAnimal } from "@/lib/api/tenant"
 import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
+import { decimalToNumber } from "@/lib/api/serialize"
 
 export const GET = withAuth(async (request, ctx) => {
   try {
@@ -43,7 +44,13 @@ export const GET = withAuth(async (request, ctx) => {
       orderBy: { fecha: "desc" },
     })
 
-    return NextResponse.json({ success: true, data: bajas })
+    const data = bajas.map((baja) => ({
+      ...baja,
+      precioKg: decimalToNumber(baja.precioKg),
+      precioTotal: decimalToNumber(baja.precioTotal),
+    }))
+
+    return NextResponse.json({ success: true, data })
   } catch (error) {
     console.error("Error al obtener bajas:", error)
     return NextResponse.json(

@@ -32,6 +32,8 @@ export interface AuthContext {
   rolPorEstablecimiento: Record<string, AppRole>
   /** Rol del usuario en cada organización. */
   rolPorOrganizacion: Record<string, AppRole>
+  /** Organización dueña de cada establecimiento accesible. */
+  organizacionDeEstablecimiento: Record<string, string>
   /** Subconjunto de establecimientoIds donde el usuario tiene uno de esos roles. */
   establecimientoIdsConRol: (roles: AppRole[]) => string[]
   /** Subconjunto de organizacionIds donde el usuario tiene uno de esos roles. */
@@ -95,11 +97,13 @@ export function withAuth(handler: AuthHandler, options: AuthOptions = {}) {
       // una org no otorgue permisos en otra donde el usuario es operario.
       const rolPorOrganizacion: Record<string, AppRole> = {}
       const rolPorEstablecimiento: Record<string, AppRole> = {}
+      const organizacionDeEstablecimiento: Record<string, string> = {}
       for (const m of membresias) {
         const rol = normalizarRol(m.rol) ?? "operario"
         rolPorOrganizacion[m.organizacionId] = rol
         for (const e of m.organizacion.establecimientos) {
           rolPorEstablecimiento[e.id] = rol
+          organizacionDeEstablecimiento[e.id] = m.organizacionId
         }
       }
 
@@ -143,6 +147,7 @@ export function withAuth(handler: AuthHandler, options: AuthOptions = {}) {
         organizacionIds,
         rolPorEstablecimiento,
         rolPorOrganizacion,
+        organizacionDeEstablecimiento,
         establecimientoIdsConRol,
         organizacionIdsConRol,
         params,

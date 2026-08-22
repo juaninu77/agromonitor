@@ -41,13 +41,12 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# prisma
-/prisma/migrations
-
 # backups
 /backups
 *.sql
 !/prisma/constraints.sql
+# Las migraciones versionadas SÍ se commitean (fuente de verdad del esquema)
+!/prisma/migrations/**/*.sql
 *.backup
 
 # analysis files

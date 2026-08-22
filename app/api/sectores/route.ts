@@ -1,31 +1,28 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
+import {
+  scopeEstablecimiento,
+  resolverEstablecimientoDestino,
+} from "@/lib/api/tenant"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const establecimientoId = searchParams.get("establecimientoId")
 
-    if (!establecimientoId) {
+    if (establecimientoId && !ctx.establecimientoIds.includes(establecimientoId)) {
       return NextResponse.json(
-        { error: "Se requiere establecimientoId" },
-        { status: 400 }
+        { error: "No tienes acceso a ese establecimiento" },
+        { status: 403 }
       )
     }
 
-    const inicioMes = new Date()
-    inicioMes.setDate(1)
-    inicioMes.setHours(0, 0, 0, 0)
-
     const sectores = await prisma.sector.findMany({
       where: {
-        establecimientoId,
+        ...(establecimientoId
+          ? { establecimientoId }
+          : scopeEstablecimiento(ctx.establecimientoIds)),
         activo: true,
       },
       include: {
@@ -74,20 +71,33 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
 
-    if (!body.nombre || !body.tipo || !body.establecimientoId) {
+    if (!body.nombre || !body.tipo) {
       return NextResponse.json(
-        { error: "Se requieren nombre, tipo y establecimientoId" },
+        { error: "Se requieren nombre y tipo" },
+        { status: 400 }
+      )
+    }
+
+    const establecimientoId = resolverEstablecimientoDestino(
+      body.establecimientoId,
+      ctx.establecimientoIds
+    )
+
+    if (!establecimientoId) {
+      if (body.establecimientoId) {
+        return NextResponse.json(
+          { error: "No tienes acceso a ese establecimiento" },
+          { status: 403 }
+        )
+      }
+      return NextResponse.json(
+        { error: "Se requiere establecimientoId" },
         { status: 400 }
       )
     }
@@ -103,7 +113,7 @@ export async function POST(request: NextRequest) {
         tieneSombra: body.tieneSombra ?? false,
         tieneBalanza: body.tieneBalanza ?? false,
         descripcion: body.descripcion || null,
-        establecimientoId: body.establecimientoId,
+        establecimientoId,
       },
     })
 
@@ -121,4 +131,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

@@ -1,14 +1,10 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
+import { loteDelTenant, sectorDelTenant } from "@/lib/api/tenant"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const establecimientoId = searchParams.get("establecimientoId")
     const sectorId = searchParams.get("sectorId")
@@ -17,7 +13,16 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "50")
     const skip = (page - 1) * limit
 
-    const where: Record<string, unknown> = {}
+    if (establecimientoId && !ctx.establecimientoIds.includes(establecimientoId)) {
+      return NextResponse.json(
+        { error: "No tienes acceso a ese establecimiento" },
+        { status: 403 }
+      )
+    }
+
+    const where: Record<string, unknown> = {
+      lote: { establecimientoId: { in: ctx.establecimientoIds } },
+    }
 
     if (establecimientoId) {
       where.sector = { establecimientoId }
@@ -62,21 +67,35 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
 
     if (!body.loteId || !body.sectorId) {
       return NextResponse.json(
         { error: "Se requieren loteId y sectorId" },
         { status: 400 }
+      )
+    }
+
+    const [lote, sector] = await Promise.all([
+      loteDelTenant(body.loteId, ctx.establecimientoIds),
+      sectorDelTenant(body.sectorId, ctx.establecimientoIds),
+    ])
+
+    if (!lote) {
+      return NextResponse.json(
+        { error: "Lote no encontrado" },
+        { status: 404 }
+      )
+    }
+
+    if (!sector) {
+      return NextResponse.json(
+        { error: "Sector no encontrado" },
+        { status: 404 }
       )
     }
 
@@ -108,4 +127,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

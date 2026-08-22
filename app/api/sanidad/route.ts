@@ -1,15 +1,14 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
+import {
+  animalDelTenant,
+  loteDelTenant,
+  scopeEventoAnimalOLote,
+} from "@/lib/api/tenant"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, { establecimientoIds }) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const loteId = searchParams.get("loteId")
     const animalId = searchParams.get("animalId")
@@ -20,7 +19,9 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "50")
     const skip = (page - 1) * limit
 
-    const where: Record<string, unknown> = {}
+    const where: Record<string, unknown> = {
+      ...scopeEventoAnimalOLote(establecimientoIds),
+    }
 
     if (loteId) {
       where.loteId = loteId
@@ -92,16 +93,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, { establecimientoIds }) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
 
     if (!body.productoId) {
@@ -137,9 +132,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.animalId) {
-      const animal = await prisma.animal.findUnique({
-        where: { id: body.animalId },
-      })
+      const animal = await animalDelTenant(body.animalId, establecimientoIds)
       if (!animal) {
         return NextResponse.json(
           { error: "Animal no encontrado" },
@@ -149,9 +142,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.loteId) {
-      const lote = await prisma.lote.findUnique({
-        where: { id: body.loteId },
-      })
+      const lote = await loteDelTenant(body.loteId, establecimientoIds)
       if (!lote) {
         return NextResponse.json(
           { error: "Lote no encontrado" },
@@ -216,4 +207,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

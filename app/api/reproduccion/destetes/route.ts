@@ -1,21 +1,19 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
+import { animalDelTenant, loteDelTenant } from "@/lib/api/tenant"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, { establecimientoIds }) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const animalId = searchParams.get("animalId")
     const metodo = searchParams.get("metodo")
     const desde = searchParams.get("desde")
     const hasta = searchParams.get("hasta")
 
-    const where: Record<string, unknown> = {}
+    const where: Record<string, unknown> = {
+      animal: { establecimientoId: { in: establecimientoIds } },
+    }
 
     if (animalId) where.animalId = animalId
     if (metodo) where.metodo = metodo
@@ -52,15 +50,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, { establecimientoIds }) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
 
     if (!body.fecha || !body.animalId) {
@@ -68,6 +61,24 @@ export async function POST(request: NextRequest) {
         { error: "Faltan campos requeridos: fecha, animalId" },
         { status: 400 }
       )
+    }
+
+    const animal = await animalDelTenant(body.animalId, establecimientoIds)
+    if (!animal) {
+      return NextResponse.json(
+        { error: "Animal no encontrado" },
+        { status: 404 }
+      )
+    }
+
+    if (body.loteDesteteId) {
+      const loteDestete = await loteDelTenant(body.loteDesteteId, establecimientoIds)
+      if (!loteDestete) {
+        return NextResponse.json(
+          { error: "Lote de destete no encontrado" },
+          { status: 404 }
+        )
+      }
     }
 
     const destete = await prisma.evtDestete.create({
@@ -100,4 +111,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

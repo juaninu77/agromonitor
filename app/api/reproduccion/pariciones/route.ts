@@ -1,21 +1,19 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
+import { animalDelTenant } from "@/lib/api/tenant"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, { establecimientoIds }) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const madreId = searchParams.get("madreId")
     const resultado = searchParams.get("resultado")
     const desde = searchParams.get("desde")
     const hasta = searchParams.get("hasta")
 
-    const where: Record<string, unknown> = {}
+    const where: Record<string, unknown> = {
+      madre: { establecimientoId: { in: establecimientoIds } },
+    }
 
     if (madreId) where.madreId = madreId
     if (resultado) where.resultado = resultado
@@ -63,15 +61,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, { establecimientoIds }) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
 
     if (!body.fecha || !body.resultado || !body.madreId) {
@@ -79,6 +72,34 @@ export async function POST(request: NextRequest) {
         { error: "Faltan campos requeridos: fecha, resultado, madreId" },
         { status: 400 }
       )
+    }
+
+    const madre = await animalDelTenant(body.madreId, establecimientoIds)
+    if (!madre) {
+      return NextResponse.json(
+        { error: "Madre no encontrada" },
+        { status: 404 }
+      )
+    }
+
+    if (body.padreId) {
+      const padre = await animalDelTenant(body.padreId, establecimientoIds)
+      if (!padre) {
+        return NextResponse.json(
+          { error: "Padre no encontrado" },
+          { status: 404 }
+        )
+      }
+    }
+
+    if (body.nacidoAnimalId) {
+      const nacido = await animalDelTenant(body.nacidoAnimalId, establecimientoIds)
+      if (!nacido) {
+        return NextResponse.json(
+          { error: "Animal nacido no encontrado" },
+          { status: 404 }
+        )
+      }
     }
 
     const paricion = await prisma.evtParicion.create({
@@ -110,4 +131,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

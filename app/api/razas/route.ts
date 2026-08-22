@@ -1,14 +1,9 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const especieIdParam = request.nextUrl.searchParams.get("especieId")
     const especieNombre = request.nextUrl.searchParams.get("especie")
 
@@ -34,31 +29,29 @@ export async function GET(request: NextRequest) {
     console.error("Error al obtener razas:", error)
     return NextResponse.json({ success: false, error: "Error interno del servidor" }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: NextRequest) {
-  try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+export const POST = withAuth(
+  async (request) => {
+    try {
+      const body = await request.json()
+      if (!body.nombre?.trim()) {
+        return NextResponse.json({ error: "El nombre es requerido" }, { status: 400 })
+      }
+      if (!body.especieId) {
+        return NextResponse.json({ error: "La especie es requerida" }, { status: 400 })
+      }
+
+      const raza = await prisma.raza.create({
+        data: { nombre: body.nombre.trim(), especieId: body.especieId },
+        include: { especie: { select: { id: true, nombre: true } } },
+      })
+
+      return NextResponse.json({ success: true, data: raza }, { status: 201 })
+    } catch (error) {
+      console.error("Error al crear raza:", error)
+      return NextResponse.json({ success: false, error: "Error interno del servidor" }, { status: 500 })
     }
-
-    const body = await request.json()
-    if (!body.nombre?.trim()) {
-      return NextResponse.json({ error: "El nombre es requerido" }, { status: 400 })
-    }
-    if (!body.especieId) {
-      return NextResponse.json({ error: "La especie es requerida" }, { status: 400 })
-    }
-
-    const raza = await prisma.raza.create({
-      data: { nombre: body.nombre.trim(), especieId: body.especieId },
-      include: { especie: { select: { id: true, nombre: true } } },
-    })
-
-    return NextResponse.json({ success: true, data: raza }, { status: 201 })
-  } catch (error) {
-    console.error("Error al crear raza:", error)
-    return NextResponse.json({ success: false, error: "Error interno del servidor" }, { status: 500 })
-  }
-}
+  },
+  { roles: ["admin", "encargado"] }
+)

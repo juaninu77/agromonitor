@@ -1,21 +1,19 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
+import { animalDelTenant } from "@/lib/api/tenant"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, { establecimientoIds }) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const hembraId = searchParams.get("hembraId")
     const resultado = searchParams.get("resultado")
     const desde = searchParams.get("desde")
     const hasta = searchParams.get("hasta")
 
-    const where: Record<string, unknown> = {}
+    const where: Record<string, unknown> = {
+      hembra: { establecimientoId: { in: establecimientoIds } },
+    }
 
     if (hembraId) where.hembraId = hembraId
     if (resultado) where.resultado = resultado
@@ -58,21 +56,24 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, { establecimientoIds }) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
 
     if (!body.fecha || !body.resultado || !body.hembraId || !body.metodo) {
       return NextResponse.json(
         { error: "Faltan campos requeridos: fecha, resultado, hembraId, metodo" },
         { status: 400 }
+      )
+    }
+
+    const hembra = await animalDelTenant(body.hembraId, establecimientoIds)
+    if (!hembra) {
+      return NextResponse.json(
+        { error: "Hembra no encontrada" },
+        { status: 404 }
       )
     }
 
@@ -104,4 +105,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

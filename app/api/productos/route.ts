@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
 import { scopeOrganizacion } from "@/lib/api/tenant"
+import { decimalToNumber } from "@/lib/api/serialize"
 
 export const GET = withAuth(async (request, ctx) => {
   try {
@@ -38,7 +39,15 @@ export const GET = withAuth(async (request, ctx) => {
       orderBy: { nombre: "asc" },
     })
 
-    return NextResponse.json({ success: true, data: productos })
+    const data = productos.map((producto) => ({
+      ...producto,
+      lotes: producto.lotes.map((lote) => ({
+        ...lote,
+        costo: decimalToNumber(lote.costo),
+      })),
+    }))
+
+    return NextResponse.json({ success: true, data })
   } catch (error) {
     console.error("Error al obtener productos:", error)
     return NextResponse.json(

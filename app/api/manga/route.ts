@@ -114,6 +114,21 @@ export const POST = withAuth(async (request, ctx) => {
       }
     }
 
+    if (productoSanidadId) {
+      const organizacionSesion = ctx.organizacionDeEstablecimiento[establecimientoId]
+      const producto = organizacionSesion
+        ? await prisma.producto.findFirst({
+            where: { id: productoSanidadId, organizacionId: organizacionSesion },
+          })
+        : null
+      if (!producto) {
+        return NextResponse.json(
+          { error: "Producto sanitario no encontrado" },
+          { status: 404 }
+        )
+      }
+    }
+
     const sesion = await prisma.sesionManga.create({
       data: {
         nombre,

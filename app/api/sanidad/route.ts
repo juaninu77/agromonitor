@@ -206,7 +206,7 @@ export const POST = withAuth(async (request, { establecimientoIds, organizacionI
     })
 
     return NextResponse.json(
-      { success: true, data: evento },
+      { success: true, data: { ...evento, costo: decimalToNumber(evento.costo) } },
       { status: 201 }
     )
   } catch (error) {

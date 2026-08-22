@@ -81,7 +81,7 @@ export const POST = withAuth(async (request, ctx) => {
     })
 
     return NextResponse.json(
-      { success: true, data: lote },
+      { success: true, data: { ...lote, costo: decimalToNumber(lote.costo) } },
       { status: 201 }
     )
   } catch (error) {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { resolverEstablecimientoDestino, scopeEstablecimiento } from "@/lib/api/tenant"
+import { resolverEstablecimientoDestino } from "@/lib/api/tenant"
 import { withAuth } from "@/lib/api/with-auth"
 import { logAudit } from "@/lib/api/audit-log"
 import { prisma } from "@/lib/prisma"
@@ -18,8 +18,23 @@ export const GET = withAuth(async (request, ctx) => {
       return NextResponse.json({ success: true, data: [] })
     }
 
+    // Visible si el tenant lo posee (establecimientoId) o si aparece como
+    // origen O destino por RENSPA (no perder hacienda entrante).
+    const establecimientos = await prisma.establecimiento.findMany({
+      where: { id: { in: ctx.establecimientoIds } },
+      select: { renspa: true },
+    })
+    const renspas = establecimientos
+      .map((e) => e.renspa)
+      .filter((r): r is string => !!r)
+
     const where: any = {
-      ...scopeEstablecimiento(ctx.establecimientoIds),
+      OR: [
+        { establecimientoId: { in: ctx.establecimientoIds } },
+        ...(renspas.length
+          ? [{ renspaOrigen: { in: renspas } }, { renspaDestino: { in: renspas } }]
+          : []),
+      ],
     }
 
     if (estado) {

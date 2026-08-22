@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { resolverEstablecimientoDestino, scopeEstablecimiento } from "@/lib/api/tenant"
+import { resolverEstablecimientoDestino } from "@/lib/api/tenant"
 import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 
@@ -15,8 +15,24 @@ export const GET = withAuth(async (request, ctx) => {
       return NextResponse.json({ error: "Sin organización" }, { status: 403 })
     }
 
+    // Un DTA es visible para el tenant si lo posee (establecimientoId) o si
+    // alguno de sus establecimientos aparece como origen O destino (por RENSPA),
+    // así no desaparecen los documentos de hacienda entrante.
+    const establecimientos = await prisma.establecimiento.findMany({
+      where: { id: { in: ctx.establecimientoIds } },
+      select: { renspa: true },
+    })
+    const renspas = establecimientos
+      .map((e) => e.renspa)
+      .filter((r): r is string => !!r)
+
     const where: Record<string, unknown> = {
-      ...scopeEstablecimiento(ctx.establecimientoIds),
+      OR: [
+        { establecimientoId: { in: ctx.establecimientoIds } },
+        ...(renspas.length
+          ? [{ renspaOrigen: { in: renspas } }, { renspaDestino: { in: renspas } }]
+          : []),
+      ],
     }
 
     if (estado) {

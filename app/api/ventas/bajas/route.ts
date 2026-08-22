@@ -158,7 +158,13 @@ export const POST = withAuth(async (request, ctx) => {
         : null,
     })
 
-    return NextResponse.json({ success: true, data: baja }, { status: 201 })
+    const data = {
+      ...baja,
+      precioKg: decimalToNumber(baja.precioKg),
+      precioTotal: decimalToNumber(baja.precioTotal),
+    }
+
+    return NextResponse.json({ success: true, data }, { status: 201 })
   } catch (error) {
     console.error("Error al crear baja:", error)
     return NextResponse.json(

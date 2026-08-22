@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { withAuth } from "@/lib/api/with-auth"
 import { animalDelTenant, loteDelTenant, sectorDelTenant } from "@/lib/api/tenant"
 import { logAudit } from "@/lib/api/audit-log"
+import { decimalToNumber } from "@/lib/api/serialize"
 import { prisma } from "@/lib/prisma"
 import { validarRazaYCategoriaParaEspecie } from "@/lib/ganado/validate-especie"
 
@@ -69,9 +70,25 @@ export const GET = withAuth(async (request, ctx) => {
       )
     }
 
+    // Coerción de campos Decimal (dinero) a number para el contrato de la API
+    const data = {
+      ...animal,
+      eventosSanidad: animal.eventosSanidad.map((e) => ({
+        ...e,
+        costo: decimalToNumber(e.costo),
+      })),
+      eventoBaja: animal.eventoBaja
+        ? {
+            ...animal.eventoBaja,
+            precioKg: decimalToNumber(animal.eventoBaja.precioKg),
+            precioTotal: decimalToNumber(animal.eventoBaja.precioTotal),
+          }
+        : animal.eventoBaja,
+    }
+
     return NextResponse.json({
       success: true,
-      data: animal,
+      data,
     })
   } catch (error) {
     console.error("Error al obtener animal:", error)

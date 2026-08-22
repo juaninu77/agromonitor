@@ -47,6 +47,8 @@
     "db:reset:test": "dotenv -e .env.test -- prisma db push --force-reset && pnpm db:seed:test",
     "db:backup": "node -e \"require('child_process').exec(process.platform === 'win32' ? 'scripts\\\\backup-db.bat' : 'bash scripts/backup-db.sh', (e,o) => console.log(o))\"",
     "db:check-safety": "tsx scripts/check-migration-safety.ts",
+    "db:constraints": "prisma db execute --file prisma/constraints.sql --schema prisma/schema.prisma",
+    "db:backfill-tenant": "tsx scripts/backfill-tenant.ts",
     "import:excel": "node scripts/import-excel.js",
     "env:check": "tsx scripts/check-env.ts",
     "env:setup": "tsx scripts/setup-env.ts"

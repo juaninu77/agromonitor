@@ -40,6 +40,8 @@ pnpm db:seed            # Seed database (prisma/seed.ts; also :dev, :test varian
 pnpm db:studio          # Open Prisma Studio
 pnpm db:reset:test      # Force-reset test database and reseed
 pnpm db:check-safety    # Check migration safety
+pnpm db:constraints     # Apply CHECK/partial-unique constraints (prisma/constraints.sql)
+pnpm db:backfill-tenant # Fill new tenant columns (only NULLs; scripts/backfill-tenant.ts)
 pnpm db:backup          # Backup database (scripts/backup-db.sh|.bat)
 pnpm import:excel       # Import data from Excel files
 ```
@@ -86,15 +88,16 @@ API routes under `/app/api/*` should use the `withAuth()` wrapper from `lib/api/
 import { withAuth } from "@/lib/api/with-auth"
 
 export const POST = withAuth(
-  async (request, { userId, userRole, establecimientoIds }) => {
-    // establecimientoIds = all farms the user can access (tenant scoping)
+  async (request, { userId, userRole, establecimientoIds, organizacionIds, params }) => {
+    // establecimientoIds/organizacionIds = tenant scoping from active Membresias
+    // params = resolved dynamic route params ([id], etc.) — don't use Next's 2nd arg
     // ...
   },
   { roles: ["admin", "encargado"] } // optional role restriction → 403
 )
 ```
 
-It returns 401 when unauthenticated, 403 when the role check fails, and resolves the user's accessible `establecimientoIds` from active Membresias. **Always filter queries by `establecimientoIds`** — never return cross-tenant data.
+It returns 401 when unauthenticated, 403 when the role check fails, resolves the user's accessible `establecimientoIds`/`organizacionIds` from active Membresias, and derives `userRole` from the highest active Membresia role (Usuario.rol is only a fallback). **Always filter queries by `establecimientoIds` (or `organizacionIds` for org-level models like Producto, Cliente, Proveedor, Dieta)** — never return cross-tenant data. Reusable tenant filters and ownership checks live in `lib/api/tenant.ts` (`scopeEstablecimiento`, `scopeEventoAnimalOLote`, `animalDelTenant`, etc.).
 
 For mutations on sensitive tables, record an audit entry with `logAudit()` from `lib/api/audit-log.ts` (writes to the `AuditLog` model; failures are swallowed so it never breaks the main operation).
 
@@ -105,7 +108,7 @@ Other API conventions: pagination via `page`/`limit` query params, filtering via
 The Prisma schema (`prisma/schema.prisma` — the other `schema-*.prisma` files are historical backups, do not edit them) implements a **hybrid event-sourcing model**:
 
 **Core Entities:**
-- `Animal` - Individual animal records (identified by `caravanaVisual` and/or RFID EID `caravanaRfid`)
+- `Animal` - Individual animal records (identified by `caravanaVisual` and/or RFID EID `caravanaRfid`); carries a direct `establecimientoId` for tenant scoping (backfilled from location/lot history via `pnpm db:backfill-tenant`)
 - `Lote` (Herd/Group), `Torada` (breeding groups)
 - `Sector` - Unified physical locations; check `tipo` field (`'potrero' | 'corral' | 'manga' | 'feedlot'`)
 - `Establecimiento` - Farm/Ranch entities
@@ -117,7 +120,7 @@ The Prisma schema (`prisma/schema.prisma` — the other `schema-*.prisma` files 
 
 **Key Architectural Decisions:**
 1. Animal state is **derived from events**, not stored redundantly
-2. Events can apply to individual animals (`animalId`) OR entire lotes (`loteId`) - **never both**
+2. Events can apply to individual animals (`animalId`) OR entire lotes (`loteId`) - **never both** (enforced by CHECK constraints in `prisma/constraints.sql`, applied via `pnpm db:constraints`)
 3. Events have timestamps - order matters for derived state
 4. Use `prisma.$transaction()` for multi-step operations; always import the client from `@/lib/prisma`
 5. Include relations explicitly in queries - don't rely on default includes
@@ -224,8 +227,9 @@ When modifying the database schema:
 1. Edit `prisma/schema.prisma` (only this file — the other `schema-*.prisma` files are backups)
 2. Run `pnpm db:generate` to update the client
 3. Run `pnpm db:push` for development (or `pnpm db:migrate:dev` / `db:migrate:deploy` for migrations) — respecting the Database Safety rules above
-4. Update seed data if needed (`prisma/seed.ts`)
-5. Update TypeScript types (`lib/types.ts`) if needed
+4. Re-apply DB-level constraints: `pnpm db:constraints` (idempotent; `db push` doesn't manage them)
+5. Update seed data if needed (`prisma/seed.ts`)
+6. Update TypeScript types (`lib/types.ts`) if needed
 
 ## Documentation
 

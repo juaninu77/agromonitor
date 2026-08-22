@@ -47,6 +47,7 @@ next-env.d.ts
 # backups
 /backups
 *.sql
+!/prisma/constraints.sql
 *.backup
 
 # analysis files

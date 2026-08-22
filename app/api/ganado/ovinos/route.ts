@@ -1,16 +1,23 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
+import { withAuth } from "@/lib/api/with-auth"
+import { scopeEstablecimiento } from "@/lib/api/tenant"
 import { prisma } from "@/lib/prisma"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const establecimientoId = searchParams.get("establecimientoId")
+
+    // Scoping multi-tenant: si el cliente pide un establecimiento, debe ser accesible
+    if (establecimientoId && !ctx.establecimientoIds.includes(establecimientoId)) {
+      return NextResponse.json(
+        { error: "No tienes acceso a este establecimiento" },
+        { status: 403 }
+      )
+    }
+    const establecimientosPermitidos = establecimientoId
+      ? [establecimientoId]
+      : ctx.establecimientoIds
 
     const especieOvina = await prisma.especie.findFirst({
       where: { nombre: { contains: "ovin", mode: "insensitive" } },
@@ -27,15 +34,7 @@ export async function GET(request: NextRequest) {
     const where: any = {
       especieId: especieOvina.id,
       estadoVital: "activo",
-    }
-
-    if (establecimientoId) {
-      where.loteHist = {
-        some: {
-          hasta: null,
-          lote: { establecimientoId },
-        },
-      }
+      ...scopeEstablecimiento(establecimientosPermitidos),
     }
 
     const ovinos = await prisma.animal.findMany({
@@ -61,4 +60,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

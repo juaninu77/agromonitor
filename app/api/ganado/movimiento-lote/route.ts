@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { prisma } from "@/lib/prisma"
+import { NextResponse } from "next/server"
 import { z } from "zod"
+import { withAuth } from "@/lib/api/with-auth"
+import { loteDelTenant } from "@/lib/api/tenant"
+import { prisma } from "@/lib/prisma"
 
 const movimientoSchema = z.object({
   animalIds: z.array(z.string().uuid()).min(1, "Seleccioná al menos un animal"),
@@ -10,13 +11,8 @@ const movimientoSchema = z.object({
   motivo: z.string().optional(),
 })
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
     const parsed = movimientoSchema.safeParse(body)
 
@@ -30,13 +26,26 @@ export async function POST(request: NextRequest) {
     const { animalIds, loteDestinoId, fecha, motivo } = parsed.data
     const fechaMov = fecha ? new Date(fecha) : new Date()
 
-    const loteDestino = await prisma.lote.findUnique({
-      where: { id: loteDestinoId },
-      select: { id: true, nombre: true },
-    })
+    const loteDestino = await loteDelTenant(loteDestinoId, ctx.establecimientoIds)
 
     if (!loteDestino) {
       return NextResponse.json({ error: "Lote destino no encontrado" }, { status: 404 })
+    }
+
+    // Validar que todos los animales pertenezcan al tenant
+    const animalesDelTenant = await prisma.animal.findMany({
+      where: {
+        id: { in: animalIds },
+        establecimientoId: { in: ctx.establecimientoIds },
+      },
+      select: { id: true },
+    })
+
+    if (animalesDelTenant.length !== animalIds.length) {
+      return NextResponse.json(
+        { error: "Uno o más animales no encontrados" },
+        { status: 404 }
+      )
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -76,4 +85,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

@@ -1,5 +1,11 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
+import { withAuth } from "@/lib/api/with-auth"
+import {
+  scopeEstablecimiento,
+  loteDelTenant,
+  sectorDelTenant,
+  resolverEstablecimientoDestino,
+} from "@/lib/api/tenant"
 import { prisma } from "@/lib/prisma"
 import { validarRazaYCategoriaParaEspecie } from "@/lib/ganado/validate-especie"
 
@@ -8,17 +14,8 @@ import { validarRazaYCategoriaParaEspecie } from "@/lib/ganado/validate-especie"
 // ============================================
 // Retorna animales bovinos con autenticación
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
     const searchParams = request.nextUrl.searchParams
     const establecimientoId = searchParams.get("establecimientoId")
     const loteId = searchParams.get("loteId")
@@ -59,8 +56,21 @@ export async function GET(request: NextRequest) {
 
     const especieIdFilter = searchParams.get("especieId")
 
+    // Scoping multi-tenant: si el cliente pide un establecimiento, debe ser accesible
+    if (establecimientoId && !ctx.establecimientoIds.includes(establecimientoId)) {
+      return NextResponse.json(
+        { error: "No tienes acceso a este establecimiento" },
+        { status: 403 }
+      )
+    }
+    const establecimientosPermitidos = establecimientoId
+      ? [establecimientoId]
+      : ctx.establecimientoIds
+
     // Sin especieId: lista todos los animales (bovinos, ovinos, equinos, etc.)
-    const where: Record<string, unknown> = {}
+    const where: Record<string, unknown> = {
+      ...scopeEstablecimiento(establecimientosPermitidos),
+    }
     if (especieIdFilter) {
       where.especieId = especieIdFilter
     }
@@ -89,23 +99,14 @@ export async function GET(request: NextRequest) {
       ]
     }
 
-    // Filtro por establecimiento (a traves de loteHist -> lote -> establecimiento)
-    if (establecimientoId) {
-      where.loteHist = {
-        some: {
-          hasta: null,
-          lote: { establecimientoId },
-        },
-      }
-    }
-
-    // Si hay filtro de lote, buscar animales en ese lote
+    // Si hay filtro de lote, buscar animales en ese lote (solo lotes del tenant)
     let animalIdsEnLote: string[] | undefined
     if (loteId) {
       const animalesEnLote = await prisma.animalLoteHist.findMany({
         where: {
           loteId,
           hasta: null,
+          lote: { establecimientoId: { in: ctx.establecimientoIds } },
         },
         select: { animalId: true },
       })
@@ -122,6 +123,7 @@ export async function GET(request: NextRequest) {
       const animalesConPeso = await prisma.evtPesada.findMany({
         where: {
           animalId: { not: null },
+          animal: { establecimientoId: { in: ctx.establecimientoIds } },
           ...(pesoMin || pesoMax ? { pesoKg: pesadaFilter } : {}),
           ...(ccMin || ccMax ? {
             cc: {
@@ -185,13 +187,13 @@ export async function GET(request: NextRequest) {
       const ultimoPeso = animal.eventosPesada[0]
       const ubicacionActual = animal.ubicacionHist[0]
       const loteActual = animal.loteHist[0]
-      
+
       // Calcular edad
       let edad = ''
       if (animal.fechaNacimiento) {
         const nacimiento = new Date(animal.fechaNacimiento)
         const hoy = new Date()
-        const meses = (hoy.getFullYear() - nacimiento.getFullYear()) * 12 + 
+        const meses = (hoy.getFullYear() - nacimiento.getFullYear()) * 12 +
                       (hoy.getMonth() - nacimiento.getMonth())
         if (meses >= 12) {
           const años = Math.floor(meses / 12)
@@ -300,25 +302,34 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
 // ============================================
 // POST /api/ganado/bovinos
 // ============================================
 // Crea un nuevo animal bovino
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    
-    if (!session?.user?.id) {
+    const body = await request.json()
+
+    // Resolver establecimiento destino (scoping multi-tenant)
+    const establecimientoDestino = resolverEstablecimientoDestino(
+      body.establecimientoId,
+      ctx.establecimientoIds
+    )
+    if (!establecimientoDestino) {
+      if (body.establecimientoId) {
+        return NextResponse.json(
+          { error: "No tienes acceso a este establecimiento" },
+          { status: 403 }
+        )
+      }
       return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
+        { error: "Se requiere establecimientoId para crear el animal" },
+        { status: 400 }
       )
     }
-
-    const body = await request.json()
 
     let especieId: string | undefined = body.especieId
     if (!especieId) {
@@ -364,12 +375,43 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: comboErr }, { status: 400 })
     }
 
+    // Validar lote (si se proporciona) ANTES de crear el animal
+    if (body.loteId) {
+      const lote = await loteDelTenant(body.loteId, ctx.establecimientoIds)
+
+      if (!lote) {
+        return NextResponse.json(
+          { error: "Lote no encontrado" },
+          { status: 404 }
+        )
+      }
+
+      if (lote.especieId !== especieId) {
+        return NextResponse.json(
+          { error: "El lote seleccionado no corresponde a la especie del animal" },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Validar sector (si se proporciona) ANTES de crear el animal
+    if (body.sectorId) {
+      const sector = await sectorDelTenant(body.sectorId, ctx.establecimientoIds)
+      if (!sector) {
+        return NextResponse.json(
+          { error: "Sector no encontrado" },
+          { status: 404 }
+        )
+      }
+    }
+
     // Crear animal
     const animal = await prisma.animal.create({
       data: {
         especieId,
         razaId: body.razaId,
         categoriaId: body.categoriaId,
+        establecimientoId: establecimientoDestino,
         sexo: body.sexo || 'M',
         cuig: body.cuig,
         caravanaVisual: body.caravanaVisual,
@@ -403,50 +445,8 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Si se proporciona lote, validar y asignar al lote
+    // Si se proporciona lote (ya validado), asignar al lote
     if (body.loteId) {
-      // Verificar que el lote existe y el usuario tiene acceso
-      const lote = await prisma.lote.findUnique({
-        where: { id: body.loteId },
-        include: {
-          establecimiento: {
-            include: {
-              organizacion: {
-                include: {
-                  membresias: {
-                    where: {
-                      usuarioId: session.user.id,
-                      esActivo: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      })
-
-      if (!lote) {
-        return NextResponse.json(
-          { error: "Lote no encontrado" },
-          { status: 404 }
-        )
-      }
-
-      if (lote.establecimiento.organizacion.membresias.length === 0) {
-        return NextResponse.json(
-          { error: "No tienes acceso a este lote" },
-          { status: 403 }
-        )
-      }
-
-      if (lote.especieId !== especieId) {
-        return NextResponse.json(
-          { error: "El lote seleccionado no corresponde a la especie del animal" },
-          { status: 400 }
-        )
-      }
-
       await prisma.animalLoteHist.create({
         data: {
           animalId: animal.id,
@@ -456,7 +456,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Si se proporciona sector/ubicación, asignar ubicación
+    // Si se proporciona sector/ubicación (ya validado), asignar ubicación
     if (body.sectorId) {
       await prisma.ubicacionHist.create({
         data: {
@@ -478,4 +478,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

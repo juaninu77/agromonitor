@@ -65,8 +65,16 @@ asignación manual, p. ej. animales sin historial de ubicación/lote).
 
 > **Catálogos con varias organizaciones:** si hay más de una organización, los
 > catálogos globales previos (especie/raza/categoría) **no** se asignan solos
-> — el backfill lo reporta. Hay que **duplicarlos por organización** a mano
-> (una copia de cada especie/raza/categoría por org) antes de endurecer.
+> — el backfill lo reporta. En ese caso usá el script dedicado, que además
+> re-apunta los animales y lotes a la copia de su propia organización:
+>
+> ```bash
+> pnpm db:catalogos-por-org            # DRY-RUN: informa qué haría, no escribe
+> pnpm db:backup
+> pnpm db:catalogos-por-org --apply    # aplica (idempotente, no borra nada)
+> ```
+>
+> Corré el DRY-RUN primero y revisá los números; recién después `--apply`.
 
 ## 4. Endurecimiento a NOT NULL (DESTRUCTIVO — requiere confirmación)
 

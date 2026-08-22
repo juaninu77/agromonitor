@@ -1,43 +1,25 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
 
 // ============================================
 // GET /api/organizaciones
 // ============================================
 // Retorna las organizaciones donde el usuario tiene membresía
 
-export async function GET() {
+export const GET = withAuth(async (_request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
-    // Obtener organizaciones donde el usuario es miembro
-    const membresias = await prisma.membresia.findMany({
+    const organizaciones = await prisma.organizacion.findMany({
       where: {
-        usuarioId: session.user.id,
-        esActivo: true,
+        id: { in: ctx.organizacionIds },
       },
-      include: {
-        organizacion: {
-          select: {
-            id: true,
-            nombre: true,
-            slug: true,
-            logo: true,
-          },
-        },
+      select: {
+        id: true,
+        nombre: true,
+        slug: true,
+        logo: true,
       },
     })
-
-    // Extraer solo las organizaciones
-    const organizaciones = membresias.map((m) => m.organizacion)
 
     return NextResponse.json(organizaciones)
   } catch (error) {
@@ -50,7 +32,7 @@ export async function GET() {
       })
     }
     return NextResponse.json(
-      { 
+      {
         error: "Error interno del servidor",
         ...(process.env.NODE_ENV === 'development' && {
           details: error instanceof Error ? error.message : 'Error desconocido'
@@ -59,24 +41,16 @@ export async function GET() {
       { status: 500 }
     )
   }
-}
+})
 
 // ============================================
 // POST /api/organizaciones
 // ============================================
-// Crea una nueva organización (y membresía como propietario)
+// Crea una nueva organización (y membresía como propietario).
+// Especial: cualquier usuario autenticado puede crear una organización nueva.
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
     const body = await request.json()
     const { nombre } = body
 
@@ -120,7 +94,7 @@ export async function POST(request: Request) {
       // Crear membresía como propietario
       await tx.membresia.create({
         data: {
-          usuarioId: session.user.id,
+          usuarioId: ctx.userId,
           organizacionId: org.id,
           rol: "propietario",
         },
@@ -137,5 +111,4 @@ export async function POST(request: Request) {
       { status: 500 }
     )
   }
-}
-
+})

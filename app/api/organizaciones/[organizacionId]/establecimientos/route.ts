@@ -1,40 +1,18 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
 
 // ============================================
 // GET /api/organizaciones/[organizacionId]/establecimientos
 // ============================================
 // Retorna los establecimientos de una organización
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ organizacionId: string }> }
-) {
+export const GET = withAuth(async (_request, ctx) => {
   try {
-    const session = await auth()
-    
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
-    const { organizacionId } = await params
+    const { organizacionId } = ctx.params
 
     // Verificar que el usuario tiene acceso a esta organización
-    const membresia = await prisma.membresia.findUnique({
-      where: {
-        usuarioId_organizacionId: {
-          usuarioId: session.user.id,
-          organizacionId,
-        },
-        esActivo: true,
-      },
-    })
-
-    if (!membresia) {
+    if (!ctx.organizacionIds.includes(organizacionId)) {
       return NextResponse.json(
         { error: "No tienes acceso a esta organización" },
         { status: 403 }
@@ -68,49 +46,37 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})
 
 // ============================================
 // POST /api/organizaciones/[organizacionId]/establecimientos
 // ============================================
 // Crea un nuevo establecimiento en la organización
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ organizacionId: string }> }
-) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
+    const { organizacionId } = ctx.params
 
-    const { organizacionId } = await params
-
-    // Verificar que el usuario tiene acceso y permisos
-    const membresia = await prisma.membresia.findUnique({
-      where: {
-        usuarioId_organizacionId: {
-          usuarioId: session.user.id,
-          organizacionId,
-        },
-        esActivo: true,
-      },
-    })
-
-    if (!membresia) {
+    // Verificar que el usuario tiene acceso a esta organización
+    if (!ctx.organizacionIds.includes(organizacionId)) {
       return NextResponse.json(
         { error: "No tienes acceso a esta organización" },
         { status: 403 }
       )
     }
 
-    // Verificar rol (solo propietario o administrador pueden crear establecimientos)
-    if (!["propietario", "administrador"].includes(membresia.rol)) {
+    // Verificar rol de la membresía (solo propietario o administrador pueden crear establecimientos)
+    const membresia = await prisma.membresia.findUnique({
+      where: {
+        usuarioId_organizacionId: {
+          usuarioId: ctx.userId,
+          organizacionId,
+        },
+        esActivo: true,
+      },
+    })
+
+    if (!membresia || !["propietario", "administrador"].includes(membresia.rol)) {
       return NextResponse.json(
         { error: "No tienes permisos para crear establecimientos" },
         { status: 403 }
@@ -150,7 +116,7 @@ export async function POST(
     return NextResponse.json(establecimiento, { status: 201 })
   } catch (error) {
     console.error("Error al crear establecimiento:", error)
-    
+
     // Manejar error de unicidad
     if ((error as { code?: string }).code === "P2002") {
       return NextResponse.json(
@@ -158,11 +124,10 @@ export async function POST(
         { status: 409 }
       )
     }
-    
+
     return NextResponse.json(
       { error: "Error interno del servidor" },
       { status: 500 }
     )
   }
-}
-
+})

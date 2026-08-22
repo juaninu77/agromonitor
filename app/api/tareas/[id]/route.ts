@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { z } from "zod"
-import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
+import { scopeEstablecimiento } from "@/lib/api/tenant"
 import { logAudit } from "@/lib/api/audit-log"
 
 const tareaUpdateSchema = z.object({
@@ -15,20 +16,11 @@ const tareaUpdateSchema = z.object({
   observ: z.string().optional(),
 })
 
-async function getTareaConAcceso(tareaId: string, userId: string) {
+async function getTareaDelTenant(tareaId: string, establecimientoIds: string[]) {
   return prisma.tarea.findFirst({
     where: {
       id: tareaId,
-      establecimiento: {
-        organizacion: {
-          membresias: {
-            some: {
-              usuarioId: userId,
-              esActivo: true,
-            },
-          },
-        },
-      },
+      ...scopeEstablecimiento(establecimientoIds),
     },
     include: {
       asignadoA: {
@@ -45,22 +37,10 @@ async function getTareaConAcceso(tareaId: string, userId: string) {
 // GET /api/tareas/[id]
 // ============================================
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const GET = withAuth(async (_request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
-    const { id } = await params
-    const tarea = await getTareaConAcceso(id, session.user.id)
+    const { id } = ctx.params
+    const tarea = await getTareaDelTenant(id, ctx.establecimientoIds)
 
     if (!tarea) {
       return NextResponse.json(
@@ -77,28 +57,16 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})
 
 // ============================================
 // PATCH /api/tareas/[id]
 // ============================================
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const PATCH = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
-    const { id } = await params
-    const existingTarea = await getTareaConAcceso(id, session.user.id)
+    const { id } = ctx.params
+    const existingTarea = await getTareaDelTenant(id, ctx.establecimientoIds)
 
     if (!existingTarea) {
       return NextResponse.json(
@@ -145,7 +113,7 @@ export async function PATCH(
     })
 
     await logAudit({
-      userId: session.user.id,
+      userId: ctx.userId,
       tabla: "tareas",
       rowPk: tarea.id,
       accion: "UPDATE",
@@ -160,52 +128,43 @@ export async function PATCH(
       { status: 500 }
     )
   }
-}
+})
 
 // ============================================
 // DELETE /api/tareas/[id]
 // ============================================
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await auth()
+export const DELETE = withAuth(
+  async (_request, ctx) => {
+    try {
+      const { id } = ctx.params
+      const existingTarea = await getTareaDelTenant(id, ctx.establecimientoIds)
 
-    if (!session?.user?.id) {
+      if (!existingTarea) {
+        return NextResponse.json(
+          { error: "Tarea no encontrada" },
+          { status: 404 }
+        )
+      }
+
+      await prisma.tarea.delete({ where: { id } })
+
+      await logAudit({
+        userId: ctx.userId,
+        tabla: "tareas",
+        rowPk: id,
+        accion: "DELETE",
+        detalle: { titulo: existingTarea.titulo },
+      })
+
+      return NextResponse.json({ success: true, message: "Tarea eliminada" })
+    } catch (error) {
+      console.error("Error al eliminar tarea:", error)
       return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
+        { success: false, error: "Error interno del servidor" },
+        { status: 500 }
       )
     }
-
-    const { id } = await params
-    const existingTarea = await getTareaConAcceso(id, session.user.id)
-
-    if (!existingTarea) {
-      return NextResponse.json(
-        { error: "Tarea no encontrada" },
-        { status: 404 }
-      )
-    }
-
-    await prisma.tarea.delete({ where: { id } })
-
-    await logAudit({
-      userId: session.user.id,
-      tabla: "tareas",
-      rowPk: id,
-      accion: "DELETE",
-      detalle: { titulo: existingTarea.titulo },
-    })
-
-    return NextResponse.json({ success: true, message: "Tarea eliminada" })
-  } catch (error) {
-    console.error("Error al eliminar tarea:", error)
-    return NextResponse.json(
-      { success: false, error: "Error interno del servidor" },
-      { status: 500 }
-    )
-  }
-}
+  },
+  { roles: ["admin", "encargado"] }
+)

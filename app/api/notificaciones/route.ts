@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { prisma } from "@/lib/prisma"
+import { NextResponse } from "next/server"
 import { z } from "zod"
+import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
 
 // ============================================
 // GET /api/notificaciones
@@ -9,22 +9,13 @@ import { z } from "zod"
 // Retorna las últimas 50 notificaciones del usuario autenticado.
 // Soporta filtro por ?leida=true|false
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
     const searchParams = request.nextUrl.searchParams
     const leidaParam = searchParams.get("leida")
 
     const where: Record<string, unknown> = {
-      usuarioId: session.user.id,
+      usuarioId: ctx.userId,
     }
 
     if (leidaParam === "true") {
@@ -50,32 +41,23 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
 // ============================================
 // POST /api/notificaciones
 // ============================================
-// Crea una notificación (uso interno del sistema o admin)
+// Crea una notificación para el usuario autenticado.
+// El usuarioId nunca se acepta del cliente: siempre es el del contexto.
 
 const createSchema = z.object({
   tipo: z.string().min(1, "El tipo es requerido"),
   titulo: z.string().min(1, "El título es requerido"),
   mensaje: z.string().min(1, "El mensaje es requerido"),
   url: z.string().optional(),
-  usuarioId: z.string().uuid("El usuarioId debe ser un UUID válido"),
 })
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
     const body = await request.json()
     const parsed = createSchema.safeParse(body)
 
@@ -92,7 +74,7 @@ export async function POST(request: NextRequest) {
         titulo: parsed.data.titulo,
         mensaje: parsed.data.mensaje,
         url: parsed.data.url,
-        usuarioId: parsed.data.usuarioId,
+        usuarioId: ctx.userId,
       },
     })
 
@@ -107,7 +89,7 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
 // ============================================
 // PATCH /api/notificaciones
@@ -121,17 +103,8 @@ const patchSchema = z.union([
   z.object({ all: z.literal(true) }),
 ])
 
-export async function PATCH(request: NextRequest) {
+export const PATCH = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
     const body = await request.json()
     const parsed = patchSchema.safeParse(body)
 
@@ -147,7 +120,7 @@ export async function PATCH(request: NextRequest) {
     if ("all" in data) {
       await prisma.notificacion.updateMany({
         where: {
-          usuarioId: session.user.id,
+          usuarioId: ctx.userId,
           leida: false,
         },
         data: { leida: true },
@@ -156,7 +129,7 @@ export async function PATCH(request: NextRequest) {
       await prisma.notificacion.updateMany({
         where: {
           id: { in: data.ids },
-          usuarioId: session.user.id,
+          usuarioId: ctx.userId,
         },
         data: { leida: true },
       })
@@ -170,4 +143,4 @@ export async function PATCH(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

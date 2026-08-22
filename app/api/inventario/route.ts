@@ -1,26 +1,20 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
+import { scopeOrganizacion } from "@/lib/api/tenant"
+import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 
 const STOCK_BAJO_UMBRAL = 10
 const DIAS_VENCIMIENTO_ALERTA = 30
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
     const searchParams = request.nextUrl.searchParams
     const tipoFilter = searchParams.get("tipo")
     const searchFilter = searchParams.get("search")
 
-    const whereProducto: Record<string, unknown> = {}
+    const whereProducto: Record<string, unknown> = {
+      ...scopeOrganizacion(ctx.organizacionIds),
+    }
 
     if (tipoFilter) {
       whereProducto.tipo = tipoFilter
@@ -129,4 +123,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

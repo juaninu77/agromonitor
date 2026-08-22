@@ -1,14 +1,10 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
+import { animalDelTenant, loteDelTenant, scopeEventoAnimalOLote } from "@/lib/api/tenant"
+import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const sectorId = searchParams.get("sectorId")
     const establecimientoId = searchParams.get("establecimientoId")
@@ -18,13 +14,18 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "50")
     const skip = (page - 1) * limit
 
-    const where: Record<string, unknown> = {}
+    const condiciones: Record<string, unknown>[] = [
+      scopeEventoAnimalOLote(ctx.establecimientoIds),
+    ]
+    const where: Record<string, unknown> = { AND: condiciones }
 
     if (sectorId) {
-      where.OR = [
-        { origenSectorId: sectorId },
-        { destinoSectorId: sectorId },
-      ]
+      condiciones.push({
+        OR: [
+          { origenSectorId: sectorId },
+          { destinoSectorId: sectorId },
+        ],
+      })
     }
 
     if (establecimientoId) {
@@ -83,15 +84,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
 
     if (!body.destinoSectorId) {
@@ -106,6 +102,26 @@ export async function POST(request: NextRequest) {
         { error: "Se requiere animal o lote" },
         { status: 400 }
       )
+    }
+
+    if (body.animalId) {
+      const animal = await animalDelTenant(body.animalId, ctx.establecimientoIds)
+      if (!animal) {
+        return NextResponse.json(
+          { error: "Animal no encontrado" },
+          { status: 404 }
+        )
+      }
+    }
+
+    if (body.loteId) {
+      const lote = await loteDelTenant(body.loteId, ctx.establecimientoIds)
+      if (!lote) {
+        return NextResponse.json(
+          { error: "Lote no encontrado" },
+          { status: 404 }
+        )
+      }
     }
 
     const movimiento = await prisma.evtMovimiento.create({
@@ -146,4 +162,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

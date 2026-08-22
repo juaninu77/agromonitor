@@ -1,35 +1,22 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
+import { animalDelTenant, scopeEventoAnimal } from "@/lib/api/tenant"
+import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const motivo = searchParams.get("motivo")
     const desde = searchParams.get("desde")
     const hasta = searchParams.get("hasta")
 
-    const membresia = await prisma.membresia.findFirst({
-      where: { usuarioId: session.user.id, esActivo: true },
-      select: { organizacionId: true },
-    })
-
-    if (!membresia) {
+    if (ctx.organizacionIds.length === 0) {
       return NextResponse.json({ error: "Sin organización" }, { status: 403 })
     }
 
-    const clientesOrg = await prisma.cliente.findMany({
-      where: { organizacionId: membresia.organizacionId },
-      select: { id: true },
-    })
-    const clienteIds = clientesOrg.map((c) => c.id)
-
-    const where: Record<string, unknown> = {}
+    const where: Record<string, unknown> = {
+      ...scopeEventoAnimal(ctx.establecimientoIds),
+    }
 
     if (motivo) {
       where.motivo = motivo
@@ -40,13 +27,6 @@ export async function GET(request: NextRequest) {
         ...(desde ? { gte: new Date(desde) } : {}),
         ...(hasta ? { lte: new Date(hasta) } : {}),
       }
-    }
-
-    if (clienteIds.length > 0) {
-      where.OR = [
-        { clienteId: { in: clienteIds } },
-        { clienteId: null },
-      ]
     }
 
     const bajas = await prisma.evtBaja.findMany({
@@ -71,15 +51,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
 
     if (!body.animalId || !body.fecha || !body.motivo) {
@@ -97,9 +72,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const animal = await prisma.animal.findUnique({
-      where: { id: body.animalId },
-    })
+    const animal = await animalDelTenant(body.animalId, ctx.establecimientoIds)
 
     if (!animal) {
       return NextResponse.json({ error: "Animal no encontrado" }, { status: 404 })
@@ -110,6 +83,22 @@ export async function POST(request: NextRequest) {
         { error: "El animal ya tiene una baja registrada o no está activo" },
         { status: 400 }
       )
+    }
+
+    if (body.clienteId) {
+      const cliente = await prisma.cliente.findFirst({
+        where: {
+          id: body.clienteId,
+          organizacionId: { in: ctx.organizacionIds },
+        },
+      })
+
+      if (!cliente) {
+        return NextResponse.json(
+          { error: "El cliente no pertenece a tu organización" },
+          { status: 403 }
+        )
+      }
     }
 
     const estadoVitalMap: Record<string, string> = {
@@ -154,4 +143,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

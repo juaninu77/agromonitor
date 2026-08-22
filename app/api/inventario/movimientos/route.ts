@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { prisma } from "@/lib/prisma"
-import { logAudit } from "@/lib/api/audit-log"
+import { NextResponse } from "next/server"
 import { z } from "zod"
+import { logAudit } from "@/lib/api/audit-log"
+import { withAuth } from "@/lib/api/with-auth"
+import { prisma } from "@/lib/prisma"
 
 const movimientoSchema = z.object({
   productoId: z.string().uuid("ID de producto inválido"),
@@ -17,17 +17,8 @@ const movimientoSchema = z.object({
   fecha: z.string().datetime().optional(),
 })
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
     const searchParams = request.nextUrl.searchParams
     const productoId = searchParams.get("productoId")
     const tipo = searchParams.get("tipo")
@@ -37,7 +28,9 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "20")
     const skip = (page - 1) * limit
 
-    const where: Record<string, unknown> = {}
+    const where: Record<string, unknown> = {
+      producto: { organizacionId: { in: ctx.organizacionIds } },
+    }
 
     if (productoId) {
       where.productoId = productoId
@@ -110,19 +103,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
     const body = await request.json()
     const parsed = movimientoSchema.safeParse(body)
 
@@ -140,8 +124,11 @@ export async function POST(request: NextRequest) {
     const { productoId, loteProductoId, tipo, cantidad, motivo, fecha } =
       parsed.data
 
-    const producto = await prisma.producto.findUnique({
-      where: { id: productoId },
+    const producto = await prisma.producto.findFirst({
+      where: {
+        id: productoId,
+        organizacionId: { in: ctx.organizacionIds },
+      },
     })
 
     if (!producto) {
@@ -185,7 +172,7 @@ export async function POST(request: NextRequest) {
     })
 
     await logAudit({
-      userId: session.user.id,
+      userId: ctx.userId,
       tabla: "movimientos_stock",
       rowPk: movimiento.id,
       accion: "INSERT",
@@ -228,4 +215,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

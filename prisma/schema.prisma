@@ -45,7 +45,6 @@ model Usuario {
   notificaciones Notificacion[]
   sesionesManga  SesionManga[]
 
-  @@index([email])
   @@map("usuarios")
 }
 
@@ -106,6 +105,12 @@ model Organizacion {
   establecimientos Establecimiento[]
   proveedores      Proveedor[]
   clientes         Cliente[]
+  productos        Producto[]
+  dietas           Dieta[]
+  auditLogs        AuditLog[]
+  especies         Especie[]
+  razas            Raza[]
+  categorias       Categoria[]
 
   @@map("organizaciones")
 }
@@ -135,14 +140,20 @@ model Membresia {
 // Especie como tabla - extensible a equino, porcino, etc.
 model Especie {
   id          String  @id @default(uuid()) @db.Uuid
-  nombre      String  @unique // 'bovino' | 'ovino' | 'equino' | 'caprino'
+  nombre      String // 'bovino' | 'ovino' | 'equino' | 'caprino'
   descripcion String?
+
+  // Catálogo por organización (nullable para backfill; ver scripts/backfill-tenant.ts)
+  organizacionId String?       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
 
   razas      Raza[]
   categorias Categoria[]
   lotes      Lote[]
   animales   Animal[]
 
+  @@unique([organizacionId, nombre])
+  @@index([organizacionId])
   @@map("especies")
 }
 
@@ -155,9 +166,14 @@ model Raza {
   especieId String  @map("especie_id") @db.Uuid
   especie   Especie @relation(fields: [especieId], references: [id])
 
+  // Catálogo por organización (coincide con la org de su especie)
+  organizacionId String?       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
+
   animales Animal[]
 
   @@unique([especieId, nombre])
+  @@index([organizacionId])
   @@map("razas")
 }
 
@@ -173,9 +189,14 @@ model Categoria {
   especieId String  @map("especie_id") @db.Uuid
   especie   Especie @relation(fields: [especieId], references: [id])
 
+  // Catálogo por organización (coincide con la org de su especie)
+  organizacionId String?       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
+
   animales Animal[]
 
   @@unique([especieId, nombre])
+  @@index([organizacionId])
   @@map("categorias")
 }
 
@@ -198,10 +219,12 @@ model Establecimiento {
   organizacionId String       @map("organizacion_id") @db.Uuid
   organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
 
-  sectores      Sector[]
-  lotes         Lote[]
-  tareas        Tarea[]
-  sesionesManga SesionManga[]
+  sectores           Sector[]
+  lotes              Lote[]
+  tareas             Tarea[]
+  sesionesManga      SesionManga[]
+  animales           Animal[]
+  documentosTransito DocumentoTransito[]
 
   @@unique([organizacionId, nombre])
   @@map("establecimientos")
@@ -280,6 +303,7 @@ model SectorForraje {
   forraje   Forraje @relation(fields: [forrajeId], references: [id], onDelete: Cascade)
 
   @@index([sectorId])
+  @@index([forrajeId])
   @@map("sector_forrajes")
 }
 
@@ -363,11 +387,17 @@ model Producto {
   dosisReferencia String? @map("dosis_referencia")
   notas           String?
 
+  // Tenant scoping (backfill: si hay una sola organización se asigna a ella)
+  organizacionId String?       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
+
   lotes            LoteProducto[]
   eventosSanidad   EvtSanidad[]
   movimientosStock MovimientoStock[]
+  sesionesManga    SesionManga[]
 
   @@index([tipo])
+  @@index([organizacionId])
   @@map("productos")
 }
 
@@ -375,19 +405,23 @@ model LoteProducto {
   id          String    @id @default(uuid()) @db.Uuid
   nroLote     String    @map("nro_lote")
   vencimiento DateTime? @db.Date
-  proveedor   String?
+  proveedor   String? // Legado: texto libre. Usar proveedorRef (FK) para datos nuevos.
   cantidad    Float?
   unidad      String?
-  costo       Float?
+  costo       Decimal?  @db.Decimal(12, 2)
   createdAt   DateTime  @default(now()) @map("created_at")
 
   productoId String   @map("producto_id") @db.Uuid
   producto   Producto @relation(fields: [productoId], references: [id])
 
+  proveedorId String?    @map("proveedor_id") @db.Uuid
+  proveedorRef Proveedor? @relation(fields: [proveedorId], references: [id])
+
   eventosSanidad   EvtSanidad[]
   movimientosStock MovimientoStock[]
 
   @@index([productoId])
+  @@index([proveedorId])
   @@index([vencimiento])
   @@map("lotes_producto")
 }
@@ -411,6 +445,7 @@ model Proveedor {
   organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
 
   animalesComprados Animal[]
+  lotesProducto     LoteProducto[]
 
   @@index([organizacionId])
   @@map("proveedores")
@@ -490,6 +525,10 @@ model Animal {
   proveedorId String?    @map("proveedor_id") @db.Uuid
   proveedor   Proveedor? @relation(fields: [proveedorId], references: [id])
 
+  // Tenant scoping directo (backfill desde ubicacion/lote hist; ver scripts/backfill-tenant.ts)
+  establecimientoId String?          @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento? @relation(fields: [establecimientoId], references: [id])
+
   // === GENEALOGÍA ===
   genealogia   Genealogia?  @relation("GenealogiaPrincipal")
   hijosDePadre Genealogia[] @relation("GenealogiaPadre")
@@ -523,10 +562,17 @@ model Animal {
   // Baja
   eventoBaja EvtBaja?
 
+  // Lecturas en manga
+  sesionMangaItems SesionMangaItem[]
+
   @@index([especieId])
   @@index([estadoVital])
   @@index([cuig])
   @@index([caravanaRfid])
+  @@index([establecimientoId])
+  @@index([razaId])
+  @@index([categoriaId])
+  @@index([proveedorId])
   @@map("animales")
 }
 
@@ -572,8 +618,8 @@ model AnimalAttr {
 // Historial de pertenencia a lote/rodeo
 model AnimalLoteHist {
   id     String    @id @default(uuid()) @db.Uuid
-  desde  DateTime  @db.Date
-  hasta  DateTime? @db.Date
+  desde  DateTime  @default(now())
+  hasta  DateTime?
   motivo String?
 
   animalId String @map("animal_id") @db.Uuid
@@ -584,6 +630,7 @@ model AnimalLoteHist {
 
   @@index([animalId])
   @@index([loteId])
+  @@index([animalId, hasta])
   @@map("animal_lote_hist")
 }
 
@@ -602,6 +649,7 @@ model UbicacionHist {
 
   @@index([animalId])
   @@index([sectorId])
+  @@index([animalId, hasta])
   @@map("ubicacion_hist")
 }
 
@@ -654,6 +702,7 @@ model EvtDestete {
   loteDestete   Lote?   @relation("DesteteLote", fields: [loteDesteteId], references: [id], onDelete: SetNull)
 
   @@index([fecha])
+  @@index([loteDesteteId])
   @@map("evt_destete")
 }
 
@@ -724,7 +773,7 @@ model EvtSanidad {
   carenciaDias Int?     @map("carencia_dias") // Override del producto
   aplicador    String?
   veterinario  String?
-  costo        Float?
+  costo        Decimal? @db.Decimal(12, 2)
   observ       String?
   createdAt    DateTime @default(now()) @map("created_at")
 
@@ -748,6 +797,7 @@ model EvtSanidad {
   @@index([loteId])
   @@index([fecha])
   @@index([productoId])
+  @@index([loteProductoId])
   @@map("evt_sanidad")
 }
 
@@ -801,6 +851,7 @@ model EvtServicio {
 
   @@index([hembraId])
   @@index([machoId])
+  @@index([toradaId])
   @@index([fecha])
   @@map("evt_servicio")
 }
@@ -838,8 +889,8 @@ model EvtBaja {
   fecha       DateTime @db.Date
   motivo      String // 'venta' | 'muerte' | 'faena' | 'descarte' | 'robo' | 'otro'
   pesoVivoKg  Float?   @map("peso_vivo_kg")
-  precioKg    Float?   @map("precio_kg")
-  precioTotal Float?   @map("precio_total")
+  precioKg    Decimal? @map("precio_kg") @db.Decimal(12, 2)
+  precioTotal Decimal? @map("precio_total") @db.Decimal(12, 2)
 
   // Documentación
   dtaNumero     String? @map("dta_numero")
@@ -856,6 +907,7 @@ model EvtBaja {
 
   @@index([fecha])
   @@index([motivo])
+  @@index([clienteId])
   @@map("evt_baja")
 }
 
@@ -875,10 +927,15 @@ model Dieta {
   activo       Boolean  @default(true)
   createdAt    DateTime @default(now()) @map("created_at")
 
+  // Tenant scoping (backfill: si hay una sola organización se asigna a ella)
+  organizacionId String?       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
+
   componentes         DietaComponente[]
   planesAlimentacion  PlanAlimentacion[]
   eventosAlimentacion EvtAlimentacion[]
 
+  @@index([organizacionId])
   @@map("dietas")
 }
 
@@ -913,6 +970,7 @@ model PlanAlimentacion {
   dieta   Dieta  @relation(fields: [dietaId], references: [id])
 
   @@index([loteId])
+  @@index([dietaId])
   @@index([activo])
   @@map("planes_alimentacion")
 }
@@ -934,6 +992,7 @@ model EvtAlimentacion {
   dieta   Dieta?  @relation(fields: [dietaId], references: [id])
 
   @@index([loteId])
+  @@index([dietaId])
   @@index([fecha])
   @@map("evt_alimentacion")
 }
@@ -977,8 +1036,14 @@ model AuditLog {
   usuarioId String?  @map("usuario_id") @db.Uuid
   usuario   Usuario? @relation(fields: [usuarioId], references: [id])
 
+  // Scoping de tenant: permite filtrar el log por organización.
+  // Nullable para acciones tenant-less y para filas históricas sin backfill.
+  organizacionId String?       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
+
   @@index([tabla])
   @@index([fecha])
+  @@index([organizacionId])
   @@map("audit_log")
 }
 
@@ -1012,9 +1077,14 @@ model DocumentoTransito {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  // Tenant scoping (backfill por renspaOrigen; ver scripts/backfill-tenant.ts)
+  establecimientoId String?          @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento? @relation(fields: [establecimientoId], references: [id])
+
   @@index([numeroDta])
   @@index([estado])
   @@index([fechaEmision])
+  @@index([establecimientoId])
   @@map("documentos_transito")
 }
 
@@ -1109,8 +1179,9 @@ model SesionManga {
   loteOrigenId      String? @map("lote_origen_id") @db.Uuid
   loteOrigen        Lote?   @relation("MangaLoteOrigen", fields: [loteOrigenId], references: [id])
 
-  productoSanidadId String? @map("producto_sanidad_id") @db.Uuid
-  dosisSanidad      Float?  @map("dosis_sanidad")
+  productoSanidadId String?   @map("producto_sanidad_id") @db.Uuid
+  productoSanidad   Producto? @relation(fields: [productoSanidadId], references: [id])
+  dosisSanidad      Float?    @map("dosis_sanidad")
 
   totalAnimales Int       @default(0) @map("total_animales")
   observaciones String?
@@ -1153,6 +1224,7 @@ model SesionMangaItem {
   sesionId String      @map("sesion_id") @db.Uuid
   sesion   SesionManga @relation(fields: [sesionId], references: [id], onDelete: Cascade)
   animalId String?     @map("animal_id") @db.Uuid
+  animal   Animal?     @relation(fields: [animalId], references: [id])
 
   @@index([sesionId])
   @@index([eidLeido])

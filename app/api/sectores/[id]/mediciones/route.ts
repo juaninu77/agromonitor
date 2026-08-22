@@ -1,18 +1,19 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
+import { sectorDelTenant } from "@/lib/api/tenant"
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
+    const sectorId = ctx.params.id
 
-    const { id: sectorId } = await params
+    const sector = await sectorDelTenant(sectorId, ctx.establecimientoIds)
+    if (!sector) {
+      return NextResponse.json(
+        { error: "Sector no encontrado" },
+        { status: 404 }
+      )
+    }
 
     const searchParams = request.nextUrl.searchParams
     const page = parseInt(searchParams.get("page") || "1")
@@ -46,25 +47,14 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const { id: sectorId } = await params
+    const sectorId = ctx.params.id
     const body = await request.json()
 
-    const sector = await prisma.sector.findUnique({
-      where: { id: sectorId },
-    })
-
+    const sector = await sectorDelTenant(sectorId, ctx.establecimientoIds)
     if (!sector) {
       return NextResponse.json(
         { error: "Sector no encontrado" },
@@ -98,4 +88,4 @@ export async function POST(
       { status: 500 }
     )
   }
-}
+})

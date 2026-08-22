@@ -1,25 +1,16 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
+import { scopeOrganizacion } from "@/lib/api/tenant"
+import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 
-export async function GET() {
+export const GET = withAuth(async (_request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const membresia = await prisma.membresia.findFirst({
-      where: { usuarioId: session.user.id, esActivo: true },
-      select: { organizacionId: true },
-    })
-
-    if (!membresia) {
+    if (ctx.organizacionIds.length === 0) {
       return NextResponse.json({ error: "Sin organización" }, { status: 403 })
     }
 
     const clientes = await prisma.cliente.findMany({
-      where: { organizacionId: membresia.organizacionId },
+      where: scopeOrganizacion(ctx.organizacionIds),
       include: {
         _count: { select: { ventas: true } },
       },
@@ -34,21 +25,11 @@ export async function GET() {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const membresia = await prisma.membresia.findFirst({
-      where: { usuarioId: session.user.id, esActivo: true },
-      select: { organizacionId: true },
-    })
-
-    if (!membresia) {
+    if (ctx.organizacionIds.length === 0) {
       return NextResponse.json({ error: "Sin organización" }, { status: 403 })
     }
 
@@ -57,6 +38,24 @@ export async function POST(request: NextRequest) {
     if (!body.nombre) {
       return NextResponse.json(
         { error: "El nombre es requerido" },
+        { status: 400 }
+      )
+    }
+
+    let organizacionId: string
+    if (body.organizacionId) {
+      if (!ctx.organizacionIds.includes(body.organizacionId)) {
+        return NextResponse.json(
+          { error: "No tienes acceso a esa organización" },
+          { status: 403 }
+        )
+      }
+      organizacionId = body.organizacionId
+    } else if (ctx.organizacionIds.length === 1) {
+      organizacionId = ctx.organizacionIds[0]
+    } else {
+      return NextResponse.json(
+        { error: "Debe indicar organizacionId" },
         { status: 400 }
       )
     }
@@ -70,7 +69,7 @@ export async function POST(request: NextRequest) {
         contactoNombre: body.contactoNombre || null,
         contactoTel: body.contactoTel || null,
         notas: body.notas || null,
-        organizacionId: membresia.organizacionId,
+        organizacionId,
       },
     })
 
@@ -82,4 +81,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

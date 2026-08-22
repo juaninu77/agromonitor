@@ -1,20 +1,18 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
+import { scopeOrganizacion } from "@/lib/api/tenant"
+import { decimalToNumber } from "@/lib/api/serialize"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const tipo = searchParams.get("tipo")
     const busqueda = searchParams.get("busqueda")
 
-    const where: Record<string, unknown> = {}
+    const where: Record<string, unknown> = {
+      ...scopeOrganizacion(ctx.organizacionIds),
+    }
 
     if (tipo) {
       where.tipo = tipo
@@ -41,7 +39,15 @@ export async function GET(request: NextRequest) {
       orderBy: { nombre: "asc" },
     })
 
-    return NextResponse.json({ success: true, data: productos })
+    const data = productos.map((producto) => ({
+      ...producto,
+      lotes: producto.lotes.map((lote) => ({
+        ...lote,
+        costo: decimalToNumber(lote.costo),
+      })),
+    }))
+
+    return NextResponse.json({ success: true, data })
   } catch (error) {
     console.error("Error al obtener productos:", error)
     return NextResponse.json(
@@ -49,16 +55,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
 
     if (!body.nombre || !body.tipo) {
@@ -84,6 +84,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    let organizacionId: string
+    if (body.organizacionId) {
+      if (!ctx.organizacionIds.includes(body.organizacionId)) {
+        return NextResponse.json(
+          { error: "No tienes acceso a esa organización" },
+          { status: 403 }
+        )
+      }
+      organizacionId = body.organizacionId
+    } else if (ctx.organizacionIds.length === 1) {
+      organizacionId = ctx.organizacionIds[0]
+    } else {
+      return NextResponse.json(
+        { error: "Se requiere organizacionId" },
+        { status: 400 }
+      )
+    }
+
     const producto = await prisma.producto.create({
       data: {
         nombre: body.nombre,
@@ -93,6 +111,7 @@ export async function POST(request: NextRequest) {
         retiroDias: body.retiroDias ? parseInt(body.retiroDias) : 0,
         dosisReferencia: body.dosisReferencia || null,
         notas: body.notas || null,
+        organizacionId,
       },
     })
 
@@ -107,4 +126,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { prisma } from "@/lib/prisma"
 import { z } from "zod"
+import { withAuth } from "@/lib/api/with-auth"
+import { animalDelTenant, scopeEstablecimiento } from "@/lib/api/tenant"
+import { normalizeEID } from "@/lib/hardware/eid"
+import { prisma } from "@/lib/prisma"
 
 const crearItemSchema = z.object({
   eidLeido: z.string().min(1, "El EID es requerido"),
@@ -20,20 +22,13 @@ const crearItemSchema = z.object({
   categoria: z.string().optional().nullable(),
 })
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
+    const { id } = ctx.params
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const { id } = await params
-
-    const sesion = await prisma.sesionManga.findUnique({ where: { id } })
+    const sesion = await prisma.sesionManga.findFirst({
+      where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
+    })
 
     if (!sesion) {
       return NextResponse.json(
@@ -55,20 +50,11 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const { id } = await params
+    const { id } = ctx.params
     const body = await request.json()
     const parsed = crearItemSchema.safeParse(body)
 
@@ -83,7 +69,9 @@ export async function POST(
       )
     }
 
-    const sesion = await prisma.sesionManga.findUnique({ where: { id } })
+    const sesion = await prisma.sesionManga.findFirst({
+      where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
+    })
 
     if (!sesion) {
       return NextResponse.json(
@@ -99,6 +87,21 @@ export async function POST(
       )
     }
 
+    // Normalizar server-side: HID, Web Serial y CSV deben interpretar el EID igual
+    const eidNormalizado = normalizeEID(parsed.data.eidLeido) ?? parsed.data.eidLeido
+
+    let animalId = parsed.data.animalId ?? null
+
+    if (animalId) {
+      const animal = await animalDelTenant(animalId, ctx.establecimientoIds)
+      if (!animal) {
+        return NextResponse.json(
+          { error: "Animal no encontrado" },
+          { status: 404 }
+        )
+      }
+    }
+
     const maxOrden = await prisma.sesionMangaItem.aggregate({
       where: { sesionId: id },
       _max: { orden: true },
@@ -106,25 +109,35 @@ export async function POST(
 
     const nuevoOrden = (maxOrden._max.orden ?? 0) + 1
 
-    let animalId = parsed.data.animalId ?? null
-
     // Si es un registro nuevo y trae datos del animal, crear el Animal
     if (parsed.data.esNuevoRegistro && parsed.data.sexo) {
-      const especieBovina = await prisma.especie.findFirst({
-        where: { nombre: "bovino" },
-      })
+      // La especie bovina debe pertenecer a la organización de la sesión
+      const organizacionSesion =
+        ctx.organizacionDeEstablecimiento[sesion.establecimientoId]
 
-      if (especieBovina) {
-        const nuevoAnimal = await prisma.animal.create({
-          data: {
-            especieId: especieBovina.id,
-            sexo: parsed.data.sexo,
-            caravanaVisual: parsed.data.caravanaVisual ?? null,
-            caravanaRfid: parsed.data.eidLeido,
-          },
-        })
-        animalId = nuevoAnimal.id
+      const especieBovina = organizacionSesion
+        ? await prisma.especie.findFirst({
+            where: { nombre: "bovino", organizacionId: organizacionSesion },
+          })
+        : null
+
+      if (!especieBovina) {
+        return NextResponse.json(
+          { error: "No existe la especie bovino para esta organización" },
+          { status: 400 }
+        )
       }
+
+      const nuevoAnimal = await prisma.animal.create({
+        data: {
+          especieId: especieBovina.id,
+          sexo: parsed.data.sexo,
+          caravanaVisual: parsed.data.caravanaVisual ?? null,
+          caravanaRfid: eidNormalizado,
+          establecimientoId: sesion.establecimientoId,
+        },
+      })
+      animalId = nuevoAnimal.id
     }
 
     const [item] = await prisma.$transaction([
@@ -132,7 +145,7 @@ export async function POST(
         data: {
           sesionId: id,
           orden: nuevoOrden,
-          eidLeido: parsed.data.eidLeido,
+          eidLeido: eidNormalizado,
           pesoKg: parsed.data.pesoKg ?? null,
           cc: parsed.data.cc ?? null,
           denticion: parsed.data.denticion ?? null,
@@ -162,4 +175,4 @@ export async function POST(
       { status: 500 }
     )
   }
-}
+})

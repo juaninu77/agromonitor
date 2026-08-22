@@ -1,22 +1,18 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { decimalToNumber } from "@/lib/api/serialize"
+import { withAuth } from "@/lib/api/with-auth"
+import { scopeOrganizacion } from "@/lib/api/tenant"
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
+    const productoId = ctx.params.id
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const { id: productoId } = await params
-
-    const producto = await prisma.producto.findUnique({
-      where: { id: productoId },
+    const producto = await prisma.producto.findFirst({
+      where: {
+        id: productoId,
+        ...scopeOrganizacion(ctx.organizacionIds),
+      },
     })
 
     if (!producto) {
@@ -31,7 +27,12 @@ export async function GET(
       orderBy: { vencimiento: "asc" },
     })
 
-    return NextResponse.json({ success: true, data: lotes })
+    const data = lotes.map((lote) => ({
+      ...lote,
+      costo: decimalToNumber(lote.costo),
+    }))
+
+    return NextResponse.json({ success: true, data })
   } catch (error) {
     console.error("Error al obtener lotes de producto:", error)
     return NextResponse.json(
@@ -39,24 +40,18 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const { id: productoId } = await params
+    const productoId = ctx.params.id
     const body = await request.json()
 
-    const producto = await prisma.producto.findUnique({
-      where: { id: productoId },
+    const producto = await prisma.producto.findFirst({
+      where: {
+        id: productoId,
+        ...scopeOrganizacion(ctx.organizacionIds),
+      },
     })
 
     if (!producto) {
@@ -86,7 +81,7 @@ export async function POST(
     })
 
     return NextResponse.json(
-      { success: true, data: lote },
+      { success: true, data: { ...lote, costo: decimalToNumber(lote.costo) } },
       { status: 201 }
     )
   } catch (error) {
@@ -96,4 +91,4 @@ export async function POST(
       { status: 500 }
     )
   }
-}
+})

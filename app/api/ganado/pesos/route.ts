@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { prisma } from "@/lib/prisma"
+import { NextResponse } from "next/server"
 import { z } from "zod"
+import { withAuth } from "@/lib/api/with-auth"
+import { animalDelTenant, scopeEventoAnimal } from "@/lib/api/tenant"
+import { prisma } from "@/lib/prisma"
 
 const createPesoSchema = z.object({
   bovinoId: z.string().uuid("ID de animal inválido"),
@@ -12,19 +13,15 @@ const createPesoSchema = z.object({
   notas: z.string().optional(),
 })
 
-export async function POST(req: NextRequest) {
+export const POST = withAuth(async (req, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
-    }
-
     const body = await req.json()
     const validatedData = createPesoSchema.parse(body)
 
-    const animal = await prisma.animal.findUnique({
-      where: { id: validatedData.bovinoId },
-    })
+    const animal = await animalDelTenant(
+      validatedData.bovinoId,
+      ctx.establecimientoIds
+    )
 
     if (!animal) {
       return NextResponse.json(
@@ -60,15 +57,10 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function GET(req: NextRequest) {
+export const GET = withAuth(async (req, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
-    }
-
     const { searchParams } = new URL(req.url)
     const animalId = searchParams.get("bovinoId") || searchParams.get("animalId")
 
@@ -80,7 +72,10 @@ export async function GET(req: NextRequest) {
     }
 
     const pesos = await prisma.evtPesada.findMany({
-      where: { animalId },
+      where: {
+        animalId,
+        ...scopeEventoAnimal(ctx.establecimientoIds),
+      },
       orderBy: { fecha: "desc" },
     })
 
@@ -92,4 +87,4 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

@@ -1,15 +1,15 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { decimalToNumber } from "@/lib/api/serialize"
+import { withAuth } from "@/lib/api/with-auth"
+import {
+  animalDelTenant,
+  loteDelTenant,
+  scopeEventoAnimalOLote,
+} from "@/lib/api/tenant"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, { establecimientoIds }) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const loteId = searchParams.get("loteId")
     const animalId = searchParams.get("animalId")
@@ -20,7 +20,9 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "50")
     const skip = (page - 1) * limit
 
-    const where: Record<string, unknown> = {}
+    const where: Record<string, unknown> = {
+      ...scopeEventoAnimalOLote(establecimientoIds),
+    }
 
     if (loteId) {
       where.loteId = loteId
@@ -73,9 +75,14 @@ export async function GET(request: NextRequest) {
 
     const totalPages = Math.ceil(total / limit)
 
+    const data = eventos.map((evento) => ({
+      ...evento,
+      costo: decimalToNumber(evento.costo),
+    }))
+
     return NextResponse.json({
       success: true,
-      data: eventos,
+      data,
       pagination: {
         page,
         limit,
@@ -92,16 +99,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, { establecimientoIds, organizacionIds }) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
 
     if (!body.productoId) {
@@ -125,8 +126,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const producto = await prisma.producto.findUnique({
-      where: { id: body.productoId },
+    const producto = await prisma.producto.findFirst({
+      where: {
+        id: body.productoId,
+        organizacionId: { in: organizacionIds },
+      },
     })
 
     if (!producto) {
@@ -137,9 +141,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.animalId) {
-      const animal = await prisma.animal.findUnique({
-        where: { id: body.animalId },
-      })
+      const animal = await animalDelTenant(body.animalId, establecimientoIds)
       if (!animal) {
         return NextResponse.json(
           { error: "Animal no encontrado" },
@@ -149,9 +151,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.loteId) {
-      const lote = await prisma.lote.findUnique({
-        where: { id: body.loteId },
-      })
+      const lote = await loteDelTenant(body.loteId, establecimientoIds)
       if (!lote) {
         return NextResponse.json(
           { error: "Lote no encontrado" },
@@ -161,8 +161,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.loteProductoId) {
-      const loteProducto = await prisma.loteProducto.findUnique({
-        where: { id: body.loteProductoId },
+      const loteProducto = await prisma.loteProducto.findFirst({
+        where: { id: body.loteProductoId, productoId: body.productoId },
       })
       if (!loteProducto) {
         return NextResponse.json(
@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
     })
 
     return NextResponse.json(
-      { success: true, data: evento },
+      { success: true, data: { ...evento, costo: decimalToNumber(evento.costo) } },
       { status: 201 }
     )
   } catch (error) {
@@ -216,4 +216,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

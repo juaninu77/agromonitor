@@ -1,44 +1,38 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
+import { resolverEstablecimientoDestino } from "@/lib/api/tenant"
+import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const estado = searchParams.get("estado")
     const tipo = searchParams.get("tipo")
     const desde = searchParams.get("desde")
     const hasta = searchParams.get("hasta")
 
-    const membresia = await prisma.membresia.findFirst({
-      where: { usuarioId: session.user.id, esActivo: true },
-      select: { organizacionId: true },
-    })
-
-    if (!membresia) {
+    if (ctx.organizacionIds.length === 0) {
       return NextResponse.json({ error: "Sin organización" }, { status: 403 })
     }
 
+    // Un DTA es visible para el tenant si lo posee (establecimientoId) o si
+    // alguno de sus establecimientos aparece como origen O destino (por RENSPA),
+    // así no desaparecen los documentos de hacienda entrante.
     const establecimientos = await prisma.establecimiento.findMany({
-      where: { organizacionId: membresia.organizacionId },
+      where: { id: { in: ctx.establecimientoIds } },
       select: { renspa: true },
     })
     const renspas = establecimientos
       .map((e) => e.renspa)
-      .filter((r): r is string => r !== null)
+      .filter((r): r is string => !!r)
 
-    const where: Record<string, unknown> = {}
-
-    if (renspas.length > 0) {
-      where.OR = [
-        { renspaOrigen: { in: renspas } },
-        { renspaDestino: { in: renspas } },
-      ]
+    const where: Record<string, unknown> = {
+      OR: [
+        { establecimientoId: { in: ctx.establecimientoIds } },
+        ...(renspas.length
+          ? [{ renspaOrigen: { in: renspas } }, { renspaDestino: { in: renspas } }]
+          : []),
+      ],
     }
 
     if (estado) {
@@ -69,15 +63,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
 
     if (!body.numeroDta || !body.renspaOrigen || !body.renspaDestino || !body.especie) {
@@ -91,6 +80,18 @@ export async function POST(request: NextRequest) {
     if (body.motivo && !motivosValidos.includes(body.motivo)) {
       return NextResponse.json(
         { error: `Motivo inválido. Opciones: ${motivosValidos.join(", ")}` },
+        { status: 400 }
+      )
+    }
+
+    const establecimientoId = resolverEstablecimientoDestino(
+      body.establecimientoId,
+      ctx.establecimientoIds
+    )
+
+    if (!establecimientoId) {
+      return NextResponse.json(
+        { error: "Debe indicar un establecimiento válido" },
         { status: 400 }
       )
     }
@@ -125,6 +126,7 @@ export async function POST(request: NextRequest) {
         patenteCamion: body.patenteCamion || null,
         transportista: body.transportista || null,
         observ: body.observ || null,
+        establecimientoId,
       },
     })
 
@@ -136,4 +138,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

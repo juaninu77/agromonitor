@@ -1,5 +1,8 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
+import { withAuth } from "@/lib/api/with-auth"
+import { animalDelTenant, loteDelTenant, sectorDelTenant } from "@/lib/api/tenant"
+import { logAudit } from "@/lib/api/audit-log"
+import { decimalToNumber } from "@/lib/api/serialize"
 import { prisma } from "@/lib/prisma"
 import { validarRazaYCategoriaParaEspecie } from "@/lib/ganado/validate-especie"
 
@@ -8,25 +11,13 @@ import { validarRazaYCategoriaParaEspecie } from "@/lib/ganado/validate-especie"
 // ============================================
 // Obtiene un animal específico por ID
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
-    const { id } = await params
+    const { id } = ctx.params
     const fullHistory = request.nextUrl.searchParams.get("fullHistory") === "true"
 
-    const animal = await prisma.animal.findUnique({
-      where: { id },
+    const animal = await prisma.animal.findFirst({
+      where: { id, establecimientoId: { in: ctx.establecimientoIds } },
       include: {
         especie: true,
         raza: true,
@@ -79,9 +70,25 @@ export async function GET(
       )
     }
 
+    // Coerción de campos Decimal (dinero) a number para el contrato de la API
+    const data = {
+      ...animal,
+      eventosSanidad: animal.eventosSanidad.map((e) => ({
+        ...e,
+        costo: decimalToNumber(e.costo),
+      })),
+      eventoBaja: animal.eventoBaja
+        ? {
+            ...animal.eventoBaja,
+            precioKg: decimalToNumber(animal.eventoBaja.precioKg),
+            precioTotal: decimalToNumber(animal.eventoBaja.precioTotal),
+          }
+        : animal.eventoBaja,
+    }
+
     return NextResponse.json({
       success: true,
-      data: animal,
+      data,
     })
   } catch (error) {
     console.error("Error al obtener animal:", error)
@@ -90,33 +97,19 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})
 
 // ============================================
 // PATCH /api/ganado/bovinos/[id]
 // ============================================
 // Actualiza un animal existente
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const PATCH = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
-    const { id } = await params
+    const { id } = ctx.params
     const body = await request.json()
 
-    const animalExistente = await prisma.animal.findUnique({
-      where: { id }
-    })
+    const animalExistente = await animalDelTenant(id, ctx.establecimientoIds)
 
     if (!animalExistente) {
       return NextResponse.json(
@@ -134,9 +127,19 @@ export async function PATCH(
     if (body.cuig !== undefined) updateData.cuig = body.cuig
     if (body.otroId !== undefined) updateData.otroId = body.otroId
 
+    // Organización dueña del establecimiento del animal (para scopear el catálogo)
+    const organizacionDelAnimal = animalExistente.establecimientoId
+      ? ctx.organizacionDeEstablecimiento[animalExistente.establecimientoId]
+      : undefined
+    const organizacionIdsScope = organizacionDelAnimal
+      ? [organizacionDelAnimal]
+      : ctx.organizacionIds
+
     // Relaciones
     if (body.especieId !== undefined) {
-      const esp = await prisma.especie.findUnique({ where: { id: body.especieId } })
+      const esp = await prisma.especie.findFirst({
+        where: { id: body.especieId, organizacionId: { in: organizacionIdsScope } },
+      })
       if (!esp) {
         return NextResponse.json({ error: "Especie no válida" }, { status: 400 })
       }
@@ -149,9 +152,36 @@ export async function PATCH(
     const razaFinal = (updateData.razaId ?? animalExistente.razaId) as string | null
     const catFinal = (updateData.categoriaId ?? animalExistente.categoriaId) as string | null
     if (razaFinal && catFinal) {
-      const errCombo = await validarRazaYCategoriaParaEspecie(especieFinal, razaFinal, catFinal)
+      const errCombo = await validarRazaYCategoriaParaEspecie(
+        especieFinal,
+        razaFinal,
+        catFinal,
+        organizacionIdsScope
+      )
       if (errCombo) {
         return NextResponse.json({ error: errCombo }, { status: 400 })
+      }
+    }
+
+    // Validar lote destino (si se cambia) — debe pertenecer al tenant
+    if (body.loteId) {
+      const lote = await loteDelTenant(body.loteId, ctx.establecimientoIds)
+      if (!lote) {
+        return NextResponse.json(
+          { error: "Lote no encontrado" },
+          { status: 404 }
+        )
+      }
+    }
+
+    // Validar sector destino (si se cambia) — debe pertenecer al tenant
+    if (body.sectorId) {
+      const sector = await sectorDelTenant(body.sectorId, ctx.establecimientoIds)
+      if (!sector) {
+        return NextResponse.json(
+          { error: "Sector no encontrado" },
+          { status: 404 }
+        )
       }
     }
 
@@ -197,7 +227,7 @@ export async function PATCH(
       })
     }
 
-    // Si se cambia el lote, actualizar historial
+    // Si se cambia el lote (ya validado), actualizar historial
     if (body.loteId) {
       const abierto = await prisma.animalLoteHist.findFirst({
         where: { animalId: id, hasta: null },
@@ -224,7 +254,7 @@ export async function PATCH(
       }
     }
 
-    // Si se cambia el sector, actualizar historial
+    // Si se cambia el sector (ya validado), actualizar historial
     if (body.sectorId) {
       await prisma.ubicacionHist.updateMany({
         where: {
@@ -256,54 +286,58 @@ export async function PATCH(
       { status: 500 }
     )
   }
-}
+})
 
 // ============================================
 // DELETE /api/ganado/bovinos/[id]
 // ============================================
 // Elimina un animal (soft delete recomendado)
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await auth()
+export const DELETE = withAuth(
+  async (request, ctx) => {
+    try {
+      const { id } = ctx.params
 
-    if (!session?.user?.id) {
+      // Solo donde el usuario es admin/encargado de la org dueña del animal
+      const animal = await animalDelTenant(
+        id,
+        ctx.establecimientoIdsConRol(["admin", "encargado"])
+      )
+
+      if (!animal) {
+        return NextResponse.json(
+          { error: "Animal no encontrado" },
+          { status: 404 }
+        )
+      }
+
+      await prisma.animal.update({
+        where: { id },
+        data: { estadoVital: "baja" }
+      })
+
+      await logAudit({
+        userId: ctx.userId,
+        tabla: "animales",
+        rowPk: id,
+        accion: "DELETE",
+        detalle: { caravanaVisual: animal.caravanaVisual },
+        organizacionId: animal.establecimientoId
+          ? ctx.organizacionDeEstablecimiento[animal.establecimientoId]
+          : null,
+      })
+
+      return NextResponse.json({
+        success: true,
+        message: "Animal eliminado exitosamente",
+      })
+    } catch (error) {
+      console.error("Error al eliminar animal:", error)
       return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
+        { success: false, error: "Error interno del servidor" },
+        { status: 500 }
       )
     }
-
-    const { id } = await params
-
-    const animal = await prisma.animal.findUnique({
-      where: { id }
-    })
-
-    if (!animal) {
-      return NextResponse.json(
-        { error: "Animal no encontrado" },
-        { status: 404 }
-      )
-    }
-
-    await prisma.animal.update({
-      where: { id },
-      data: { estadoVital: "baja" }
-    })
-
-    return NextResponse.json({
-      success: true,
-      message: "Animal eliminado exitosamente",
-    })
-  } catch (error) {
-    console.error("Error al eliminar animal:", error)
-    return NextResponse.json(
-      { success: false, error: "Error interno del servidor" },
-      { status: 500 }
-    )
-  }
-}
+  },
+  { roles: ["admin", "encargado"] }
+)

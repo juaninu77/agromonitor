@@ -1,22 +1,13 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
+import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
+    const { id } = ctx.params
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const { id } = await params
-
-    const animal = await prisma.animal.findUnique({
-      where: { id },
+    const animal = await prisma.animal.findFirst({
+      where: { id, establecimientoId: { in: ctx.establecimientoIds } },
       include: {
         especie: true,
         raza: true,
@@ -32,9 +23,13 @@ export async function GET(
     let padre = null
     let madre = null
 
+    // Padres/madres: solo si también pertenecen al tenant
     if (animal.genealogia?.padreId) {
-      padre = await prisma.animal.findUnique({
-        where: { id: animal.genealogia.padreId },
+      padre = await prisma.animal.findFirst({
+        where: {
+          id: animal.genealogia.padreId,
+          establecimientoId: { in: ctx.establecimientoIds },
+        },
         include: {
           raza: true,
           categoria: true,
@@ -44,8 +39,11 @@ export async function GET(
     }
 
     if (animal.genealogia?.madreId) {
-      madre = await prisma.animal.findUnique({
-        where: { id: animal.genealogia.madreId },
+      madre = await prisma.animal.findFirst({
+        where: {
+          id: animal.genealogia.madreId,
+          establecimientoId: { in: ctx.establecimientoIds },
+        },
         include: {
           raza: true,
           categoria: true,
@@ -55,10 +53,16 @@ export async function GET(
     }
 
     const totalHijosComoPadre = await prisma.genealogia.count({
-      where: { padreId: id },
+      where: {
+        padreId: id,
+        animal: { establecimientoId: { in: ctx.establecimientoIds } },
+      },
     })
     const totalHijosComoMadre = await prisma.genealogia.count({
-      where: { madreId: id },
+      where: {
+        madreId: id,
+        animal: { establecimientoId: { in: ctx.establecimientoIds } },
+      },
     })
 
     return NextResponse.json({
@@ -97,4 +101,4 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})

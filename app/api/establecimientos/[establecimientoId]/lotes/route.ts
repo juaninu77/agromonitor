@@ -1,53 +1,18 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
 
 // ============================================
 // GET /api/establecimientos/[establecimientoId]/lotes
 // ============================================
 // Retorna los lotes de un establecimiento
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ establecimientoId: string }> }
-) {
+export const GET = withAuth(async (_request, ctx) => {
   try {
-    const session = await auth()
-    
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
+    const { establecimientoId } = ctx.params
 
-    const { establecimientoId } = await params
-
-    // Verificar que el establecimiento existe y el usuario tiene acceso
-    const establecimiento = await prisma.establecimiento.findUnique({
-      where: { id: establecimientoId },
-      include: {
-        organizacion: {
-          include: {
-            membresias: {
-              where: {
-                usuarioId: session.user.id,
-                esActivo: true,
-              },
-            },
-          },
-        },
-      },
-    })
-
-    if (!establecimiento) {
-      return NextResponse.json(
-        { error: "Establecimiento no encontrado" },
-        { status: 404 }
-      )
-    }
-
-    if (establecimiento.organizacion.membresias.length === 0) {
+    // Verificar que el usuario tiene acceso a este establecimiento
+    if (!ctx.establecimientoIds.includes(establecimientoId)) {
       return NextResponse.json(
         { error: "No tienes acceso a este establecimiento" },
         { status: 403 }
@@ -99,44 +64,28 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})
 
 // ============================================
 // POST /api/establecimientos/[establecimientoId]/lotes
 // ============================================
 // Crea un nuevo lote en el establecimiento
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ establecimientoId: string }> }
-) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    
-    if (!session?.user?.id) {
+    const { establecimientoId } = ctx.params
+
+    // Verificar que el usuario tiene acceso a este establecimiento
+    if (!ctx.establecimientoIds.includes(establecimientoId)) {
       return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
+        { error: "No tienes acceso a este establecimiento" },
+        { status: 403 }
       )
     }
 
-    const { establecimientoId } = await params
-
-    // Verificar que el establecimiento existe y el usuario tiene acceso
     const establecimiento = await prisma.establecimiento.findUnique({
       where: { id: establecimientoId },
-      include: {
-        organizacion: {
-          include: {
-            membresias: {
-              where: {
-                usuarioId: session.user.id,
-                esActivo: true,
-              },
-            },
-          },
-        },
-      },
+      select: { organizacionId: true },
     })
 
     if (!establecimiento) {
@@ -146,16 +95,18 @@ export async function POST(
       )
     }
 
-    const membresia = establecimiento.organizacion.membresias[0]
-    if (!membresia) {
-      return NextResponse.json(
-        { error: "No tienes acceso a este establecimiento" },
-        { status: 403 }
-      )
-    }
+    // Verificar rol de la membresía (solo propietario o administrador pueden crear lotes)
+    const membresia = await prisma.membresia.findUnique({
+      where: {
+        usuarioId_organizacionId: {
+          usuarioId: ctx.userId,
+          organizacionId: establecimiento.organizacionId,
+        },
+        esActivo: true,
+      },
+    })
 
-    // Verificar rol (solo propietario o administrador pueden crear lotes)
-    if (!["propietario", "administrador"].includes(membresia.rol)) {
+    if (!membresia || !["propietario", "administrador"].includes(membresia.rol)) {
       return NextResponse.json(
         { error: "No tienes permisos para crear lotes" },
         { status: 403 }
@@ -216,7 +167,7 @@ export async function POST(
     return NextResponse.json(lote, { status: 201 })
   } catch (error) {
     console.error("Error al crear lote:", error)
-    
+
     // Manejar error de unicidad
     if ((error as { code?: string }).code === "P2002") {
       return NextResponse.json(
@@ -224,11 +175,10 @@ export async function POST(
         { status: 409 }
       )
     }
-    
+
     return NextResponse.json(
       { error: "Error interno del servidor" },
       { status: 500 }
     )
   }
-}
-
+})

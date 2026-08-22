@@ -1,20 +1,18 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
+import { loteDelTenant } from "@/lib/api/tenant"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, { establecimientoIds }) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const loteId = searchParams.get("loteId")
     const tipo = searchParams.get("tipo")
     const activa = searchParams.get("activa")
 
-    const where: Record<string, unknown> = {}
+    const where: Record<string, unknown> = {
+      lote: { establecimientoId: { in: establecimientoIds } },
+    }
 
     if (loteId) where.loteId = loteId
     if (tipo) where.tipo = tipo
@@ -44,21 +42,24 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, { establecimientoIds }) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
 
     if (!body.nombre || !body.fechaInicio || !body.tipo || !body.loteId) {
       return NextResponse.json(
         { error: "Faltan campos requeridos: nombre, fechaInicio, tipo, loteId" },
         { status: 400 }
+      )
+    }
+
+    const lote = await loteDelTenant(body.loteId, establecimientoIds)
+    if (!lote) {
+      return NextResponse.json(
+        { error: "Lote no encontrado" },
+        { status: 404 }
       )
     }
 
@@ -87,4 +88,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

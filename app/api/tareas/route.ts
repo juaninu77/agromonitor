@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { z } from "zod"
-import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { withAuth } from "@/lib/api/with-auth"
 import { logAudit } from "@/lib/api/audit-log"
 
 const tareaSchema = z.object({
@@ -19,17 +19,8 @@ const tareaSchema = z.object({
 // GET /api/tareas
 // ============================================
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
     const searchParams = request.nextUrl.searchParams
     const estado = searchParams.get("estado")
     const prioridad = searchParams.get("prioridad")
@@ -44,22 +35,8 @@ export async function GET(request: NextRequest) {
     const orderByField = searchParams.get("orderBy") || "createdAt"
     const orderDirection = (searchParams.get("orderDirection") || "desc") as "asc" | "desc"
 
-    // Establecimientos accesibles por el usuario (vía membresías)
-    const establecimientos = await prisma.establecimiento.findMany({
-      where: {
-        organizacion: {
-          membresias: {
-            some: {
-              usuarioId: session.user.id,
-              esActivo: true,
-            },
-          },
-        },
-      },
-      select: { id: true },
-    })
-
-    const establecimientoIds = establecimientos.map((e) => e.id)
+    // Establecimientos accesibles por el usuario (vía withAuth)
+    const establecimientoIds = ctx.establecimientoIds
 
     if (establecimientoIds.length === 0) {
       return NextResponse.json({
@@ -131,23 +108,14 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
 // ============================================
 // POST /api/tareas
 // ============================================
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "No autenticado" },
-        { status: 401 }
-      )
-    }
-
     const body = await request.json()
     const parsed = tareaSchema.safeParse(body)
 
@@ -161,21 +129,7 @@ export async function POST(request: NextRequest) {
     const data = parsed.data
 
     // Verificar acceso al establecimiento
-    const establecimiento = await prisma.establecimiento.findFirst({
-      where: {
-        id: data.establecimientoId,
-        organizacion: {
-          membresias: {
-            some: {
-              usuarioId: session.user.id,
-              esActivo: true,
-            },
-          },
-        },
-      },
-    })
-
-    if (!establecimiento) {
+    if (!ctx.establecimientoIds.includes(data.establecimientoId)) {
       return NextResponse.json(
         { error: "No tienes acceso a este establecimiento" },
         { status: 403 }
@@ -204,11 +158,12 @@ export async function POST(request: NextRequest) {
     })
 
     await logAudit({
-      userId: session.user.id,
+      userId: ctx.userId,
       tabla: "tareas",
       rowPk: tarea.id,
       accion: "INSERT",
       detalle: { titulo: tarea.titulo, tipo: tarea.tipo },
+      organizacionId: ctx.organizacionDeEstablecimiento[tarea.establecimientoId] ?? null,
     })
 
     return NextResponse.json(
@@ -222,4 +177,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

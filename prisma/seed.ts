@@ -111,29 +111,32 @@ async function main() {
   // ============================================
   console.log('📚 Creando catálogos base...')
   
+  // Catálogos scopeados a la organización del seed
+  const orgId = organizacion.id
+
   const bovino = await prisma.especie.create({
-    data: { nombre: 'bovino', descripcion: 'Ganado bovino' }
+    data: { nombre: 'bovino', descripcion: 'Ganado bovino', organizacionId: orgId }
   })
-  
+
   const ovino = await prisma.especie.create({
-    data: { nombre: 'ovino', descripcion: 'Ganado ovino' }
+    data: { nombre: 'ovino', descripcion: 'Ganado ovino', organizacionId: orgId }
   })
 
   const equino = await prisma.especie.create({
-    data: { nombre: 'equino', descripcion: 'Caballos y otros équidos' }
+    data: { nombre: 'equino', descripcion: 'Caballos y otros équidos', organizacionId: orgId }
   })
 
   // ============================================
   // CATÁLOGOS: RAZAS BOVINAS
   // ============================================
   const razasBovinas = await Promise.all([
-    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Angus Negro' } }),
-    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Angus Colorado' } }),
-    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Hereford' } }),
-    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Brangus' } }),
-    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Braford' } }),
-    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Limousin' } }),
-    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Cruza' } }),
+    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Angus Negro' , organizacionId: orgId } }),
+    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Angus Colorado' , organizacionId: orgId } }),
+    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Hereford' , organizacionId: orgId } }),
+    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Brangus' , organizacionId: orgId } }),
+    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Braford' , organizacionId: orgId } }),
+    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Limousin' , organizacionId: orgId } }),
+    prisma.raza.create({ data: { especieId: bovino.id, nombre: 'Cruza' , organizacionId: orgId } }),
   ])
   
   const [angusNegro, angusColorado, hereford, brangus] = razasBovinas
@@ -142,13 +145,13 @@ async function main() {
   // CATÁLOGOS: CATEGORÍAS BOVINAS
   // ============================================
   const categoriasBovinas = await Promise.all([
-    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'ternero', sexo: 'M', edadMaxMeses: 12 } }),
-    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'ternera', sexo: 'F', edadMaxMeses: 12 } }),
-    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'novillito', sexo: 'M', edadMinMeses: 12, edadMaxMeses: 24 } }),
-    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'vaquillona', sexo: 'F', edadMinMeses: 12, edadMaxMeses: 36 } }),
-    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'novillo', sexo: 'M', edadMinMeses: 24 } }),
-    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'vaca', sexo: 'F', edadMinMeses: 36 } }),
-    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'toro', sexo: 'M', edadMinMeses: 24 } }),
+    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'ternero', sexo: 'M', edadMaxMeses: 12 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'ternera', sexo: 'F', edadMaxMeses: 12 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'novillito', sexo: 'M', edadMinMeses: 12, edadMaxMeses: 24 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'vaquillona', sexo: 'F', edadMinMeses: 12, edadMaxMeses: 36 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'novillo', sexo: 'M', edadMinMeses: 24 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'vaca', sexo: 'F', edadMinMeses: 36 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: bovino.id, nombre: 'toro', sexo: 'M', edadMinMeses: 24 , organizacionId: orgId } }),
   ])
   
   const [catTernero, catTernera, catNovillito, catVaquillona, catNovillo, catVaca, catToro] = categoriasBovinas
@@ -157,37 +160,37 @@ async function main() {
   // CATÁLOGOS: RAZAS Y CATEGORÍAS OVINAS
   // ============================================
   await Promise.all([
-    prisma.raza.create({ data: { especieId: ovino.id, nombre: 'Corriedale' } }),
-    prisma.raza.create({ data: { especieId: ovino.id, nombre: 'Merino' } }),
-    prisma.raza.create({ data: { especieId: ovino.id, nombre: 'Romney Marsh' } }),
+    prisma.raza.create({ data: { especieId: ovino.id, nombre: 'Corriedale' , organizacionId: orgId } }),
+    prisma.raza.create({ data: { especieId: ovino.id, nombre: 'Merino' , organizacionId: orgId } }),
+    prisma.raza.create({ data: { especieId: ovino.id, nombre: 'Romney Marsh' , organizacionId: orgId } }),
   ])
   
   await Promise.all([
-    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'cordero', sexo: 'M', edadMaxMeses: 12 } }),
-    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'cordera', sexo: 'F', edadMaxMeses: 12 } }),
-    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'borrego', sexo: 'M', edadMinMeses: 12, edadMaxMeses: 24 } }),
-    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'borrega', sexo: 'F', edadMinMeses: 12, edadMaxMeses: 24 } }),
-    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'capón', sexo: 'M', edadMinMeses: 12 } }),
-    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'oveja', sexo: 'F', edadMinMeses: 24 } }),
-    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'carnero', sexo: 'M', edadMinMeses: 24 } }),
+    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'cordero', sexo: 'M', edadMaxMeses: 12 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'cordera', sexo: 'F', edadMaxMeses: 12 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'borrego', sexo: 'M', edadMinMeses: 12, edadMaxMeses: 24 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'borrega', sexo: 'F', edadMinMeses: 12, edadMaxMeses: 24 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'capón', sexo: 'M', edadMinMeses: 12 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'oveja', sexo: 'F', edadMinMeses: 24 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: ovino.id, nombre: 'carnero', sexo: 'M', edadMinMeses: 24 , organizacionId: orgId } }),
   ])
 
   // ============================================
   // CATÁLOGOS: RAZAS Y CATEGORÍAS EQUINAS
   // ============================================
   await Promise.all([
-    prisma.raza.create({ data: { especieId: equino.id, nombre: 'Criollo' } }),
-    prisma.raza.create({ data: { especieId: equino.id, nombre: 'Pura Sangre' } }),
-    prisma.raza.create({ data: { especieId: equino.id, nombre: 'Cuarto de Milla' } }),
-    prisma.raza.create({ data: { especieId: equino.id, nombre: 'Polo Argentino' } }),
+    prisma.raza.create({ data: { especieId: equino.id, nombre: 'Criollo' , organizacionId: orgId } }),
+    prisma.raza.create({ data: { especieId: equino.id, nombre: 'Pura Sangre' , organizacionId: orgId } }),
+    prisma.raza.create({ data: { especieId: equino.id, nombre: 'Cuarto de Milla' , organizacionId: orgId } }),
+    prisma.raza.create({ data: { especieId: equino.id, nombre: 'Polo Argentino' , organizacionId: orgId } }),
   ])
 
   await Promise.all([
-    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'potrillo', sexo: 'M', edadMaxMeses: 36 } }),
-    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'potranca', sexo: 'F', edadMaxMeses: 36 } }),
-    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'caballo', sexo: 'M', edadMinMeses: 36 } }),
-    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'yegua', sexo: 'F', edadMinMeses: 36 } }),
-    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'semental', sexo: 'M', edadMinMeses: 36 } }),
+    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'potrillo', sexo: 'M', edadMaxMeses: 36 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'potranca', sexo: 'F', edadMaxMeses: 36 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'caballo', sexo: 'M', edadMinMeses: 36 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'yegua', sexo: 'F', edadMinMeses: 36 , organizacionId: orgId } }),
+    prisma.categoria.create({ data: { especieId: equino.id, nombre: 'semental', sexo: 'M', edadMinMeses: 36 , organizacionId: orgId } }),
   ])
 
   // ============================================

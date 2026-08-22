@@ -1,22 +1,42 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
+import { withAuth } from "@/lib/api/with-auth"
+import { scopeEstablecimiento } from "@/lib/api/tenant"
 import { prisma } from "@/lib/prisma"
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const establecimientoId = searchParams.get("establecimientoId")
 
-    const especieOvina = await prisma.especie.findFirst({
-      where: { nombre: { contains: "ovin", mode: "insensitive" } },
+    // Scoping multi-tenant: si el cliente pide un establecimiento, debe ser accesible
+    if (establecimientoId && !ctx.establecimientoIds.includes(establecimientoId)) {
+      return NextResponse.json(
+        { error: "No tienes acceso a este establecimiento" },
+        { status: 403 }
+      )
+    }
+    const establecimientosPermitidos = establecimientoId
+      ? [establecimientoId]
+      : ctx.establecimientoIds
+
+    // Organizaciones dueñas de los establecimientos permitidos (scoping del catálogo)
+    const organizacionIdsScope = Array.from(
+      new Set(
+        establecimientosPermitidos
+          .map((estId) => ctx.organizacionDeEstablecimiento[estId])
+          .filter((orgId): orgId is string => Boolean(orgId))
+      )
+    )
+
+    const especiesOvinas = await prisma.especie.findMany({
+      where: {
+        nombre: { contains: "ovin", mode: "insensitive" },
+        organizacionId: { in: organizacionIdsScope },
+      },
+      select: { id: true },
     })
 
-    if (!especieOvina) {
+    if (especiesOvinas.length === 0) {
       return NextResponse.json({
         success: true,
         data: [],
@@ -25,17 +45,9 @@ export async function GET(request: NextRequest) {
     }
 
     const where: any = {
-      especieId: especieOvina.id,
+      especieId: { in: especiesOvinas.map((e) => e.id) },
       estadoVital: "activo",
-    }
-
-    if (establecimientoId) {
-      where.loteHist = {
-        some: {
-          hasta: null,
-          lote: { establecimientoId },
-        },
-      }
+      ...scopeEstablecimiento(establecimientosPermitidos),
     }
 
     const ovinos = await prisma.animal.findMany({
@@ -61,4 +73,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

@@ -1,5 +1,7 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { NextResponse } from "next/server"
+import { resolverEstablecimientoDestino } from "@/lib/api/tenant"
+import { withAuth } from "@/lib/api/with-auth"
+import { logAudit } from "@/lib/api/audit-log"
 import { prisma } from "@/lib/prisma"
 
 /**
@@ -7,38 +9,31 @@ import { prisma } from "@/lib/prisma"
  * Esta ruta se mantiene por compatibilidad pero redirige a la nueva API.
  */
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const estado = searchParams.get("estado")
 
-    const membresias = await prisma.membresia.findMany({
-      where: { usuarioId: session.user.id, esActivo: true },
-      include: {
-        organizacion: {
-          include: { establecimientos: true },
-        },
-      },
-    })
-
-    const renspaList = membresias
-      .flatMap((m) => m.organizacion.establecimientos)
-      .map((e) => e.renspa)
-      .filter(Boolean) as string[]
-
-    if (renspaList.length === 0) {
+    if (ctx.establecimientoIds.length === 0) {
       return NextResponse.json({ success: true, data: [] })
     }
 
+    // Visible si el tenant lo posee (establecimientoId) o si aparece como
+    // origen O destino por RENSPA (no perder hacienda entrante).
+    const establecimientos = await prisma.establecimiento.findMany({
+      where: { id: { in: ctx.establecimientoIds } },
+      select: { renspa: true },
+    })
+    const renspas = establecimientos
+      .map((e) => e.renspa)
+      .filter((r): r is string => !!r)
+
     const where: any = {
       OR: [
-        { renspaOrigen: { in: renspaList } },
-        { renspaDestino: { in: renspaList } },
+        { establecimientoId: { in: ctx.establecimientoIds } },
+        ...(renspas.length
+          ? [{ renspaOrigen: { in: renspas } }, { renspaDestino: { in: renspas } }]
+          : []),
       ],
     }
 
@@ -59,15 +54,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx) => {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
     const body = await request.json()
     const {
       numeroDta, tipo, fechaEmision, fechaVencimiento,
@@ -79,6 +69,18 @@ export async function POST(request: NextRequest) {
     if (!numeroDta || !renspaOrigen || !renspaDestino || !especie || !cantidadAnimales || !motivo) {
       return NextResponse.json(
         { error: "Faltan campos requeridos (numeroDta, renspaOrigen, renspaDestino, especie, cantidadAnimales, motivo)" },
+        { status: 400 }
+      )
+    }
+
+    const establecimientoId = resolverEstablecimientoDestino(
+      body.establecimientoId,
+      ctx.establecimientoIds
+    )
+
+    if (!establecimientoId) {
+      return NextResponse.json(
+        { error: "Debe indicar un establecimiento válido" },
         { status: 400 }
       )
     }
@@ -112,7 +114,17 @@ export async function POST(request: NextRequest) {
         patenteCamion,
         transportista,
         observ,
+        establecimientoId,
       },
+    })
+
+    await logAudit({
+      userId: ctx.userId,
+      tabla: "documentos_transito",
+      rowPk: documento.id,
+      accion: "INSERT",
+      detalle: { numeroDta, motivo },
+      organizacionId: ctx.organizacionDeEstablecimiento[establecimientoId],
     })
 
     return NextResponse.json({ success: true, data: documento }, { status: 201 })
@@ -123,4 +135,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

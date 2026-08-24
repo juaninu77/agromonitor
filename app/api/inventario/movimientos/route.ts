@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
-import { logAudit } from "@/lib/api/audit-log"
 import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 
@@ -168,22 +167,6 @@ export const POST = withAuth(async (request, ctx) => {
         loteProducto: {
           select: { id: true, nroLote: true, vencimiento: true },
         },
-      },
-    })
-
-    await logAudit({
-      userId: ctx.userId,
-      tabla: "movimientos_stock",
-      rowPk: movimiento.id,
-      accion: "INSERT",
-      organizacionId: producto.organizacionId ?? null,
-      detalle: {
-        productoId,
-        productoNombre: producto.nombre,
-        tipo,
-        cantidad,
-        motivo,
-        loteProductoId,
       },
     })
 

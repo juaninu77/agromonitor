@@ -1030,8 +1030,12 @@ model AuditLog {
   tabla   String
   rowPk   String   @map("row_pk")
   accion  String // 'INSERT' | 'UPDATE' | 'DELETE'
-  detalle Json? // Cambios en JSONB
+  detalle Json? // Resumen de cambios (campos modificados: { campo: { de, a } })
   fecha   DateTime @default(now())
+
+  // Snapshots completos para reconstruir el ciclo de vida del dato.
+  datosPrevios Json? @map("datos_previos") // estado anterior (null en INSERT)
+  datosNuevos  Json? @map("datos_nuevos") // estado nuevo (null en DELETE)
 
   usuarioId String?  @map("usuario_id") @db.Uuid
   usuario   Usuario? @relation(fields: [usuarioId], references: [id])
@@ -1044,6 +1048,8 @@ model AuditLog {
   @@index([tabla])
   @@index([fecha])
   @@index([organizacionId])
+  @@index([usuarioId])
+  @@index([tabla, rowPk]) // historial de un registro puntual
   @@map("audit_log")
 }
 

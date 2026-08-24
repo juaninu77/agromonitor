@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { animalDelTenant, scopeEventoAnimal } from "@/lib/api/tenant"
 import { withAuth } from "@/lib/api/with-auth"
-import { logAudit } from "@/lib/api/audit-log"
 import { prisma } from "@/lib/prisma"
 import { decimalToNumber } from "@/lib/api/serialize"
 
@@ -142,21 +141,6 @@ export const POST = withAuth(async (request, ctx) => {
         data: { estadoVital: estadoVitalMap[body.motivo] || "baja" },
       }),
     ])
-
-    await logAudit({
-      userId: ctx.userId,
-      tabla: "evt_baja",
-      rowPk: baja.id,
-      accion: "INSERT",
-      detalle: {
-        animalId: body.animalId,
-        motivo: body.motivo,
-        precioTotal: body.precioTotal ?? null,
-      },
-      organizacionId: animal.establecimientoId
-        ? ctx.organizacionDeEstablecimiento[animal.establecimientoId]
-        : null,
-    })
 
     const data = {
       ...baja,

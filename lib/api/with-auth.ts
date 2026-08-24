@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { runWithContext } from "@/lib/api/request-context"
 
 type AppRole = "admin" | "encargado" | "vet" | "operario"
 
@@ -139,19 +140,28 @@ export function withAuth(handler: AuthHandler, options: AuthOptions = {}) {
 
       const params = routeContext?.params ? await routeContext.params : {}
 
-      return handler(request, {
-        userId: session.user.id,
-        userRole,
-        esAdminPlataforma,
-        establecimientoIds,
-        organizacionIds,
-        rolPorEstablecimiento,
-        rolPorOrganizacion,
-        organizacionDeEstablecimiento,
-        establecimientoIdsConRol,
-        organizacionIdsConRol,
-        params,
-      })
+      // Contexto para la auditoría automática: quién hace el cambio.
+      // organizacionId solo si es inequívoco (una sola org accesible).
+      return runWithContext(
+        {
+          userId: session.user.id,
+          organizacionId: organizacionIds.length === 1 ? organizacionIds[0] : null,
+        },
+        () =>
+          handler(request, {
+            userId: session.user.id,
+            userRole,
+            esAdminPlataforma,
+            establecimientoIds,
+            organizacionIds,
+            rolPorEstablecimiento,
+            rolPorOrganizacion,
+            organizacionDeEstablecimiento,
+            establecimientoIdsConRol,
+            organizacionIdsConRol,
+            params,
+          })
+      )
     } catch (error) {
       console.error("Error en withAuth:", error)
       return NextResponse.json(

@@ -116,15 +116,8 @@ add(
   /organizacionIds\?/.test(read("lib/ganado/validate-especie.ts"))
 )
 
-// --- 13. Cobertura de auditoría en mutaciones sensibles ---
-const rutasConAudit = [
-  "app/api/ganado/bovinos/[id]/route.ts",
-  "app/api/ventas/bajas/route.ts",
-  "app/api/manga/[id]/route.ts",
-  "app/api/documentos-transito/route.ts",
-]
-const sinAudit = rutasConAudit.filter((r) => !/logAudit\(/.test(read(r)))
-add("Auditoría en mutaciones sensibles", sinAudit.length === 0, sinAudit.length ? `Faltan: ${sinAudit.join(", ")}` : undefined)
+// (La cobertura de auditoría ya no depende de logAudit manual: es automática
+//  vía la extensión de Prisma; se verifica en los checks 16-18.)
 
 // --- 14. Historiales sin mezcla Date/DateTime ---
 const bloqueLoteHist = schema.match(/model AnimalLoteHist \{[\s\S]*?\n\}/)?.[0] ?? ""
@@ -132,6 +125,47 @@ add(
   "AnimalLoteHist usa DateTime (no @db.Date)",
   /desde  DateTime  @default\(now\(\)\)/.test(bloqueLoteHist) &&
     !/@db\.Date/.test(bloqueLoteHist)
+)
+
+// --- 15. Auditoría automática: AuditLog con before/after ---
+add(
+  "AuditLog guarda datosPrevios/datosNuevos",
+  /datosPrevios\s+Json\?/.test(schema) && /datosNuevos\s+Json\?/.test(schema)
+)
+
+// --- 16. Infraestructura de auditoría automática presente ---
+const tieneContexto = existsSync(join(ROOT, "lib/api/request-context.ts"))
+const tieneExtension = existsSync(join(ROOT, "lib/audit/audit-extension.ts"))
+const prismaWired = /\$extends\(auditExtension/.test(read("lib/prisma.ts"))
+const withAuthWired = /runWithContext/.test(read("lib/api/with-auth.ts"))
+add(
+  "Auditoría automática cableada (contexto + extensión + withAuth)",
+  tieneContexto && tieneExtension && prismaWired && withAuthWired
+)
+
+// --- 17. Endpoint de historial por registro ---
+add(
+  "Endpoint GET /api/audit/historial",
+  existsSync(join(ROOT, "app/api/audit/historial/route.ts"))
+)
+
+// --- 18. Sin logAudit manual redundante (cubierto por la extensión) ---
+function listar(dir: string): string[] {
+  const abs = join(ROOT, dir)
+  if (!existsSync(abs)) return []
+  const out: string[] = []
+  for (const e of readdirSync(abs, { withFileTypes: true })) {
+    const p = join(dir, e.name)
+    if (e.isDirectory()) out.push(...listar(p))
+    else if (e.name === "route.ts") out.push(p)
+  }
+  return out
+}
+const rutasConLogAuditManual = listar("app/api").filter((r) => /logAudit\(/.test(read(r)))
+add(
+  "Sin logAudit manual redundante en app/api",
+  rutasConLogAuditManual.length === 0,
+  rutasConLogAuditManual.length ? `Aún llaman logAudit: ${rutasConLogAuditManual.join(", ")}` : undefined
 )
 
 // ---- Reporte ----

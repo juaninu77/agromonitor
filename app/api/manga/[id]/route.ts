@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { withAuth } from "@/lib/api/with-auth"
 import { scopeEstablecimiento } from "@/lib/api/tenant"
-import { logAudit } from "@/lib/api/audit-log"
 import { prisma } from "@/lib/prisma"
 
 const actualizarSesionSchema = z.object({
@@ -128,15 +127,6 @@ export const DELETE = withAuth(
       }
 
       await prisma.sesionManga.delete({ where: { id } })
-
-      await logAudit({
-        userId: ctx.userId,
-        tabla: "sesiones_manga",
-        rowPk: id,
-        accion: "DELETE",
-        detalle: { nombre: existing.nombre, estado: existing.estado },
-        organizacionId: ctx.organizacionDeEstablecimiento[existing.establecimientoId],
-      })
 
       return NextResponse.json({ success: true, message: "Sesión eliminada" })
     } catch (error) {

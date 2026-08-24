@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
-import { logAudit } from "@/lib/api/audit-log"
 
 const tareaSchema = z.object({
   titulo: z.string().min(1),
@@ -155,15 +154,6 @@ export const POST = withAuth(async (request, ctx) => {
           select: { id: true, nombre: true },
         },
       },
-    })
-
-    await logAudit({
-      userId: ctx.userId,
-      tabla: "tareas",
-      rowPk: tarea.id,
-      accion: "INSERT",
-      detalle: { titulo: tarea.titulo, tipo: tarea.tipo },
-      organizacionId: ctx.organizacionDeEstablecimiento[tarea.establecimientoId] ?? null,
     })
 
     return NextResponse.json(

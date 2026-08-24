@@ -3,7 +3,6 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
 import { scopeEstablecimiento } from "@/lib/api/tenant"
-import { logAudit } from "@/lib/api/audit-log"
 
 const tareaUpdateSchema = z.object({
   titulo: z.string().min(1).optional(),
@@ -112,15 +111,6 @@ export const PATCH = withAuth(async (request, ctx) => {
       },
     })
 
-    await logAudit({
-      userId: ctx.userId,
-      tabla: "tareas",
-      rowPk: tarea.id,
-      accion: "UPDATE",
-      detalle: { cambios: data },
-      organizacionId: ctx.organizacionDeEstablecimiento[tarea.establecimientoId] ?? null,
-    })
-
     return NextResponse.json({ success: true, data: tarea })
   } catch (error) {
     console.error("Error al actualizar tarea:", error)
@@ -152,15 +142,6 @@ export const DELETE = withAuth(
       }
 
       await prisma.tarea.delete({ where: { id } })
-
-      await logAudit({
-        userId: ctx.userId,
-        tabla: "tareas",
-        rowPk: id,
-        accion: "DELETE",
-        detalle: { titulo: existingTarea.titulo },
-        organizacionId: ctx.organizacionDeEstablecimiento[existingTarea.establecimientoId] ?? null,
-      })
 
       return NextResponse.json({ success: true, message: "Tarea eliminada" })
     } catch (error) {

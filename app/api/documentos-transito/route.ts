@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { resolverEstablecimientoDestino } from "@/lib/api/tenant"
 import { withAuth } from "@/lib/api/with-auth"
-import { logAudit } from "@/lib/api/audit-log"
 import { prisma } from "@/lib/prisma"
 
 /**
@@ -116,15 +115,6 @@ export const POST = withAuth(async (request, ctx) => {
         observ,
         establecimientoId,
       },
-    })
-
-    await logAudit({
-      userId: ctx.userId,
-      tabla: "documentos_transito",
-      rowPk: documento.id,
-      accion: "INSERT",
-      detalle: { numeroDta, motivo },
-      organizacionId: ctx.organizacionDeEstablecimiento[establecimientoId],
     })
 
     return NextResponse.json({ success: true, data: documento }, { status: 201 })

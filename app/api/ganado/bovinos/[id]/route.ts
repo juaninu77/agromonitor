@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { withAuth } from "@/lib/api/with-auth"
 import { animalDelTenant, loteDelTenant, sectorDelTenant } from "@/lib/api/tenant"
-import { logAudit } from "@/lib/api/audit-log"
 import { decimalToNumber } from "@/lib/api/serialize"
 import { prisma } from "@/lib/prisma"
 import { validarRazaYCategoriaParaEspecie } from "@/lib/ganado/validate-especie"
@@ -314,17 +313,6 @@ export const DELETE = withAuth(
       await prisma.animal.update({
         where: { id },
         data: { estadoVital: "baja" }
-      })
-
-      await logAudit({
-        userId: ctx.userId,
-        tabla: "animales",
-        rowPk: id,
-        accion: "DELETE",
-        detalle: { caravanaVisual: animal.caravanaVisual },
-        organizacionId: animal.establecimientoId
-          ? ctx.organizacionDeEstablecimiento[animal.establecimientoId]
-          : null,
       })
 
       return NextResponse.json({

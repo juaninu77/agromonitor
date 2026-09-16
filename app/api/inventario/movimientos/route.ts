@@ -3,6 +3,7 @@ import { z } from "zod"
 import { logAudit } from "@/lib/api/audit-log"
 import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
+import { parsePagination } from "@/lib/api/pagination"
 
 const movimientoSchema = z.object({
   productoId: z.string().uuid("ID de producto inválido"),
@@ -24,8 +25,11 @@ export const GET = withAuth(async (request, ctx) => {
     const tipo = searchParams.get("tipo")
     const fechaDesde = searchParams.get("fechaDesde")
     const fechaHasta = searchParams.get("fechaHasta")
-    const page = parseInt(searchParams.get("page") || "1")
-    const limit = parseInt(searchParams.get("limit") || "20")
+    const pagination = parsePagination(searchParams)
+    if (!pagination.success) {
+      return NextResponse.json({ error: "Paginación inválida" }, { status: 400 })
+    }
+    const { page, limit } = pagination.data
     const skip = (page - 1) * limit
 
     const where: Record<string, unknown> = {

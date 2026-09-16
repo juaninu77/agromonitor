@@ -66,7 +66,7 @@ function normalizarRol(rol: string | undefined | null): AppRole | null {
 export function withAuth(handler: AuthHandler, options: AuthOptions = {}) {
   return async (
     request: NextRequest,
-    routeContext?: { params: Promise<Record<string, string>> }
+    routeContext: { params: Promise<Record<string, string>> }
   ) => {
     try {
       const session = await auth()
@@ -137,9 +137,9 @@ export function withAuth(handler: AuthHandler, options: AuthOptions = {}) {
         }
       }
 
-      const params = routeContext?.params ? await routeContext.params : {}
+      const params = (await routeContext?.params) ?? {}
 
-      return handler(request, {
+      return await handler(request, {
         userId: session.user.id,
         userRole,
         esAdminPlataforma,

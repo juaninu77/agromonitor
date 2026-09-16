@@ -34,6 +34,7 @@ import { SyncStatus } from "./sync-status"
 
 import { saveHerd, findAnimalByEID, getHerdCount } from "@/lib/hardware/herd-cache"
 import { normalizeEID } from "@/lib/hardware/eid"
+import { finalizeSession } from "@/lib/hardware/finalize-session"
 
 interface MangaWorkspaceProps {
   session: any
@@ -307,12 +308,7 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
     }
 
     try {
-      const res = await fetch(`/api/manga/${session.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ estado: "finalizada" }),
-      })
-      if (!res.ok) throw new Error("Error al finalizar")
+      await finalizeSession(session.id)
       toast.success("Sesión finalizada")
       onFinalize()
     } catch (err: any) {

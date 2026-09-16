@@ -5,9 +5,10 @@ import { loteDelTenant } from "@/lib/api/tenant"
 import { prisma } from "@/lib/prisma"
 
 const movimientoSchema = z.object({
-  animalIds: z.array(z.string().uuid()).min(1, "Seleccioná al menos un animal"),
+  animalIds: z.array(z.string().uuid()).min(1, "Seleccioná al menos un animal")
+    .max(500).transform((ids) => [...new Set(ids)]),
   loteDestinoId: z.string().uuid("Lote destino inválido"),
-  fecha: z.string().optional(),
+  fecha: z.string().refine((value) => !Number.isNaN(Date.parse(value)), "Fecha inválida").optional(),
   motivo: z.string().optional(),
 })
 
@@ -38,7 +39,7 @@ export const POST = withAuth(async (request, ctx) => {
         id: { in: animalIds },
         establecimientoId: { in: ctx.establecimientoIds },
       },
-      select: { id: true },
+      select: { id: true, establecimientoId: true },
     })
 
     if (animalesDelTenant.length !== animalIds.length) {
@@ -48,7 +49,18 @@ export const POST = withAuth(async (request, ctx) => {
       )
     }
 
+    if (animalesDelTenant.some((animal) => animal.establecimientoId !== loteDestino.establecimientoId)) {
+      return NextResponse.json(
+        { error: "El lote y los animales deben pertenecer al mismo establecimiento" },
+        { status: 400 }
+      )
+    }
+
     const result = await prisma.$transaction(async (tx) => {
+      const posteriores = await tx.animalLoteHist.count({
+        where: { animalId: { in: animalIds }, desde: { gt: fechaMov } },
+      })
+      if (posteriores > 0) return null
       let moved = 0
 
       for (const animalId of animalIds) {
@@ -62,6 +74,7 @@ export const POST = withAuth(async (request, ctx) => {
             animalId,
             loteId: loteDestinoId,
             desde: fechaMov,
+            motivo: motivo ?? null,
           },
         })
 
@@ -70,6 +83,13 @@ export const POST = withAuth(async (request, ctx) => {
 
       return { moved }
     })
+
+    if (!result) {
+      return NextResponse.json(
+        { error: "La fecha no puede ser anterior a movimientos ya registrados" },
+        { status: 400 }
+      )
+    }
 
     return NextResponse.json({
       success: true,

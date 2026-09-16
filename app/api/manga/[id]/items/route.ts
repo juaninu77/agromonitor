@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { withAuth } from "@/lib/api/with-auth"
-import { animalDelTenant, scopeEstablecimiento } from "@/lib/api/tenant"
+import { scopeEstablecimiento } from "@/lib/api/tenant"
+import { MangaSessionError, withMangaSession } from "@/lib/api/manga-session"
 import { normalizeEID } from "@/lib/hardware/eid"
 import { prisma } from "@/lib/prisma"
 
@@ -18,8 +19,10 @@ const crearItemSchema = z.object({
   animalId: z.string().uuid().optional().nullable(),
   esNuevoRegistro: z.boolean().optional(),
   caravanaVisual: z.string().optional().nullable(),
-  sexo: z.string().optional().nullable(),
+  sexo: z.enum(["M", "F"]).optional().nullable(),
   categoria: z.string().optional().nullable(),
+}).refine((data) => !data.esNuevoRegistro || (!!data.sexo && !data.animalId), {
+  message: "Un alta nueva requiere sexo y no puede referenciar un animal existente",
 })
 
 export const GET = withAuth(async (request, ctx) => {
@@ -69,79 +72,81 @@ export const POST = withAuth(async (request, ctx) => {
       )
     }
 
-    const sesion = await prisma.sesionManga.findFirst({
-      where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
-    })
+    return await withMangaSession(id, ctx.establecimientoIds, async (tx) => {
+      const sesion = await tx.sesionManga.findFirst({
+        where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
+      })
 
-    if (!sesion) {
-      return NextResponse.json(
-        { error: "Sesión no encontrada" },
-        { status: 404 }
-      )
-    }
-
-    if (sesion.estado === "finalizada") {
-      return NextResponse.json(
-        { error: "No se pueden agregar items a una sesión finalizada" },
-        { status: 400 }
-      )
-    }
-
-    // Normalizar server-side: HID, Web Serial y CSV deben interpretar el EID igual
-    const eidNormalizado = normalizeEID(parsed.data.eidLeido) ?? parsed.data.eidLeido
-
-    let animalId = parsed.data.animalId ?? null
-
-    if (animalId) {
-      const animal = await animalDelTenant(animalId, ctx.establecimientoIds)
-      if (!animal) {
+      if (!sesion) {
         return NextResponse.json(
-          { error: "Animal no encontrado" },
+          { error: "Sesión no encontrada" },
           { status: 404 }
         )
       }
-    }
 
-    const maxOrden = await prisma.sesionMangaItem.aggregate({
-      where: { sesionId: id },
-      _max: { orden: true },
-    })
-
-    const nuevoOrden = (maxOrden._max.orden ?? 0) + 1
-
-    // Si es un registro nuevo y trae datos del animal, crear el Animal
-    if (parsed.data.esNuevoRegistro && parsed.data.sexo) {
-      // La especie bovina debe pertenecer a la organización de la sesión
-      const organizacionSesion =
-        ctx.organizacionDeEstablecimiento[sesion.establecimientoId]
-
-      const especieBovina = organizacionSesion
-        ? await prisma.especie.findFirst({
-            where: { nombre: "bovino", organizacionId: organizacionSesion },
-          })
-        : null
-
-      if (!especieBovina) {
+      if (sesion.estado === "finalizada") {
         return NextResponse.json(
-          { error: "No existe la especie bovino para esta organización" },
+          { error: "No se pueden agregar items a una sesión finalizada" },
           { status: 400 }
         )
       }
 
-      const nuevoAnimal = await prisma.animal.create({
-        data: {
-          especieId: especieBovina.id,
-          sexo: parsed.data.sexo,
-          caravanaVisual: parsed.data.caravanaVisual ?? null,
-          caravanaRfid: eidNormalizado,
-          establecimientoId: sesion.establecimientoId,
-        },
-      })
-      animalId = nuevoAnimal.id
-    }
+      // Normalizar server-side: HID, Web Serial y CSV deben interpretar el EID igual
+      const eidNormalizado = normalizeEID(parsed.data.eidLeido) ?? parsed.data.eidLeido
 
-    const [item] = await prisma.$transaction([
-      prisma.sesionMangaItem.create({
+      let animalId = parsed.data.animalId ?? null
+
+      if (animalId) {
+        const animal = await tx.animal.findFirst({
+          where: { id: animalId, establecimientoId: sesion.establecimientoId },
+        })
+        if (!animal) {
+          return NextResponse.json(
+            { error: "Animal no encontrado" },
+            { status: 404 }
+          )
+        }
+      }
+
+      const maxOrden = await tx.sesionMangaItem.aggregate({
+        where: { sesionId: id },
+        _max: { orden: true },
+      })
+
+      const nuevoOrden = (maxOrden._max.orden ?? 0) + 1
+
+      // Si es un registro nuevo y trae datos del animal, crear el Animal
+      if (parsed.data.esNuevoRegistro && parsed.data.sexo) {
+        // La especie bovina debe pertenecer a la organización de la sesión
+        const organizacionSesion =
+          ctx.organizacionDeEstablecimiento[sesion.establecimientoId]
+
+        const especieBovina = organizacionSesion
+          ? await tx.especie.findFirst({
+              where: { nombre: "bovino", organizacionId: organizacionSesion },
+            })
+          : null
+
+        if (!especieBovina) {
+          return NextResponse.json(
+            { error: "No existe la especie bovino para esta organización" },
+            { status: 400 }
+          )
+        }
+
+        const nuevoAnimal = await tx.animal.create({
+          data: {
+            especieId: especieBovina.id,
+            sexo: parsed.data.sexo,
+            caravanaVisual: parsed.data.caravanaVisual ?? null,
+            caravanaRfid: eidNormalizado,
+            establecimientoId: sesion.establecimientoId,
+          },
+        })
+        animalId = nuevoAnimal.id
+      }
+
+      const item = await tx.sesionMangaItem.create({
         data: {
           sesionId: id,
           orden: nuevoOrden,
@@ -160,15 +165,18 @@ export const POST = withAuth(async (request, ctx) => {
           sexo: parsed.data.sexo ?? null,
           categoria: parsed.data.categoria ?? null,
         },
-      }),
-      prisma.sesionManga.update({
+      })
+      await tx.sesionManga.update({
         where: { id },
         data: { totalAnimales: { increment: 1 } },
-      }),
-    ])
+      })
 
-    return NextResponse.json({ success: true, data: item }, { status: 201 })
+      return NextResponse.json({ success: true, data: item }, { status: 201 })
+    })
   } catch (error) {
+    if (error instanceof MangaSessionError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
     console.error("Error al agregar item a sesión:", error)
     return NextResponse.json(
       { success: false, error: "Error interno del servidor" },

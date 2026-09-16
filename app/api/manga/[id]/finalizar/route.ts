@@ -1,38 +1,38 @@
 import { NextResponse } from "next/server"
 import { withAuth } from "@/lib/api/with-auth"
 import { scopeEstablecimiento } from "@/lib/api/tenant"
-import { prisma } from "@/lib/prisma"
+import { MangaSessionError, withMangaSession } from "@/lib/api/manga-session"
 
 export const POST = withAuth(async (request, ctx) => {
   try {
     const { id } = ctx.params
 
-    const sesion = await prisma.sesionManga.findFirst({
-      where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
-      include: { items: true },
-    })
+    return await withMangaSession(id, ctx.establecimientoIds, async (tx) => {
+      const sesion = await tx.sesionManga.findFirst({
+        where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
+        include: { items: true },
+      })
 
-    if (!sesion) {
-      return NextResponse.json(
-        { error: "Sesión no encontrada" },
-        { status: 404 }
-      )
-    }
+      if (!sesion) {
+        return NextResponse.json(
+          { error: "Sesión no encontrada" },
+          { status: 404 }
+        )
+      }
 
-    if (sesion.estado === "finalizada") {
-      return NextResponse.json(
-        { error: "La sesión ya está finalizada" },
-        { status: 400 }
-      )
-    }
+      if (sesion.estado === "finalizada") {
+        return NextResponse.json(
+          { error: "La sesión ya está finalizada" },
+          { status: 400 }
+        )
+      }
 
-    const ahora = new Date()
-    let totalPesados = 0
-    let totalSanidad = 0
-    let totalTactos = 0
-    let totalNuevos = 0
+      const ahora = new Date()
+      let totalPesados = 0
+      let totalSanidad = 0
+      let totalTactos = 0
+      let totalNuevos = 0
 
-    const resultado = await prisma.$transaction(async (tx) => {
       await tx.sesionManga.update({
         where: { id },
         data: { estado: "finalizada", finalizadaAt: ahora },
@@ -80,17 +80,20 @@ export const POST = withAuth(async (request, ctx) => {
         }
       }
 
-      return {
+      const resultado = {
         totalProcesados: sesion.items.length,
         totalPesados,
         totalSanidad,
         totalTactos,
         totalNuevos,
       }
-    })
 
-    return NextResponse.json({ success: true, data: resultado })
+      return NextResponse.json({ success: true, data: resultado })
+    })
   } catch (error) {
+    if (error instanceof MangaSessionError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
     console.error("Error al finalizar sesión de manga:", error)
     return NextResponse.json(
       { success: false, error: "Error interno del servidor" },

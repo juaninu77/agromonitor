@@ -43,45 +43,37 @@ function openDB(): Promise<IDBDatabase> {
   })
 }
 
-export async function addPendingItem(item: Omit<PendingItem, "id">): Promise<number> {
+async function withPendingStore<T>(
+  mode: IDBTransactionMode,
+  operation: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
   const db = await openDB()
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite")
-    const store = tx.objectStore(STORE_NAME)
-    const request = store.add(item)
-    request.onsuccess = () => resolve(request.result as number)
-    request.onerror = () => reject(request.error)
-  })
-}
-
-export async function getPendingItems(sessionId?: string): Promise<PendingItem[]> {
-  const db = await openDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readonly")
-    const store = tx.objectStore(STORE_NAME)
-
-    if (sessionId) {
-      const index = store.index("sessionId")
-      const request = index.getAll(sessionId)
-      request.onsuccess = () => resolve(request.result)
-      request.onerror = () => reject(request.error)
-    } else {
-      const request = store.getAll()
-      request.onsuccess = () => resolve(request.result)
-      request.onerror = () => reject(request.error)
+    try {
+      const tx = db.transaction(STORE_NAME, mode)
+      const request = operation(tx.objectStore(STORE_NAME))
+      tx.oncomplete = () => { db.close(); resolve(request.result) }
+      tx.onabort = () => { db.close(); reject(tx.error ?? new Error("No se pudo guardar la operación local")) }
+      tx.onerror = () => { db.close(); reject(tx.error ?? request.error) }
+    } catch (error) {
+      db.close()
+      reject(error)
     }
   })
 }
 
+export async function addPendingItem(item: Omit<PendingItem, "id">): Promise<number> {
+  return await withPendingStore("readwrite", (store) => store.add(item)) as number
+}
+
+export function getPendingItems(sessionId?: string): Promise<PendingItem[]> {
+  return withPendingStore("readonly", (store) =>
+    sessionId ? store.index("sessionId").getAll(sessionId) : store.getAll()
+  )
+}
+
 export async function removePendingItem(id: number): Promise<void> {
-  const db = await openDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite")
-    const store = tx.objectStore(STORE_NAME)
-    const request = store.delete(id)
-    request.onsuccess = () => resolve()
-    request.onerror = () => reject(request.error)
-  })
+  await withPendingStore("readwrite", (store) => store.delete(id))
 }
 
 export async function clearPendingItems(sessionId: string): Promise<void> {
@@ -93,23 +85,27 @@ export async function clearPendingItems(sessionId: string): Promise<void> {
     if (item.id != null) store.delete(item.id)
   }
   return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error)
+    tx.oncomplete = () => { db.close(); resolve() }
+    tx.onerror = () => { db.close(); reject(tx.error) }
+    tx.onabort = () => { db.close(); reject(tx.error ?? new Error("Transacción cancelada")) }
   })
 }
 
-export async function getPendingCount(): Promise<number> {
-  const db = await openDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readonly")
-    const store = tx.objectStore(STORE_NAME)
-    const request = store.count()
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
-  })
+export function getPendingCount(): Promise<number> {
+  return withPendingStore("readonly", (store) => store.count())
 }
 
-export async function syncPendingItems(sessionId: string): Promise<{ synced: number; failed: number }> {
+const syncInFlight = new Map<string, Promise<{ synced: number; failed: number }>>()
+
+export function syncPendingItems(sessionId: string): Promise<{ synced: number; failed: number }> {
+  const current = syncInFlight.get(sessionId)
+  if (current) return current
+  const pending = syncSessionItems(sessionId).finally(() => syncInFlight.delete(sessionId))
+  syncInFlight.set(sessionId, pending)
+  return pending
+}
+
+async function syncSessionItems(sessionId: string): Promise<{ synced: number; failed: number }> {
   const items = await getPendingItems(sessionId)
   let synced = 0
   let failed = 0

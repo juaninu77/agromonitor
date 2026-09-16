@@ -35,6 +35,7 @@ const TenantContext = createContext<TenantContextType | undefined>(undefined)
 
 export function TenantProvider({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession()
+  const userId = session?.user?.id
 
   const [organizaciones, setOrganizaciones] = useState<Organizacion[]>([])
   const [establecimientos, setEstablecimientos] = useState<Establecimiento[]>([])
@@ -46,24 +47,28 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   // Refs para evitar loops y fetches duplicados
   const orgsFetchedRef = useRef(false)
   const estFetchingForOrgRef = useRef<string | null>(null)
-  const estFetchedForOrgRef = useRef<string | null>(null)
+  const orgRequestRef = useRef<AbortController | null>(null)
+  const estRequestRef = useRef<AbortController | null>(null)
 
   const fetchEstablecimientos = useCallback(async (organizacionId: string) => {
-    // Si ya estamos fetcheando para esta org o ya fetcheamos, salir
+    // Deduplicar solo peticiones en curso: una recarga explícita debe traer altas nuevas.
     if (estFetchingForOrgRef.current === organizacionId) return
-    if (estFetchedForOrgRef.current === organizacionId) return
 
+    estRequestRef.current?.abort()
+    const controller = new AbortController()
+    estRequestRef.current = controller
     estFetchingForOrgRef.current = organizacionId
+    setIsLoading(true)
+    setError(null)
     try {
-      const response = await fetch(`/api/organizaciones/${organizacionId}/establecimientos`)
+      const response = await fetch(`/api/organizaciones/${organizacionId}/establecimientos`, { signal: controller.signal })
       if (!response.ok) throw new Error("Error al cargar establecimientos")
 
       const data = await response.json()
 
       // Verificar que seguimos en la misma org (pudo cambiar durante el fetch)
-      if (estFetchingForOrgRef.current !== organizacionId) return
+      if (controller.signal.aborted) return
 
-      estFetchedForOrgRef.current = organizacionId
       setEstablecimientos(data)
 
       const savedEstId = typeof window !== "undefined"
@@ -73,15 +78,13 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         ? data.find((est: Establecimiento) => est.id === savedEstId) || data[0]
         : data[0]
 
-      if (estToSelect) {
-        setEstablecimientoActivoState(estToSelect)
-      }
+      setEstablecimientoActivoState(estToSelect ?? null)
     } catch (err) {
-      if (estFetchingForOrgRef.current === organizacionId) {
+      if (!controller.signal.aborted) {
         setError(err instanceof Error ? err.message : "Error al cargar establecimientos")
       }
     } finally {
-      if (estFetchingForOrgRef.current === organizacionId) {
+      if (!controller.signal.aborted) {
         estFetchingForOrgRef.current = null
         setIsLoading(false)
       }
@@ -91,13 +94,18 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const fetchOrganizaciones = useCallback(async () => {
     if (orgsFetchedRef.current) return
     orgsFetchedRef.current = true
+    const controller = new AbortController()
+    orgRequestRef.current?.abort()
+    orgRequestRef.current = controller
 
     try {
       setIsLoading(true)
-      const response = await fetch("/api/organizaciones")
+      setError(null)
+      const response = await fetch("/api/organizaciones", { signal: controller.signal })
       if (!response.ok) throw new Error("Error al cargar organizaciones")
 
       const data = await response.json()
+      if (controller.signal.aborted) return
       setOrganizaciones(data)
 
       const savedOrgId = typeof window !== "undefined"
@@ -115,6 +123,8 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false)
       }
     } catch (err) {
+      if (controller.signal.aborted) return
+      orgsFetchedRef.current = false
       setError(err instanceof Error ? err.message : "Error desconocido")
       setIsLoading(false)
     }
@@ -122,16 +132,23 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
   // Efecto UNICO: cargar datos al autenticarse
   useEffect(() => {
-    if (status === "authenticated" && session?.user) {
+    setOrganizaciones([])
+    setEstablecimientos([])
+    setOrganizacionActivaState(null)
+    setEstablecimientoActivoState(null)
+    setError(null)
+    if (status === "authenticated" && userId) {
       fetchOrganizaciones()
-    } else if (status === "unauthenticated") {
-      setIsLoading(false)
+    } else {
+      setIsLoading(status === "loading")
+    }
+    return () => {
+      orgRequestRef.current?.abort()
+      estRequestRef.current?.abort()
       orgsFetchedRef.current = false
-      estFetchedForOrgRef.current = null
       estFetchingForOrgRef.current = null
     }
-  }, [status, fetchOrganizaciones])
-  // session?.user removido como dep - status es suficiente para saber si esta autenticado
+  }, [status, userId, fetchOrganizaciones])
 
   const setOrganizacionActiva = useCallback((org: Organizacion | null) => {
     setOrganizacionActivaState(org)
@@ -139,8 +156,9 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     setEstablecimientos([])
 
     // Resetear ref de establecimientos para permitir nuevo fetch
-    estFetchedForOrgRef.current = null
+    estRequestRef.current?.abort()
     estFetchingForOrgRef.current = null
+    setError(null)
 
     if (org) {
       localStorage.setItem("organizacionActivaId", org.id)
@@ -148,6 +166,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       fetchEstablecimientos(org.id)
     } else {
       localStorage.removeItem("organizacionActivaId")
+      setIsLoading(false)
     }
   }, [fetchEstablecimientos])
 

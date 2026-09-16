@@ -45,6 +45,7 @@ next-env.d.ts
 /backups
 *.sql
 !/prisma/constraints.sql
+!/scripts/audit/*.sql
 # Las migraciones versionadas SÍ se commitean (fuente de verdad del esquema)
 !/prisma/migrations/**/*.sql
 *.backup

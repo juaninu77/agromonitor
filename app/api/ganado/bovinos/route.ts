@@ -396,6 +396,8 @@ export const POST = withAuth(async (request, ctx) => {
         )
       }
 
+      if (lote.establecimientoId !== establecimientoDestino) { return NextResponse.json({ error: "El lote no pertenece al establecimiento del animal" }, { status: 400 }) }
+
       if (lote.especieId !== especieId) {
         return NextResponse.json(
           { error: "El lote seleccionado no corresponde a la especie del animal" },
@@ -407,7 +409,7 @@ export const POST = withAuth(async (request, ctx) => {
     // Validar sector (si se proporciona) ANTES de crear el animal
     if (body.sectorId) {
       const sector = await sectorDelTenant(body.sectorId, ctx.establecimientoIds)
-      if (!sector) {
+      if (!sector || sector.establecimientoId !== establecimientoDestino) {
         return NextResponse.json(
           { error: "Sector no encontrado" },
           { status: 404 }
@@ -415,67 +417,72 @@ export const POST = withAuth(async (request, ctx) => {
       }
     }
 
-    // Crear animal
-    const animal = await prisma.animal.create({
-      data: {
-        especieId,
-        razaId: body.razaId,
-        categoriaId: body.categoriaId,
-        establecimientoId: establecimientoDestino,
-        sexo: body.sexo || 'M',
-        cuig: body.cuig,
-        caravanaVisual: body.caravanaVisual,
-        caravanaRfid: body.caravanaRfid,
-        otroId: body.otroId,
-        fechaNacimiento: body.fechaNacimiento ? new Date(body.fechaNacimiento) : null,
-        origen: body.origen || 'cria_propia',
-        colorManto: body.colorManto,
-        estadoCastracion: body.estadoCastracion,
-        denticion: body.denticion,
-        esCabana: body.esCabana || false,
-        registroCabana: body.registroCabana,
-        notas: body.notas,
-      },
-      include: {
-        especie: true,
-        raza: true,
-        categoria: true,
-      },
+    // Alta atómica: un fallo en peso o historial revierte también el animal.
+    const animal = await prisma.$transaction(async (tx) => {
+      // Crear animal
+      const animal = await tx.animal.create({
+        data: {
+          especieId,
+          razaId: body.razaId,
+          categoriaId: body.categoriaId,
+          establecimientoId: establecimientoDestino,
+          sexo: body.sexo || 'M',
+          cuig: body.cuig,
+          caravanaVisual: body.caravanaVisual,
+          caravanaRfid: body.caravanaRfid,
+          otroId: body.otroId,
+          fechaNacimiento: body.fechaNacimiento ? new Date(body.fechaNacimiento) : null,
+          origen: body.origen || 'cria_propia',
+          colorManto: body.colorManto,
+          estadoCastracion: body.estadoCastracion,
+          denticion: body.denticion,
+          esCabana: body.esCabana || false,
+          registroCabana: body.registroCabana,
+          notas: body.notas,
+        },
+        include: {
+          especie: true,
+          raza: true,
+          categoria: true,
+        },
+      })
+
+      // Si se proporciona peso inicial, crear evento de pesada
+      if (body.pesoInicial) {
+        await tx.evtPesada.create({
+          data: {
+            animalId: animal.id,
+            fecha: new Date(),
+            pesoKg: body.pesoInicial,
+            cc: body.ccInicial,
+          }
+        })
+      }
+
+      // Si se proporciona lote (ya validado), asignar al lote
+      if (body.loteId) {
+        await tx.animalLoteHist.create({
+          data: {
+            animalId: animal.id,
+            loteId: body.loteId,
+            desde: new Date(),
+          }
+        })
+      }
+
+      // Si se proporciona sector/ubicación (ya validado), asignar ubicación
+      if (body.sectorId) {
+        await tx.ubicacionHist.create({
+          data: {
+            animalId: animal.id,
+            sectorId: body.sectorId,
+            desde: new Date(),
+          }
+        })
+      }
+
+      return animal
     })
-
-    // Si se proporciona peso inicial, crear evento de pesada
-    if (body.pesoInicial) {
-      await prisma.evtPesada.create({
-        data: {
-          animalId: animal.id,
-          fecha: new Date(),
-          pesoKg: body.pesoInicial,
-          cc: body.ccInicial,
-        }
-      })
-    }
-
-    // Si se proporciona lote (ya validado), asignar al lote
-    if (body.loteId) {
-      await prisma.animalLoteHist.create({
-        data: {
-          animalId: animal.id,
-          loteId: body.loteId,
-          desde: new Date(),
-        }
-      })
-    }
-
-    // Si se proporciona sector/ubicación (ya validado), asignar ubicación
-    if (body.sectorId) {
-      await prisma.ubicacionHist.create({
-        data: {
-          animalId: animal.id,
-          sectorId: body.sectorId,
-          desde: new Date(),
-        }
-      })
-    }
 
     return NextResponse.json({
       success: true,

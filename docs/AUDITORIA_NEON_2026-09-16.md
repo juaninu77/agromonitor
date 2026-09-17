@@ -1,5 +1,7 @@
 # Auditoría real de Neon — AgroMonitor
 
+**Actualización posterior:** ver [cambios aplicados y pruebas del 17/09](ACTUALIZACION_NEON_2026-09-17.md). Este informe conserva el diagnóstico anterior a la actualización.
+
 Fecha local: 16/09/2026. Fuente: MCP oficial de Neon, consultas SELECT sobre catálogo y conteos. No se aplicaron migraciones ni modificaciones de datos.
 
 ## Resultado principal

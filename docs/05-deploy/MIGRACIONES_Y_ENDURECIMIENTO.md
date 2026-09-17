@@ -46,7 +46,7 @@ pnpm db:migrate:deploy     # aplica migraciones pendientes en producción
 
 La baseline actual no incluye los CHECK ni los índices únicos parciales
 (están en `prisma/constraints.sql`). Prisma puede ejecutar ese SQL si se
-versiona en una migración. Mientras se mantenga separado, revisar y aplicar:
+versiona en una migración. Desde el 17/09/2026 también se versionan y validan en `20260917030000_integrity`; `prisma migrate deploy` los aplica. Para mantenimiento manual revisado, el script original sigue disponible:
 
 ```bash
 pnpm db:constraints        # idempotente

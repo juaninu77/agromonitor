@@ -1,5 +1,7 @@
 # Actualización aplicada y validación — 17/09/2026
 
+Este informe corresponde a la primera entrega (PR #3). La siguiente etapa de patrimonio, comprobantes, documentos privados y seguimiento de trámites se describe en [Administración del campo](ADMINISTRACION_DEL_CAMPO.md).
+
 ## Alcance
 
 Se ensayó la reconciliación del esquema de AgroMonitor con Prisma en una rama Neon separada y después se aplicó a `main/neondb`, conforme a la autorización del usuario. No se borraron tablas ni registros. Esta entrega deja operativa la estructura existente; no implementa todavía patrimonio, archivo privado, facturación o integración oficial con SENASA.

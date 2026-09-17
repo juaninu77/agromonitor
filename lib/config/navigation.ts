@@ -9,6 +9,7 @@ import {
   ClipboardList,
   ScanBarcode,
   Settings,
+  FolderOpen,
 } from "lucide-react"
 import type { NavItem } from "@/lib/types"
 
@@ -21,6 +22,7 @@ export const navItems: NavItem[] = [
   { title: "Potreros", href: "/potreros", icon: MapPin },
   { title: "Ventas y Compras", href: "/ventas", icon: ShoppingCart },
   { title: "Inventario", href: "/inventario", icon: Package },
+  { title: "Administración", href: "/administracion", icon: FolderOpen },
   { title: "Tareas", href: "/tareas", icon: ClipboardList },
   { title: "Configuración", href: "/configuracion/establecimientos", icon: Settings },
 ]

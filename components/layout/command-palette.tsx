@@ -23,10 +23,12 @@ import {
   Scale,
   Plus,
   Loader2,
+  FolderOpen,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 const navCommands = [
+  { id: "administracion", label: "Administración: patrimonio, comprobantes y documentos", icon: FolderOpen, action: "/administracion" },
   { id: "dashboard", label: "Panel de Control", icon: LayoutDashboard, action: "/" },
   { id: "ganado", label: "Ganado", icon: Bot, action: "/ganado" },
   { id: "sanidad", label: "Sanidad", icon: Syringe, action: "/sanidad" },

@@ -219,12 +219,16 @@ model Establecimiento {
   organizacionId String       @map("organizacion_id") @db.Uuid
   organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
 
-  sectores           Sector[]
-  lotes              Lote[]
-  tareas             Tarea[]
-  sesionesManga      SesionManga[]
-  animales           Animal[]
-  documentosTransito DocumentoTransito[]
+  sectores             Sector[]
+  lotes                Lote[]
+  tareas               Tarea[]
+  sesionesManga        SesionManga[]
+  animales             Animal[]
+  documentosTransito   DocumentoTransito[]
+  activosPatrimoniales ActivoPatrimonial[]
+  comprobantes         Comprobante[]
+  tramites             Tramite[]
+  documentosArchivo    DocumentoArchivo[]
 
   @@unique([organizacionId, nombre])
   @@map("establecimientos")
@@ -414,7 +418,7 @@ model LoteProducto {
   productoId String   @map("producto_id") @db.Uuid
   producto   Producto @relation(fields: [productoId], references: [id])
 
-  proveedorId String?    @map("proveedor_id") @db.Uuid
+  proveedorId  String?    @map("proveedor_id") @db.Uuid
   proveedorRef Proveedor? @relation(fields: [proveedorId], references: [id])
 
   eventosSanidad   EvtSanidad[]
@@ -479,7 +483,8 @@ model Cliente {
 // Usamos animal_attr para extensiones
 
 model Animal {
-  id String @id @default(uuid()) @db.Uuid
+  id                String             @id @default(uuid()) @db.Uuid
+  documentosArchivo DocumentoArchivo[]
 
   // === IDENTIFICACIÓN ===
   cuig           String? @unique // SENASA
@@ -1169,15 +1174,15 @@ model MovimientoStock {
 // ============================================
 
 model SesionManga {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   nombre              String
-  fecha               DateTime  @db.Date
-  estado              String    @default("activa") // activa | pausada | finalizada
-  tipo                String    // pesada | sanidad | tacto | general | señalada | destete | recepcion
-  accionesHabilitadas String[]  @map("acciones_habilitadas")
+  fecha               DateTime @db.Date
+  estado              String   @default("activa") // activa | pausada | finalizada
+  tipo                String // pesada | sanidad | tacto | general | señalada | destete | recepcion
+  accionesHabilitadas String[] @map("acciones_habilitadas")
 
-  loteOrigenId      String? @map("lote_origen_id") @db.Uuid
-  loteOrigen        Lote?   @relation("MangaLoteOrigen", fields: [loteOrigenId], references: [id])
+  loteOrigenId String? @map("lote_origen_id") @db.Uuid
+  loteOrigen   Lote?   @relation("MangaLoteOrigen", fields: [loteOrigenId], references: [id])
 
   productoSanidadId String?   @map("producto_sanidad_id") @db.Uuid
   productoSanidad   Producto? @relation(fields: [productoSanidadId], references: [id])
@@ -1230,4 +1235,121 @@ model SesionMangaItem {
   @@index([eidLeido])
   @@index([animalId])
   @@map("sesion_manga_items")
+}
+
+// Administración: todos los registros pertenecen a un campo, cuya organización
+// determina permisos. Las referencias entre módulos conservan el mismo campo.
+model ActivoPatrimonial {
+  id                String             @id @default(uuid()) @db.Uuid
+  establecimientoId String             @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento    @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
+  titulo            String
+  tipo              String
+  referencia        String?
+  fecha             DateTime?          @db.Date
+  importe           Decimal?           @db.Decimal(14, 2)
+  moneda            String             @default("ARS")
+  estado            String             @default("activo")
+  notas             String?
+  version           Int                @default(1)
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  documentos        DocumentoArchivo[]
+
+  @@unique([id, establecimientoId])
+  @@index([establecimientoId, createdAt])
+  @@map("activos_patrimoniales")
+}
+
+model Comprobante {
+  id                String             @id @default(uuid()) @db.Uuid
+  establecimientoId String             @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento    @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
+  titulo            String
+  tipo              String
+  referencia        String
+  contraparte       String
+  cuit              String?
+  fecha             DateTime           @db.Date
+  vencimiento       DateTime?          @db.Date
+  importe           Decimal            @db.Decimal(14, 2)
+  moneda            String             @default("ARS")
+  sentido           String
+  estado            String             @default("pendiente")
+  notas             String?
+  version           Int                @default(1)
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  documentos        DocumentoArchivo[]
+
+  @@unique([id, establecimientoId])
+  @@unique([establecimientoId, tipo, referencia, contraparte, sentido])
+  @@index([establecimientoId, fecha])
+  @@map("comprobantes")
+}
+
+model Tramite {
+  id                String             @id @default(uuid()) @db.Uuid
+  establecimientoId String             @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento    @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
+  titulo            String
+  tipo              String
+  referencia        String?
+  fecha             DateTime           @db.Date
+  vencimiento       DateTime?          @db.Date
+  estado            String             @default("pendiente")
+  notas             String?
+  version           Int                @default(1)
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  documentos        DocumentoArchivo[]
+
+  @@unique([id, establecimientoId])
+  @@index([establecimientoId, vencimiento])
+  @@map("tramites")
+}
+
+model DocumentoArchivo {
+  id                String             @id @default(uuid()) @db.Uuid
+  establecimientoId String             @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento    @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
+  titulo            String
+  tipo              String
+  referencia        String?
+  fecha             DateTime?          @db.Date
+  vencimiento       DateTime?          @db.Date
+  notas             String?
+  estado            String             @default("activo")
+  version           Int                @default(1)
+  nombreArchivo     String             @map("nombre_archivo")
+  mime              String
+  bytes             Int
+  sha256            String
+  activoId          String?            @map("activo_id") @db.Uuid
+  activo            ActivoPatrimonial? @relation(fields: [activoId, establecimientoId], references: [id, establecimientoId], onDelete: Restrict, onUpdate: NoAction)
+  comprobanteId     String?            @map("comprobante_id") @db.Uuid
+  comprobante       Comprobante?       @relation(fields: [comprobanteId, establecimientoId], references: [id, establecimientoId], onDelete: Restrict, onUpdate: NoAction)
+  tramiteId         String?            @map("tramite_id") @db.Uuid
+  tramite           Tramite?           @relation(fields: [tramiteId, establecimientoId], references: [id, establecimientoId], onDelete: Restrict, onUpdate: NoAction)
+  animalId          String?            @map("animal_id") @db.Uuid
+  animal            Animal?            @relation(fields: [animalId], references: [id], onDelete: Restrict)
+  contenido         ArchivoContenido?
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+
+  @@index([establecimientoId, createdAt])
+  @@index([activoId])
+  @@index([comprobanteId])
+  @@index([tramiteId])
+  @@index([animalId])
+  @@map("documentos_archivo")
+}
+
+// Separado para que ninguna consulta de listado cargue los binarios.
+model ArchivoContenido {
+  documentoId String           @id @map("documento_id") @db.Uuid
+  documento   DocumentoArchivo @relation(fields: [documentoId], references: [id], onDelete: Cascade)
+  datos       Bytes
+
+  @@map("archivos_contenido")
 }

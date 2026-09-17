@@ -79,7 +79,7 @@ export function withAuth(handler: AuthHandler, options: AuthOptions = {}) {
       }
 
       const membresias = await prisma.membresia.findMany({
-        where: { usuarioId: session.user.id, esActivo: true },
+        where: { usuarioId: session.user.id, esActivo: true, usuario: { esActivo: true }, organizacion: { esActivo: true } },
         include: {
           organizacion: {
             include: { establecimientos: { select: { id: true } } },

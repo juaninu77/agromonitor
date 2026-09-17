@@ -2,6 +2,8 @@ import { AppShell } from "@/components/layout/app-shell"
 import { Ticker } from "@/components/layout/ticker"
 import { OnboardingGuard } from "@/components/configuracion/onboarding-guard"
 
+export const dynamic = "force-dynamic"
+
 /**
  * Layout para páginas autenticadas
  * Incluye el AppShell con sidebar, header, etc.

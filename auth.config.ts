@@ -1,5 +1,5 @@
 import type { NextAuthConfig } from 'next-auth'
-import { prisma } from '@/lib/prisma'
+
 
 /**
  * Configuración de NextAuth.js v5
@@ -49,7 +49,7 @@ export const authConfig = {
       return true
     },
 
-    async jwt({ token, user, trigger }) {
+    async jwt({ token, user }) {
       // Si hay nuevo login, usar esos datos directamente
       if (user) {
         token.id = user.id
@@ -60,38 +60,8 @@ export const authConfig = {
         return token
       }
 
-      // AUTO-REPARACIÓN: Si el token tiene ID corrupto, buscar usuario real en BD
-      if (token.email && !isValidUUID(token.id)) {
-        console.warn('⚠️ Token JWT corrupto detectado. ID:', token.id)
-        console.log('🔧 Intentando reparar desde base de datos...')
-
-        try {
-          const realUser = await prisma.usuario.findUnique({
-            where: { email: token.email as string },
-            select: {
-              id: true,
-              nombre: true,
-              apellido: true,
-              rol: true,
-              esActivo: true,
-            }
-          })
-
-          if (realUser && realUser.esActivo) {
-            console.log('✅ Token reparado exitosamente. Nuevo ID:', realUser.id)
-            token.id = realUser.id
-            token.nombre = realUser.nombre
-            token.apellido = realUser.apellido
-            token.rol = realUser.rol
-          } else {
-            console.error('❌ No se pudo reparar: usuario no encontrado o inactivo')
-            return null
-          }
-        } catch (error) {
-          console.error('❌ Error al reparar token:', error)
-          return null
-        }
-      }
+      // El middleware Edge no consulta Prisma. Un token inválido requiere nuevo login.
+      if (!isValidUUID(token.id)) return null
 
       return token
     },

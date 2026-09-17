@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: Validación del ERP
 
 on:
   push:
@@ -6,209 +6,56 @@ on:
   pull_request:
     branches: [main, develop]
 
-env:
-  NODE_ENV: test
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  # ==========================================
-  # Job: Lint y Type Check
-  # ==========================================
-  lint:
-    name: 🔍 Lint & Type Check
+  validate:
+    name: Código y pruebas
     runs-on: ubuntu-latest
-    
     steps:
-      - name: 📥 Checkout código
-        uses: actions/checkout@v4
-      
-      - name: 📦 Setup pnpm
-        uses: pnpm/action-setup@v2
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: 9
-          
-      - name: 🟢 Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'pnpm'
-          
-      - name: 📦 Instalar dependencias
-        run: pnpm install --frozen-lockfile
-      
-      - name: 🔍 ESLint
-        run: pnpm lint
-      
-      - name: 📝 TypeScript Check
-        run: pnpm type-check
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm type-check
+      - run: pnpm test:ci
+      - name: Auditoría del esquema versionado (no de Neon)
+        run: pnpm db:audit
 
-  # ==========================================
-  # Job: Tests
-  # ==========================================
-  test:
-    name: 🧪 Tests
-    runs-on: ubuntu-latest
-    needs: lint
-    
-    steps:
-      - name: 📥 Checkout código
-        uses: actions/checkout@v4
-      
-      - name: 📦 Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          
-      - name: 🟢 Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-          
-      - name: 📦 Instalar dependencias
-        run: pnpm install --frozen-lockfile
-        
-      - name: 🔧 Generar Prisma Client
-        run: pnpm db:generate
-      
-      - name: 🧪 Ejecutar tests
-        run: pnpm test:ci
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_TEST }}
-          NEXTAUTH_URL: http://localhost:3000
-
-  # ==========================================
-  # Job: Build (solo en main y develop)
-  # ==========================================
   build:
-    name: 🏗️ Build
+    name: Compilación de producción
     runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'push'
-    
+    needs: validate
     steps:
-      - name: 📥 Checkout código
-        uses: actions/checkout@v4
-      
-      - name: 📦 Setup pnpm
-        uses: pnpm/action-setup@v2
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: 9
-          
-      - name: 🟢 Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'pnpm'
-          
-      - name: 📦 Instalar dependencias
-        run: pnpm install --frozen-lockfile
-        
-      - name: 🔧 Generar Prisma Client
-        run: pnpm db:generate
-      
-      - name: 🏗️ Build aplicación
-        run: pnpm build
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_PROD }}
-          NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL_PROD }}
-      
-      - name: 📤 Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-${{ github.sha }}
-          path: .next/
-          retention-days: 7
-
-  # ==========================================
-  # Job: Deploy a Producción (solo main)
-  # ==========================================
-  deploy-production:
-    name: 🚀 Deploy Producción
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment:
-      name: production
-      url: ${{ secrets.NEXTAUTH_URL_PROD }}
-    
-    steps:
-      - name: 📥 Checkout código
-        uses: actions/checkout@v4
-        
-      - name: 📥 Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: build-${{ github.sha }}
-          path: .next/
-      
-      # Aquí iría el deploy a Vercel, Railway, etc.
-      # Ejemplo con Vercel:
-      # - name: 🚀 Deploy a Vercel
-      #   uses: amondnet/vercel-action@v25
-      #   with:
-      #     vercel-token: ${{ secrets.VERCEL_TOKEN }}
-      #     vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-      #     vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-      #     vercel-args: '--prod'
-      
-      - name: ✅ Deploy completado
-        run: echo "🎉 Deploy a producción completado!"
-
-  # ==========================================
-  # Job: Deploy Preview (PRs a main)
-  # ==========================================
-  deploy-preview:
-    name: 👀 Deploy Preview
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    
-    steps:
-      - name: 📥 Checkout código
-        uses: actions/checkout@v4
-      
-      - name: 📦 Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          
-      - name: 🟢 Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-          
-      - name: 📦 Instalar dependencias
-        run: pnpm install --frozen-lockfile
-        
-      - name: 🔧 Generar Prisma Client
-        run: pnpm db:generate
-      
-      - name: 🏗️ Build preview
-        run: pnpm build
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_TEST }}
-          NEXTAUTH_URL: http://localhost:3000
-      
-      # Ejemplo: Deploy preview a Vercel
-      # - name: 👀 Deploy Preview a Vercel
-      #   uses: amondnet/vercel-action@v25
-      #   with:
-      #     vercel-token: ${{ secrets.VERCEL_TOKEN }}
-      #     vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-      #     vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-      
-      - name: 💬 Comentar PR
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '✅ Build completado! Preview listo para revisión.'
-            })
-
+          NODE_ENV: production
+          # Solo se compila. Estas credenciales ficticias no conectan a Neon.
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/agromonitor_ci
+          DIRECT_URL: postgresql://ci:ci@127.0.0.1:5432/agromonitor_ci
+          AUTH_SECRET: ci-build-only-not-for-deployment
+      - name: Resultado
+        run: |
+          echo '### Compilación aprobada' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Este workflow valida código; no despliega ni modifica bases de datos.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'La URL de preview debe provenir de un despliegue real del proveedor de hosting.' >> "$GITHUB_STEP_SUMMARY"

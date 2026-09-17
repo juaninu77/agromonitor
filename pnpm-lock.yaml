@@ -11,6 +11,9 @@ importers:
       '@hookform/resolvers':
         specifier: ^3.9.1
         version: 3.9.1(react-hook-form@7.61.1(react@19.0.0))
+      '@next/env':
+        specifier: 15.5.19
+        version: 15.5.19
       '@prisma/client':
         specifier: ^6.4.1
         version: 6.19.0(prisma@6.19.0(typescript@5.9.3))(typescript@5.9.3)

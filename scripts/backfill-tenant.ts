@@ -1,180 +1,108 @@
-// ============================================
-// Backfill de scoping multi-tenant.
-// Ejecutar con: pnpm db:backfill-tenant (o con dotenv -e .env.<ambiente>)
-//
-// Solo completa columnas NUEVAS que estén en NULL — nunca pisa valores
-// existentes ni borra nada (cumple .cursor/rules/seguridad-db.md).
-// Correr DESPUÉS de `pnpm db:push` con el schema actualizado.
-// ============================================
-
+// Primero revisar el plan: pnpm db:backfill-tenant
+// Aplicar solo sobre una base reconciliada, con backup y autorización:
+// pnpm db:backfill-tenant --apply
 import { prisma } from "../lib/prisma"
+import { supplierCandidate, uniqueCandidate } from "../lib/db/backfill-candidates"
+
+const apply = process.argv.includes("--apply")
 
 async function backfillAnimales() {
-  const sinEstablecimiento = await prisma.animal.findMany({
+  const animals = await prisma.animal.findMany({
     where: { establecimientoId: null },
     select: {
       id: true,
-      ubicacionHist: {
-        orderBy: { desde: "desc" },
-        take: 1,
-        select: { sector: { select: { establecimientoId: true } } },
-      },
-      loteHist: {
-        orderBy: { desde: "desc" },
-        take: 1,
-        select: { lote: { select: { establecimientoId: true } } },
-      },
+      ubicacionHist: { where: { hasta: null }, select: { sector: { select: { establecimientoId: true } } } },
+      loteHist: { where: { hasta: null }, select: { lote: { select: { establecimientoId: true } } } },
     },
   })
-
-  const establecimientos = await prisma.establecimiento.findMany({
-    select: { id: true },
-  })
-  const unicoEstablecimiento =
-    establecimientos.length === 1 ? establecimientos[0].id : null
-
-  let asignados = 0
-  let sinResolver = 0
-
-  for (const animal of sinEstablecimiento) {
-    const desdeUbicacion = animal.ubicacionHist[0]?.sector.establecimientoId
-    const desdeLote = animal.loteHist[0]?.lote.establecimientoId
-    const destino = desdeUbicacion ?? desdeLote ?? unicoEstablecimiento
-
-    if (destino) {
-      await prisma.animal.update({
-        where: { id: animal.id },
-        data: { establecimientoId: destino },
-      })
-      asignados++
-    } else {
-      sinResolver++
-    }
+  let planned = 0
+  let changed = 0
+  for (const animal of animals) {
+    const destination = uniqueCandidate([
+      ...animal.ubicacionHist.map((h) => h.sector.establecimientoId),
+      ...animal.loteHist.map((h) => h.lote.establecimientoId),
+    ])
+    if (!destination) continue
+    planned++
+    if (apply) changed += (await prisma.animal.updateMany({
+      where: { id: animal.id, establecimientoId: null },
+      data: { establecimientoId: destination },
+    })).count
   }
-
-  console.log(`Animales: ${asignados} asignados, ${sinResolver} sin resolver (requieren asignación manual)`)
+  console.log(`Animales: ${planned} asignaciones propuestas, ${animals.length - planned} sin resolver, ${changed} aplicadas`)
 }
 
 async function backfillPorOrganizacionUnica() {
-  const organizaciones = await prisma.organizacion.findMany({ select: { id: true } })
-  if (organizaciones.length !== 1) {
-    const productos = await prisma.producto.count({ where: { organizacionId: null } })
-    const dietas = await prisma.dieta.count({ where: { organizacionId: null } })
-    const especies = await prisma.especie.count({ where: { organizacionId: null } })
-    const razas = await prisma.raza.count({ where: { organizacionId: null } })
-    const categorias = await prisma.categoria.count({ where: { organizacionId: null } })
-    console.log(
-      `Hay ${organizaciones.length} organizaciones: no se puede asignar automáticamente ` +
-        `organizacionId a ${productos} productos, ${dietas} dietas, ${especies} especies, ` +
-        `${razas} razas y ${categorias} categorías — asignar manualmente ` +
-        `(los catálogos globales previos deben duplicarse por organización).`
-    )
+  const organizations = await prisma.organizacion.findMany({ select: { id: true } })
+  const counts = {
+    productos: await prisma.producto.count({ where: { organizacionId: null } }),
+    dietas: await prisma.dieta.count({ where: { organizacionId: null } }),
+    especies: await prisma.especie.count({ where: { organizacionId: null } }),
+    razas: await prisma.raza.count({ where: { organizacionId: null } }),
+    categorias: await prisma.categoria.count({ where: { organizacionId: null } }),
+  }
+  console.log("Registros pendientes por organización:", counts)
+  if (organizations.length !== 1) {
+    console.log(`Hay ${organizations.length} organizaciones: se requiere resolver pertenencia y catálogos compartidos. No se asignan automáticamente.`)
     return
   }
-
-  const orgId = organizaciones[0].id
-  const productos = await prisma.producto.updateMany({
-    where: { organizacionId: null },
-    data: { organizacionId: orgId },
-  })
-  const dietas = await prisma.dieta.updateMany({
-    where: { organizacionId: null },
-    data: { organizacionId: orgId },
-  })
-  // Catálogos (especie/raza/categoría) que eran globales pasan a la única org.
-  const especies = await prisma.especie.updateMany({
-    where: { organizacionId: null },
-    data: { organizacionId: orgId },
-  })
-  const razas = await prisma.raza.updateMany({
-    where: { organizacionId: null },
-    data: { organizacionId: orgId },
-  })
-  const categorias = await prisma.categoria.updateMany({
-    where: { organizacionId: null },
-    data: { organizacionId: orgId },
-  })
-  console.log(`Productos: ${productos.count} asignados a la organización única`)
-  console.log(`Dietas: ${dietas.count} asignadas a la organización única`)
-  console.log(`Especies: ${especies.count} asignadas a la organización única`)
-  console.log(`Razas: ${razas.count} asignadas a la organización única`)
-  console.log(`Categorías: ${categorias.count} asignadas a la organización única`)
+  if (!apply) return
+  const args = { where: { organizacionId: null }, data: { organizacionId: organizations[0].id } }
+  await prisma.$transaction([
+    prisma.producto.updateMany(args), prisma.dieta.updateMany(args),
+    prisma.especie.updateMany(args), prisma.raza.updateMany(args), prisma.categoria.updateMany(args),
+  ])
 }
 
 async function backfillDocumentosTransito() {
-  const pendientes = await prisma.documentoTransito.findMany({
+  const documents = await prisma.documentoTransito.findMany({
     where: { establecimientoId: null },
-    select: { id: true, renspaOrigen: true },
+    select: { id: true, renspaOrigen: true, renspaDestino: true },
   })
-
-  const establecimientos = await prisma.establecimiento.findMany({
-    select: { id: true, renspa: true },
-  })
-  const porRenspa = new Map(
-    establecimientos.filter((e) => e.renspa).map((e) => [e.renspa as string, e.id])
-  )
-  const unico = establecimientos.length === 1 ? establecimientos[0].id : null
-
-  let asignados = 0
-  let sinResolver = 0
-  for (const doc of pendientes) {
-    const destino = porRenspa.get(doc.renspaOrigen) ?? unico
-    if (destino) {
-      await prisma.documentoTransito.update({
-        where: { id: doc.id },
-        data: { establecimientoId: destino },
-      })
-      asignados++
-    } else {
-      sinResolver++
-    }
+  const fields = await prisma.establecimiento.findMany({ select: { id: true, renspa: true } })
+  let planned = 0
+  let changed = 0
+  for (const document of documents) {
+    // Si ambos extremos son campos distintos del sistema, el documento requiere
+    // una decisión explícita de pertenencia; no elegimos el primero.
+    const destination = uniqueCandidate(fields.filter((field) => field.renspa &&
+      [document.renspaOrigen, document.renspaDestino].includes(field.renspa)).map((field) => field.id))
+    if (!destination) continue
+    planned++
+    if (apply) changed += (await prisma.documentoTransito.updateMany({
+      where: { id: document.id, establecimientoId: null }, data: { establecimientoId: destination },
+    })).count
   }
-  console.log(`Documentos de tránsito: ${asignados} asignados, ${sinResolver} sin resolver`)
+  console.log(`Documentos: ${planned} asignaciones propuestas, ${documents.length - planned} sin resolver, ${changed} aplicadas`)
 }
 
 async function backfillProveedoresLoteProducto() {
-  const pendientes = await prisma.loteProducto.findMany({
+  const lots = await prisma.loteProducto.findMany({
     where: { proveedorId: null, proveedor: { not: null } },
-    select: { id: true, proveedor: true },
+    select: { id: true, proveedor: true, producto: { select: { organizacionId: true } } },
   })
-  if (pendientes.length === 0) {
-    console.log("Lotes de producto: nada que asignar")
-    return
+  const suppliers = await prisma.proveedor.findMany({ select: { id: true, nombre: true, organizacionId: true } })
+  let planned = 0
+  let changed = 0
+  for (const lot of lots) {
+    const supplierId = supplierCandidate(lot.proveedor ?? "", lot.producto.organizacionId, suppliers)
+    if (!supplierId) continue
+    planned++
+    if (apply) changed += (await prisma.loteProducto.updateMany({
+      where: { id: lot.id, proveedorId: null }, data: { proveedorId: supplierId },
+    })).count
   }
-
-  const proveedores = await prisma.proveedor.findMany({
-    select: { id: true, nombre: true },
-  })
-  const porNombre = new Map(
-    proveedores.map((p) => [p.nombre.trim().toLowerCase(), p.id])
-  )
-
-  let asignados = 0
-  for (const lote of pendientes) {
-    const proveedorId = porNombre.get((lote.proveedor as string).trim().toLowerCase())
-    if (proveedorId) {
-      await prisma.loteProducto.update({
-        where: { id: lote.id },
-        data: { proveedorId },
-      })
-      asignados++
-    }
-  }
-  console.log(`Lotes de producto: ${asignados}/${pendientes.length} vinculados a Proveedor por nombre`)
+  console.log(`Lotes de producto: ${planned} asignaciones propuestas, ${lots.length - planned} sin resolver, ${changed} aplicadas`)
 }
 
 async function main() {
-  console.log("=== Backfill de tenant (solo completa NULLs, no modifica datos existentes) ===")
+  console.log(apply ? "Modo APLICAR: completa relaciones vacías; ejecutar en ventana sin escrituras concurrentes." : "Modo PLAN: solo lectura. No se modifica ninguna fila.")
   await backfillAnimales()
   await backfillPorOrganizacionUnica()
   await backfillDocumentosTransito()
   await backfillProveedoresLoteProducto()
-  console.log("=== Backfill terminado ===")
 }
-
-main()
-  .catch((error) => {
-    console.error("Error en backfill:", error)
-    process.exit(1)
-  })
-  .finally(() => prisma.$disconnect())
+main().catch(() => {
+  console.error("No se pudo completar el backfill. Verificar conexión, permisos y coincidencia del esquema; no se muestran credenciales.")
+  process.exitCode = 1
+}).finally(() => prisma.$disconnect())

@@ -78,7 +78,7 @@ const ESTADO_CONFIG: Record<string, { label: string; className: string }> = {
   pendiente: { label: "Pendiente", className: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100" },
   en_progreso: { label: "En Progreso", className: "bg-blue-100 text-blue-800 hover:bg-blue-100" },
   completada: { label: "Completada", className: "bg-green-100 text-green-800 hover:bg-green-100" },
-  cancelada: { label: "Cancelada", className: "bg-gray-100 text-gray-600 hover:bg-gray-100" },
+  cancelada: { label: "Cancelada", className: "bg-gray-100 text-muted-foreground hover:bg-gray-100" },
 }
 
 const TIPO_CONFIG: Record<string, string> = {
@@ -384,7 +384,7 @@ export default function TareasPage() {
   // ============================================
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -550,7 +550,7 @@ export default function TareasPage() {
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-blue-600 flex items-center gap-1">
+              <CardTitle className="text-sm font-medium text-primary flex items-center gap-1">
                 <AlertCircle className="h-4 w-4" /> En Progreso
               </CardTitle>
             </CardHeader>

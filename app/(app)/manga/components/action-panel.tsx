@@ -183,7 +183,7 @@ export function ActionPanel({
 
   if (!currentEid) {
     return (
-      <Card className="border-2 border-dashed border-gray-300">
+      <Card className="border-2 border-dashed border-input">
         <CardContent className="p-8 text-center text-muted-foreground">
           <Scale className="h-10 w-10 mx-auto mb-3 opacity-40" />
           <p className="text-sm">Escaneá o ingresá un EID para comenzar</p>
@@ -193,7 +193,7 @@ export function ActionPanel({
   }
 
   return (
-    <Card className="border-2 border-gray-200">
+    <Card className="border border-border">
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           Datos del animal
@@ -206,7 +206,7 @@ export function ActionPanel({
         {accionesHabilitadas.includes("peso") && (
           <div className="space-y-2">
             <Label className="flex items-center gap-2 text-sm font-semibold">
-              <Scale className="h-4 w-4 text-blue-600" />
+              <Scale className="h-4 w-4 text-primary" />
               Peso (kg)
             </Label>
             <Input

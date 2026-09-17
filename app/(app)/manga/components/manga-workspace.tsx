@@ -364,19 +364,19 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
               {connectionMode === "serial" ? (
                 <ReaderConnect onEIDRead={handleReaderEID} />
               ) : (
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-200">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-primary/10 px-2.5 py-1.5 rounded-lg border border-blue-200">
                   <Keyboard className="h-3.5 w-3.5 text-blue-500" />
                   <span>Escaneá en el campo de EID</span>
                 </div>
               )}
               <SyncStatus sessionId={session.id} onSyncComplete={onRefresh} />
               {herdCacheCount > 0 && (
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-white/80 px-2.5 py-1.5 rounded-lg border">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-card/80 px-2.5 py-1.5 rounded-lg border">
                   <Database className="h-3.5 w-3.5 text-blue-500" />
                   <span>Caché: {herdCacheCount}</span>
                 </div>
               )}
-              <div className="flex items-center gap-1.5 text-sm text-muted-foreground bg-white/80 px-3 py-1.5 rounded-lg border">
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground bg-card/80 px-3 py-1.5 rounded-lg border">
                 <Clock className="h-3.5 w-3.5" />
                 <span className="font-mono">{elapsed}</span>
               </div>
@@ -468,7 +468,7 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
 
           {/* Processed items list */}
           {items.length > 0 && (
-            <Card className="border-2 border-gray-200">
+            <Card className="border border-border">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-600" />

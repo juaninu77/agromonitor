@@ -68,7 +68,7 @@ export function AnimalQuickCard({ animal, eid, isNew, onRegister }: AnimalQuickC
   const edad = calcularEdad(animal.fechaNacimiento)
 
   return (
-    <Card className="border-2 border-blue-200 bg-blue-50/50">
+    <Card className="border-2 border-blue-200 bg-primary/10/50">
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           <div className="h-14 w-14 rounded-full bg-blue-100 flex items-center justify-center shrink-0">

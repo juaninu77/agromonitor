@@ -43,7 +43,7 @@ export function EstablecimientoSelector() {
   // Si está cargando, mostrar spinner
   if (isLoading) {
     return (
-      <Button variant="outline" className="w-[200px] justify-start" disabled>
+      <Button variant="outline" className="min-w-0 flex-1 justify-start sm:w-[200px] sm:flex-none" disabled>
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         Cargando...
       </Button>
@@ -53,7 +53,7 @@ export function EstablecimientoSelector() {
   // Si no hay organizaciones, mostrar mensaje
   if (organizaciones.length === 0) {
     return (
-      <Button variant="outline" className="w-[200px] justify-start" disabled>
+      <Button variant="outline" className="min-w-0 flex-1 justify-start sm:w-[200px] sm:flex-none" disabled>
         <Building2 className="mr-2 h-4 w-4 opacity-50" />
         Sin organizaciones
       </Button>
@@ -72,15 +72,15 @@ export function EstablecimientoSelector() {
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-[280px] justify-between"
+          className="min-w-0 flex-1 justify-between px-2 sm:w-[280px] sm:flex-none sm:px-4"
         >
           <div className="flex items-center gap-2 truncate">
             <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <div className="flex flex-col items-start text-left">
-              <span className="text-xs text-muted-foreground truncate max-w-[180px]">
+            <div className="flex min-w-0 flex-col items-start text-left">
+              <span className="text-xs text-muted-foreground max-w-full truncate">
                 {organizacionActiva?.nombre || "Seleccionar"}
               </span>
-              <span className="font-medium truncate max-w-[180px]">
+              <span className="font-medium max-w-full truncate">
                 {establecimientoActivo?.nombre || "Elegir establecimiento..."}
               </span>
             </div>
@@ -88,13 +88,13 @@ export function EstablecimientoSelector() {
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      
+
       <PopoverContent className="w-[300px] p-0" align="start">
         <Command>
           <CommandInput placeholder="Buscar establecimiento..." />
           <CommandList>
             <CommandEmpty>No se encontraron establecimientos.</CommandEmpty>
-            
+
             {/* Organización actual y sus establecimientos */}
             {organizacionActiva && (
               <CommandGroup heading={organizacionActiva.nombre}>
@@ -122,7 +122,7 @@ export function EstablecimientoSelector() {
                     </div>
                   </CommandItem>
                 ))}
-                
+
                 {establecimientos.length === 0 && (
                   <CommandItem disabled>
                     <span className="text-muted-foreground">
@@ -139,7 +139,7 @@ export function EstablecimientoSelector() {
                 </CommandItem>
               </CommandGroup>
             )}
-            
+
             {/* Otras organizaciones */}
             {organizaciones.length > 1 && (
               <>
@@ -169,4 +169,3 @@ export function EstablecimientoSelector() {
     </Popover>
   )
 }
-

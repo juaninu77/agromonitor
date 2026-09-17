@@ -27,7 +27,7 @@ const IntuitiveRegisterWizard = dynamic(
   {
     loading: () => (
       <div className="flex flex-col items-center justify-center py-16 gap-3">
-        <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
         <p className="text-sm text-slate-500">Cargando asistente de registro…</p>
       </div>
     ),
@@ -117,9 +117,9 @@ export function RegisterDialog({ open, onOpenChange, onSuccess }: RegisterDialog
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
           <TabsList className="grid w-full grid-cols-2 p-1 bg-slate-100 rounded-xl h-14">
-            <TabsTrigger 
-              value="single" 
-              className="flex items-center gap-2 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm h-full"
+            <TabsTrigger
+              value="single"
+              className="flex items-center gap-2 rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm h-full"
             >
               <Zap className="h-4 w-4" />
               <div className="text-left">
@@ -127,9 +127,9 @@ export function RegisterDialog({ open, onOpenChange, onSuccess }: RegisterDialog
                 <span className="text-xs text-slate-500 ml-2 hidden sm:inline">Registro detallado</span>
               </div>
             </TabsTrigger>
-            <TabsTrigger 
-              value="batch" 
-              className="flex items-center gap-2 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm h-full"
+            <TabsTrigger
+              value="batch"
+              className="flex items-center gap-2 rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm h-full"
             >
               <Layers className="h-4 w-4" />
               <div className="text-left">
@@ -155,5 +155,3 @@ export function RegisterDialog({ open, onOpenChange, onSuccess }: RegisterDialog
     </Dialog>
   )
 }
-
-

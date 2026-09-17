@@ -17,10 +17,10 @@ export function CategoryDistributionChart({ data }: CategoryDistributionChartPro
   const total = data.reduce((acc, item) => acc + item.value, 0)
 
   return (
-    <Card className="border-2 border-gray-200">
+    <Card className="border border-border">
       <CardHeader className="border-b-2 border-gray-100">
         <CardTitle className="flex items-center gap-2">
-          <BarChart3 className="h-5 w-5 text-blue-600" />
+          <BarChart3 className="h-5 w-5 text-primary" />
           Distribución por Categoría
         </CardTitle>
         <CardDescription>
@@ -60,7 +60,7 @@ export function CategoryDistributionChart({ data }: CategoryDistributionChartPro
                 />
                 <span className="text-sm font-medium">{category.name}</span>
               </div>
-              <div className="text-sm text-gray-600">
+              <div className="text-sm text-muted-foreground">
                 {category.value} ({((category.value / total) * 100).toFixed(1)}%)
               </div>
             </div>

@@ -123,7 +123,7 @@ const TIPO_BADGE_COLORS: Record<string, string> = {
   feedlot: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
   embarcadero: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
   enfermeria: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
-  otro: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200",
+  otro: "bg-gray-100 text-foreground dark:bg-gray-900 dark:text-gray-200",
 }
 
 // ─── Fetchers ────────────────────────────────────────────
@@ -339,7 +339,7 @@ export default function PotrerosPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-6">
       {/* ── Encabezado ── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -376,7 +376,7 @@ export default function PotrerosPage() {
         <KpiCard
           title="Mediciones (mes)"
           value={kpis.medicionesMes}
-          icon={<Ruler className="h-4 w-4 text-blue-600" />}
+          icon={<Ruler className="h-4 w-4 text-primary" />}
         />
       </div>
 
@@ -557,7 +557,7 @@ function SectorCard({
         {/* Iconos de servicios */}
         <div className="flex flex-wrap items-center gap-3">
           {sector.tieneAgua && (
-            <span className="flex items-center gap-1 text-xs text-blue-600">
+            <span className="flex items-center gap-1 text-xs text-primary">
               <Droplets className="h-4 w-4" /> Agua
             </span>
           )}

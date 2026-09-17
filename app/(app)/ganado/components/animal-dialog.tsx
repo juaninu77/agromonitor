@@ -108,8 +108,8 @@ export function AnimalDialog({
                   <span className="font-bold text-slate-900">#{data.caravanaVisual}</span>
                 </div>
                 <p className="text-xs text-slate-500">
-                  {mode === 'edit' 
-                    ? 'Los datos del animal han sido actualizados correctamente.' 
+                  {mode === 'edit'
+                    ? 'Los datos del animal han sido actualizados correctamente.'
                     : 'El animal ha sido agregado exitosamente al rodeo.'}
                 </p>
               </div>
@@ -163,7 +163,7 @@ export function AnimalDialog({
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="mt-4 text-gray-600">Cargando datos del animal...</p>
+              <p className="mt-4 text-muted-foreground">Cargando datos del animal...</p>
             </div>
           </div>
         ) : (

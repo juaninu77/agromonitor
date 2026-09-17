@@ -24,7 +24,7 @@ export const HerdOverview = memo(function HerdOverview({ data, isLoading }: Herd
   }
 
   const cards = [
-    { title: "Total Animales", value: data.totalAnimals, unit: "Cabezas", icon: Cow, color: "text-blue-600" },
+    { title: "Total Animales", value: data.totalAnimals, unit: "Cabezas", icon: Cow, color: "text-primary" },
     { title: "Vacas Madres", value: data.breedingCows, unit: "Reproductoras", icon: Heart, color: "text-green-600" },
     { title: "Peso Promedio", value: data.averageWeight, unit: "kg", icon: Weight, color: "text-purple-600" },
     { title: "Ganancia Diaria", value: data.averageDailyGain, unit: "kg/día", icon: TrendingUp, color: "text-orange-600" },
@@ -34,16 +34,16 @@ export const HerdOverview = memo(function HerdOverview({ data, isLoading }: Herd
   return (
     <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
       {cards.map((card) => (
-        <Card key={card.title} className="border-2 border-gray-200 hover:border-blue-300 hover:shadow-lg transition-all">
+        <Card key={card.title} className="border border-border hover:border-blue-300 hover:shadow-lg transition-all">
           <CardHeader className="pb-2 border-b-2 border-gray-100">
-            <CardTitle className="text-sm font-medium text-gray-600">{card.title}</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{card.title}</CardTitle>
           </CardHeader>
           <CardContent className="pt-4">
             <div className="flex items-center gap-2">
               <card.icon className={`h-8 w-8 ${card.color}`} />
               <div>
                 <p className="text-2xl font-bold">{card.value}</p>
-                <p className="text-xs text-gray-600">{card.unit}</p>
+                <p className="text-xs text-muted-foreground">{card.unit}</p>
               </div>
             </div>
           </CardContent>

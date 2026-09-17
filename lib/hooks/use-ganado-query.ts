@@ -34,7 +34,7 @@ export interface AnimalAPI {
   category: string
   tagNumber: string
   location: string
-  marketValue: number
+  marketValue: number | null
   alerts: string[]
   name?: string
   feedEfficiency?: number

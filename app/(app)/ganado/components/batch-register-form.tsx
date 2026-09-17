@@ -6,9 +6,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { 
-  Loader2, 
-  Tag, 
+import {
+  Loader2,
+  Tag,
   CheckCircle2,
   Plus,
   Trash2,
@@ -93,7 +93,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
       status: 'pending'
     }
     setEntries(prev => [...prev, newEntry])
-    
+
     // Focus en el nuevo input después de renderizar
     setTimeout(() => {
       lastInputRef.current?.focus()
@@ -109,7 +109,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
 
   // Actualizar entrada
   const updateEntry = (id: string, field: keyof AnimalEntry, value: any) => {
-    setEntries(prev => prev.map(e => 
+    setEntries(prev => prev.map(e =>
       e.id === id ? { ...e, [field]: value } : e
     ))
   }
@@ -143,7 +143,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
 
     for (const entry of entriesToSave) {
       // Actualizar estado a "saving"
-      setEntries(prev => prev.map(e => 
+      setEntries(prev => prev.map(e =>
         e.id === entry.id ? { ...e, status: 'saving' } : e
       ))
 
@@ -162,19 +162,19 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
         })
 
         if (response.ok) {
-          setEntries(prev => prev.map(e => 
+          setEntries(prev => prev.map(e =>
             e.id === entry.id ? { ...e, status: 'saved' } : e
           ))
           savedCount++
         } else {
           const error = await response.json()
-          setEntries(prev => prev.map(e => 
+          setEntries(prev => prev.map(e =>
             e.id === entry.id ? { ...e, status: 'error', error: error.error || 'Error desconocido' } : e
           ))
           errorCount++
         }
       } catch (error) {
-        setEntries(prev => prev.map(e => 
+        setEntries(prev => prev.map(e =>
           e.id === entry.id ? { ...e, status: 'error', error: 'Error de conexión' } : e
         ))
         errorCount++
@@ -185,7 +185,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
 
     if (savedCount > 0) {
       toast.success(`${savedCount} animal${savedCount > 1 ? 'es' : ''} registrado${savedCount > 1 ? 's' : ''}`, {
-        description: errorCount > 0 
+        description: errorCount > 0
           ? `${errorCount} con errores. Revisa la lista.`
           : 'Todos los animales fueron guardados correctamente.'
       })
@@ -207,7 +207,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
     return (
       <div className="flex items-center justify-center py-16">
         <div className="text-center">
-          <Loader2 className="h-10 w-10 animate-spin text-blue-600 mx-auto" />
+          <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
           <p className="mt-3 text-slate-500">Preparando formulario...</p>
         </div>
       </div>
@@ -251,7 +251,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
                   className={cn(
                     "flex items-center justify-center gap-3 p-4 rounded-xl border-2 transition-all",
                     selectedSexo === "M"
-                      ? "border-blue-600 bg-blue-50 text-blue-700"
+                      ? "border-blue-600 bg-primary/10 text-blue-700"
                       : "border-slate-200 hover:border-slate-300 text-slate-500"
                   )}
                 >
@@ -291,7 +291,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
                     className={cn(
                       "p-3 rounded-lg border-2 transition-all text-sm font-medium",
                       selectedRaza === raza.id
-                        ? "border-blue-600 bg-blue-50 text-blue-700"
+                        ? "border-blue-600 bg-primary/10 text-blue-700"
                         : "border-slate-200 hover:border-slate-300 text-slate-600"
                     )}
                   >
@@ -313,7 +313,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
                     className={cn(
                       "p-3 rounded-lg border-2 transition-all font-medium",
                       selectedCategoria === cat.id
-                        ? "border-blue-600 bg-blue-50 text-blue-700"
+                        ? "border-blue-600 bg-primary/10 text-blue-700"
                         : "border-slate-200 hover:border-slate-300 text-slate-600"
                     )}
                   >
@@ -339,7 +339,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
                     className={cn(
                       "p-3 rounded-lg border-2 transition-all text-sm font-medium",
                       origen === opt.value
-                        ? "border-blue-600 bg-blue-50 text-blue-700"
+                        ? "border-blue-600 bg-primary/10 text-blue-700"
                         : "border-slate-200 hover:border-slate-300 text-slate-600"
                     )}
                   >
@@ -364,7 +364,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
       {step === 'entries' && (
         <>
           {/* Resumen de configuración */}
-          <Card className="border-2 border-blue-100 bg-blue-50/50">
+          <Card className="border-2 border-blue-100 bg-primary/10/50">
             <CardContent className="py-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4 text-sm">
@@ -411,20 +411,20 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
             </CardHeader>
             <CardContent className="pt-4 space-y-3">
               {entries.map((entry, index) => (
-                <div 
+                <div
                   key={entry.id}
                   className={cn(
                     "flex items-center gap-3 p-3 rounded-lg border-2 transition-all",
                     entry.status === 'saved' && "bg-emerald-50 border-emerald-200",
                     entry.status === 'error' && "bg-red-50 border-red-200",
-                    entry.status === 'saving' && "bg-blue-50 border-blue-200 animate-pulse",
+                    entry.status === 'saving' && "bg-primary/10 border-blue-200 animate-pulse",
                     entry.status === 'pending' && "border-slate-200"
                   )}
                 >
                   <span className="text-sm font-mono text-slate-400 w-8">
                     #{index + 1}
                   </span>
-                  
+
                   <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="relative">
                       <Input
@@ -441,7 +441,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
                         )}
                       />
                     </div>
-                    
+
                     <Input
                       type="number"
                       step="0.1"
@@ -463,7 +463,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
                       </div>
                     )}
                     {entry.status === 'saving' && (
-                      <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />
+                      <Loader2 className="h-5 w-5 text-primary animate-spin" />
                     )}
                     {entry.status === 'pending' && entries.length > 1 && (
                       <Button
@@ -496,7 +496,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
                 <Plus className="h-4 w-4 mr-2" />
                 Agregar otro animal
               </Button>
-              
+
               <p className="text-xs text-slate-500 text-center">
                 Tip: Presiona Enter en el campo de caravana para agregar otro rápidamente
               </p>
@@ -513,7 +513,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
             >
               Volver
             </Button>
-            
+
             <div className="flex items-center gap-3">
               <span className="text-sm text-slate-500">
                 {validEntries.length} animal{validEntries.length !== 1 ? 'es' : ''} para registrar
@@ -542,5 +542,3 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
     </div>
   )
 }
-
-

@@ -14,10 +14,10 @@ interface WeightByCategoryChartProps {
 
 export function WeightByCategoryChart({ data }: WeightByCategoryChartProps) {
   return (
-    <Card className="border-2 border-gray-200">
+    <Card className="border border-border">
       <CardHeader className="border-b-2 border-gray-100">
         <CardTitle className="flex items-center gap-2">
-          <Weight className="h-5 w-5 text-blue-600" />
+          <Weight className="h-5 w-5 text-primary" />
           Peso Promedio por Categoría
         </CardTitle>
         <CardDescription>
@@ -35,12 +35,12 @@ export function WeightByCategoryChart({ data }: WeightByCategoryChartProps) {
                 if (active && payload && payload.length) {
                   const data = payload[0].payload
                   return (
-                    <div className="bg-white p-3 border-2 border-gray-200 rounded-lg shadow-lg">
+                    <div className="bg-card p-3 border border-border rounded-lg shadow-lg">
                       <p className="font-semibold">{data.category}</p>
-                      <p className="text-sm text-gray-600">
-                        Peso promedio: <span className="font-medium text-blue-600">{data.avgWeight} kg</span>
+                      <p className="text-sm text-muted-foreground">
+                        Peso promedio: <span className="font-medium text-primary">{data.avgWeight} kg</span>
                       </p>
-                      <p className="text-sm text-gray-600">
+                      <p className="text-sm text-muted-foreground">
                         Cantidad: <span className="font-medium">{data.count} animales</span>
                       </p>
                     </div>
@@ -57,11 +57,11 @@ export function WeightByCategoryChart({ data }: WeightByCategoryChartProps) {
         {/* Tabla resumen */}
         <div className="mt-6 overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b-2 border-gray-200">
+            <thead className="bg-gray-50 border-b-2 border-border">
               <tr>
-                <th className="px-4 py-2 text-left font-medium text-gray-700">Categoría</th>
-                <th className="px-4 py-2 text-right font-medium text-gray-700">Cantidad</th>
-                <th className="px-4 py-2 text-right font-medium text-gray-700">Peso Promedio</th>
+                <th className="px-4 py-2 text-left font-medium text-foreground">Categoría</th>
+                <th className="px-4 py-2 text-right font-medium text-foreground">Cantidad</th>
+                <th className="px-4 py-2 text-right font-medium text-foreground">Peso Promedio</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -69,7 +69,7 @@ export function WeightByCategoryChart({ data }: WeightByCategoryChartProps) {
                 <tr key={item.category} className="hover:bg-gray-50">
                   <td className="px-4 py-2">{item.category}</td>
                   <td className="px-4 py-2 text-right">{item.count}</td>
-                  <td className="px-4 py-2 text-right font-medium text-blue-600">
+                  <td className="px-4 py-2 text-right font-medium text-primary">
                     {item.avgWeight} kg
                   </td>
                 </tr>

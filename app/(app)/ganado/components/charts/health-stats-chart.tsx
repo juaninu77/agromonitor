@@ -22,7 +22,7 @@ export function HealthStatsChart({ data }: HealthStatsChartProps) {
   const total = data.reduce((acc, item) => acc + item.count, 0)
 
   return (
-    <Card className="border-2 border-gray-200">
+    <Card className="border border-border">
       <CardHeader className="border-b-2 border-gray-100">
         <CardTitle className="flex items-center gap-2">
           <Stethoscope className="h-5 w-5 text-purple-600" />
@@ -44,12 +44,12 @@ export function HealthStatsChart({ data }: HealthStatsChartProps) {
                   const data = payload[0].payload
                   const percentage = ((data.count / total) * 100).toFixed(1)
                   return (
-                    <div className="bg-white p-3 border-2 border-gray-200 rounded-lg shadow-lg">
+                    <div className="bg-card p-3 border border-border rounded-lg shadow-lg">
                       <p className="font-semibold">{data.status}</p>
-                      <p className="text-sm text-gray-600">
+                      <p className="text-sm text-muted-foreground">
                         Cantidad: <span className="font-medium">{data.count} animales</span>
                       </p>
-                      <p className="text-sm text-gray-600">
+                      <p className="text-sm text-muted-foreground">
                         Porcentaje: <span className="font-medium">{percentage}%</span>
                       </p>
                     </div>
@@ -83,7 +83,7 @@ export function HealthStatsChart({ data }: HealthStatsChartProps) {
                   <span className="font-medium">{item.status}</span>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="text-sm text-gray-600">{item.count} animales</span>
+                  <span className="text-sm text-muted-foreground">{item.count} animales</span>
                   <span className="text-sm font-medium" style={{ color }}>
                     {percentage}%
                   </span>

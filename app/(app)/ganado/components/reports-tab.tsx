@@ -42,7 +42,7 @@ export const ReportsTab = memo(function ReportsTab({ animals }: ReportsTabProps)
 
     const healthStats = Object.entries(
       animals.reduce((acc: Record<string, number>, animal) => {
-        const status = animal.healthStatus || "Saludable"
+        const status = animal.healthStatus || "Sin evaluación sanitaria"
         acc[status] = (acc[status] || 0) + 1
         return acc
       }, {})
@@ -60,10 +60,10 @@ export const ReportsTab = memo(function ReportsTab({ animals }: ReportsTabProps)
 
       <HealthStatsChart data={chartData.healthStats} />
 
-      <Card className="border-2 border-blue-200 bg-blue-50">
+      <Card className="border-2 border-blue-200 bg-primary/10">
         <CardContent className="pt-6">
           <div className="flex items-start gap-3">
-            <BarChart3 className="h-5 w-5 text-blue-600 mt-0.5" />
+            <BarChart3 className="h-5 w-5 text-primary mt-0.5" />
             <div>
               <h4 className="font-semibold text-blue-900 mb-1">Reportes Interactivos en Tiempo Real</h4>
               <p className="text-sm text-blue-800">

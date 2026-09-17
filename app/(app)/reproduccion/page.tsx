@@ -341,7 +341,7 @@ export default function ReproduccionPage() {
 
   if (tenantLoading) {
     return (
-      <div className="space-y-6 p-4 md:p-6">
+      <div className="space-y-6">
         <Skeleton className="h-10 w-64" />
         <div className="grid gap-4 md:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -368,7 +368,7 @@ export default function ReproduccionPage() {
   // ── Render ──
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>

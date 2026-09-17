@@ -48,7 +48,7 @@ const ESTADO_BADGE: Record<string, { label: string; className: string }> = {
   },
   finalizada: {
     label: "Finalizada",
-    className: "bg-gray-100 text-gray-800 border-gray-200",
+    className: "bg-gray-100 text-foreground border-border",
   },
   cancelada: {
     label: "Cancelada",
@@ -194,7 +194,7 @@ export default function MangaPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
@@ -228,7 +228,7 @@ export default function MangaPage() {
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <Card className="border-2 border-dashed border-gray-300">
+            <Card className="border-2 border-dashed border-input">
               <CardContent className="p-12 text-center">
                 <ScanBarcode className="h-16 w-16 mx-auto mb-4 text-muted-foreground/40" />
                 <h2 className="text-xl font-semibold mb-2">Sin sesión activa</h2>
@@ -274,7 +274,7 @@ export default function MangaPage() {
                       <button
                         key={ses.id}
                         onClick={() => handleViewSession(ses)}
-                        className="w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-primary/30 hover:bg-muted/50 transition-colors"
+                        className="w-full text-left p-4 rounded-lg border border-border hover:border-primary/30 hover:bg-muted/50 transition-colors"
                       >
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0 flex-1">

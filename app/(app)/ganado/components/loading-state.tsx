@@ -13,14 +13,14 @@ export function LoadingState({
   submessage
 }: LoadingStateProps) {
   return (
-    <Card className="border-2 border-gray-200">
+    <Card className="border border-border">
       <CardContent className="py-12">
         <div className="flex flex-col items-center justify-center space-y-4">
-          <Loader2 className="h-12 w-12 text-blue-600 animate-spin" />
+          <Loader2 className="h-12 w-12 text-primary animate-spin" />
           <div className="text-center">
-            <p className="text-lg font-medium text-gray-900">{message}</p>
+            <p className="text-lg font-medium text-foreground">{message}</p>
             {submessage && (
-              <p className="text-sm text-gray-600 mt-1">{submessage}</p>
+              <p className="text-sm text-muted-foreground mt-1">{submessage}</p>
             )}
           </div>
         </div>
@@ -37,7 +37,7 @@ export function LoadingCards({ message = "Cargando estadísticas..." }: LoadingC
   return (
     <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
       {[1, 2, 3, 4, 5].map((i) => (
-        <Card key={i} className="border-2 border-gray-200 animate-pulse">
+        <Card key={i} className="border border-border animate-pulse">
           <CardContent className="pt-6">
             <div className="flex items-center gap-2">
               <div className="h-8 w-8 bg-gray-200 rounded" />
@@ -51,8 +51,8 @@ export function LoadingCards({ message = "Cargando estadísticas..." }: LoadingC
       ))}
       {message && (
         <div className="col-span-full flex items-center justify-center py-2">
-          <Loader2 className="h-4 w-4 text-blue-600 animate-spin mr-2" />
-          <p className="text-sm text-gray-600">{message}</p>
+          <Loader2 className="h-4 w-4 text-primary animate-spin mr-2" />
+          <p className="text-sm text-muted-foreground">{message}</p>
         </div>
       )}
     </div>

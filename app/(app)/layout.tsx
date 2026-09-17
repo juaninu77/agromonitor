@@ -1,4 +1,3 @@
-import { cookies } from "next/headers"
 import { AppShell } from "@/components/layout/app-shell"
 import { Ticker } from "@/components/layout/ticker"
 import { OnboardingGuard } from "@/components/configuracion/onboarding-guard"
@@ -12,38 +11,13 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode
 }) {
-  const cookieStore = await cookies()
-
-  let defaultLayout = undefined
-  let defaultCollapsed = undefined
-
-  try {
-    const layoutCookie = cookieStore.get("react-resizable-panels:layout")
-    const collapsedCookie = cookieStore.get("react-resizable-panels:collapsed")
-
-    if (layoutCookie?.value) {
-      defaultLayout = JSON.parse(layoutCookie.value)
-    }
-
-    if (collapsedCookie?.value) {
-      defaultCollapsed = JSON.parse(collapsedCookie.value)
-    }
-  } catch {
-    // Si falla el parsing, usar valores por defecto
-    defaultLayout = undefined
-    defaultCollapsed = undefined
-  }
-
   return (
     <OnboardingGuard>
-      <div className="flex flex-col min-h-screen">
+      <div className="flex h-dvh flex-col overflow-hidden">
+        <a href="#contenido" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-card focus:p-3">Saltar al contenido</a>
         <Ticker />
         <div className="flex-1 min-h-0 bg-background">
-          <AppShell 
-            defaultLayout={defaultLayout} 
-            defaultCollapsed={defaultCollapsed} 
-            navCollapsedSize={4}
-          >
+          <AppShell>
             {children}
           </AppShell>
         </div>
@@ -51,4 +25,3 @@ export default async function AppLayout({
     </OnboardingGuard>
   )
 }
-

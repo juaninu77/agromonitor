@@ -6,10 +6,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { MilkIcon as Cow, MapPin, AlertTriangle, Eye, Edit } from "lucide-react"
-import { 
-  getBodyConditionColor, 
-  getHealthStatusColor, 
-  getCategoryColor 
+import {
+  getBodyConditionColor,
+  getHealthStatusColor,
+  getCategoryColor
 } from "@/lib/utils/livestock-helpers"
 
 // Tipo flexible que acepta tanto datos de BD como mock
@@ -31,7 +31,7 @@ interface AnimalData {
   location?: string
   ubicacion?: string
   healthStatus?: string
-  marketValue?: number
+  marketValue?: number | null
   alerts?: string[]
 }
 
@@ -55,19 +55,19 @@ export const AnimalCard = memo(({ animal, onSelect, onEdit }: AnimalCardProps) =
   const bodyConditionScore = animal.bodyConditionScore || animal.ccActual || 0
   const dailyGain = animal.dailyGain || 0
   const location = animal.location || animal.ubicacion || ''
-  const healthStatus = animal.healthStatus || 'Saludable'
-  const marketValue = animal.marketValue || (weight * 3.5)
+  const healthStatus = animal.healthStatus || 'Sin evaluación sanitaria'
+  const marketValue = animal.marketValue
   const alerts = animal.alerts || []
 
   return (
     <Card
-      className="border-2 border-gray-200 hover:border-blue-300 hover:shadow-lg transition-all cursor-pointer"
+      className="border border-border hover:border-blue-300 hover:shadow-lg transition-all cursor-pointer"
       onClick={() => onSelect(animal)}
     >
       <CardHeader className="pb-3 border-b-2 border-gray-100">
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg flex items-center gap-2">
-            <Cow className="h-5 w-5 text-blue-600" />
+            <Cow className="h-5 w-5 text-primary" />
             {name}
           </CardTitle>
           <Badge className={getHealthStatusColor(healthStatus)} variant="outline">
@@ -83,7 +83,7 @@ export const AnimalCard = memo(({ animal, onSelect, onEdit }: AnimalCardProps) =
       <CardContent className="pt-4">
         <div className="space-y-3">
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">Categoría:</span>
+            <span className="text-sm text-muted-foreground">Categoría:</span>
             <Badge className={getCategoryColor(category)} variant="outline">
               {category}
             </Badge>
@@ -91,21 +91,21 @@ export const AnimalCard = memo(({ animal, onSelect, onEdit }: AnimalCardProps) =
 
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-gray-600">Peso:</span>
+              <span className="text-muted-foreground">Peso:</span>
               <p className="font-semibold">{weight} kg</p>
             </div>
             <div>
-              <span className="text-gray-600">Ganancia diaria:</span>
+              <span className="text-muted-foreground">Ganancia diaria:</span>
               <p className="font-semibold text-green-600">+{dailyGain} kg</p>
             </div>
             <div>
-              <span className="text-gray-600">Condición corporal:</span>
+              <span className="text-muted-foreground">Condición corporal:</span>
               <p className={`font-semibold ${getBodyConditionColor(bodyConditionScore)}`}>
                 {bodyConditionScore}/9
               </p>
             </div>
             <div>
-              <span className="text-gray-600">Ubicación:</span>
+              <span className="text-muted-foreground">Ubicación:</span>
               <p className="font-semibold flex items-center gap-1">
                 <MapPin className="h-3 w-3" />
                 {location || 'Sin asignar'}
@@ -114,8 +114,8 @@ export const AnimalCard = memo(({ animal, onSelect, onEdit }: AnimalCardProps) =
           </div>
 
           <div className="flex justify-between items-center text-sm">
-            <span className="text-gray-600">Valor estimado:</span>
-            <span className="font-semibold text-green-600">${Math.round(marketValue)}</span>
+            <span className="text-muted-foreground">Valor estimado:</span>
+            <span className="font-semibold text-green-600">{marketValue == null ? "Sin valuación" : `$${Math.round(marketValue)}`}</span>
           </div>
 
           {alerts.length > 0 && (
@@ -126,9 +126,9 @@ export const AnimalCard = memo(({ animal, onSelect, onEdit }: AnimalCardProps) =
           )}
 
           <div className="flex gap-2 pt-2">
-            <Button 
-              size="sm" 
-              variant="outline" 
+            <Button
+              size="sm"
+              variant="outline"
               className="flex-1 bg-transparent"
               onClick={(e) => {
                 e.stopPropagation()
@@ -160,4 +160,3 @@ export const AnimalCard = memo(({ animal, onSelect, onEdit }: AnimalCardProps) =
 })
 
 AnimalCard.displayName = "AnimalCard"
-

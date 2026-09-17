@@ -138,7 +138,7 @@ export function SessionSummary({ session }: SessionSummaryProps) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card>
           <CardContent className="p-4 text-center">
-            <ListChecks className="h-5 w-5 mx-auto mb-1 text-blue-600" />
+            <ListChecks className="h-5 w-5 mx-auto mb-1 text-primary" />
             <div className="text-2xl font-bold">{stats.totalAnimales}</div>
             <p className="text-xs text-muted-foreground">Total procesados</p>
           </CardContent>
@@ -147,7 +147,7 @@ export function SessionSummary({ session }: SessionSummaryProps) {
         {stats.conPeso > 0 && (
           <Card>
             <CardContent className="p-4 text-center">
-              <Scale className="h-5 w-5 mx-auto mb-1 text-blue-600" />
+              <Scale className="h-5 w-5 mx-auto mb-1 text-primary" />
               <div className="text-2xl font-bold">{stats.conPeso}</div>
               <p className="text-xs text-muted-foreground">
                 Pesados (prom. {stats.pesoPromedio} kg)

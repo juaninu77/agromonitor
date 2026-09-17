@@ -337,22 +337,22 @@ export default function SanidadPage() {
 
   if (!estId) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh] text-gray-500">
+      <div className="flex items-center justify-center min-h-[60vh] text-muted-foreground">
         <p>Seleccioná un establecimiento para ver la sección de Sanidad.</p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-3">
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground flex items-center gap-3">
             <Syringe className="h-8 w-8 text-purple-600" />
             Sanidad
           </h1>
-          <p className="text-gray-600 mt-1">
+          <p className="text-muted-foreground mt-1">
             Control sanitario y tratamientos veterinarios
           </p>
         </div>
@@ -379,7 +379,7 @@ export default function SanidadPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="border-2">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Activity className="h-4 w-4" />
               Tratamientos (mes)
             </CardTitle>
@@ -393,7 +393,7 @@ export default function SanidadPage() {
 
         <Card className="border-2">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />
               Animales tratados
             </CardTitle>
@@ -407,7 +407,7 @@ export default function SanidadPage() {
 
         <Card className="border-2">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Pill className="h-4 w-4" />
               Productos más usados
             </CardTitle>
@@ -429,7 +429,7 @@ export default function SanidadPage() {
 
         <Card className="border-2">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Clock className="h-4 w-4" />
               Próximos vencimientos
             </CardTitle>
@@ -446,10 +446,10 @@ export default function SanidadPage() {
       </div>
 
       {/* Tabs */}
-      <Card className="border-2 border-gray-200">
+      <Card className="border border-border">
         <CardContent className="p-4 md:p-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-3 border-2 border-gray-200">
+            <TabsList className="grid w-full grid-cols-3 border border-border">
               <TabsTrigger value="historial" className="flex items-center gap-2">
                 <Syringe className="h-4 w-4" />
                 <span className="hidden sm:inline">Historial</span>
@@ -557,7 +557,7 @@ function HistorialTab({
       ) : eventos.length === 0 ? (
         <div className="text-center py-12">
           <Syringe className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-          <p className="text-gray-500">No se encontraron eventos sanitarios</p>
+          <p className="text-muted-foreground">No se encontraron eventos sanitarios</p>
         </div>
       ) : (
         <>
@@ -600,7 +600,7 @@ function HistorialTab({
 
           {totalPages > 1 && (
             <div className="flex items-center justify-between pt-2">
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-muted-foreground">
                 {(page - 1) * limit + 1}–{Math.min(page * limit, total)} de {total}
               </p>
               <div className="flex gap-2">
@@ -669,7 +669,7 @@ function PorAnimalTab({ eventos, loading }: { eventos: EventoSanidad[]; loading:
     return (
       <div className="text-center py-12">
         <Users className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-        <p className="text-gray-500">No hay tratamientos registrados por animal</p>
+        <p className="text-muted-foreground">No hay tratamientos registrados por animal</p>
       </div>
     )
   }
@@ -689,7 +689,7 @@ function PorAnimalTab({ eventos, loading }: { eventos: EventoSanidad[]; loading:
                 <Badge variant="outline">{g.count} tratamiento{g.count !== 1 && "s"}</Badge>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-500">Último: {formatDate(g.lastDate)}</span>
+                <span className="text-sm text-muted-foreground">Último: {formatDate(g.lastDate)}</span>
                 {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </div>
             </button>
@@ -789,7 +789,7 @@ function CalendarioTab({ eventos, loading }: { eventos: EventoSanidad[]; loading
 
       <div className="grid grid-cols-7 gap-1">
         {["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((d) => (
-          <div key={d} className="text-center text-xs font-semibold text-gray-500 py-2">
+          <div key={d} className="text-center text-xs font-semibold text-muted-foreground py-2">
             {d}
           </div>
         ))}
@@ -808,7 +808,7 @@ function CalendarioTab({ eventos, loading }: { eventos: EventoSanidad[]; loading
                 ${count > 0 ? "bg-purple-50/50" : ""}
               `}
             >
-              <span className={`text-sm ${isToday ? "font-bold text-purple-700" : "text-gray-700"}`}>
+              <span className={`text-sm ${isToday ? "font-bold text-purple-700" : "text-foreground"}`}>
                 {day}
               </span>
               {count > 0 && (
@@ -962,7 +962,7 @@ function TratamientoDialog({
               />
             </div>
             {showDropdown && filteredAnimales.length > 0 && !animalId && (
-              <div className="mt-1 border rounded-lg max-h-40 overflow-y-auto bg-white shadow-sm">
+              <div className="mt-1 border rounded-lg max-h-40 overflow-y-auto bg-card shadow-sm">
                 {filteredAnimales.map((a) => (
                   <button
                     key={a.id}

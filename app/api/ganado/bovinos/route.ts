@@ -232,13 +232,13 @@ export const GET = withAuth(async (request, ctx) => {
         // Para compatibilidad con UI existente
         weight: ultimoPeso?.pesoKg || 0,
         bodyConditionScore: ultimoPeso?.cc || 0,
-        healthStatus: 'Saludable',
+        healthStatus: 'Sin evaluación sanitaria',
         dailyGain: ultimoPeso?.gdpKg || 0,
         breed: animal.raza?.nombre || '',
         category: animal.categoria?.nombre || '',
         tagNumber: animal.caravanaVisual || '',
         location: ubicacionActual?.sector?.nombre || '',
-        marketValue: ultimoPeso?.pesoKg ? Math.round(ultimoPeso.pesoKg * 3.5) : 0,
+        marketValue: null,
         alerts: [] as string[],
       }
     })

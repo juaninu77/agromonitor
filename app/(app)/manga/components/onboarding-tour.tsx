@@ -124,13 +124,13 @@ export function OnboardingTour() {
                 variant="ghost"
                 size="icon"
                 onClick={dismiss}
-                className="absolute top-3 right-3 text-white/80 hover:text-white hover:bg-white/20 h-8 w-8"
+                className="absolute top-3 right-3 text-white/80 hover:text-white hover:bg-card/20 h-8 w-8"
               >
                 <X className="h-4 w-4" />
               </Button>
 
               <div className="flex items-center gap-3 mb-3">
-                <div className="h-12 w-12 rounded-xl bg-white/20 flex items-center justify-center">
+                <div className="h-12 w-12 rounded-xl bg-card/20 flex items-center justify-center">
                   {step.icon}
                 </div>
                 <div>
@@ -149,10 +149,10 @@ export function OnboardingTour() {
                     onClick={() => setCurrentStep(i)}
                     className={`h-1.5 rounded-full transition-all ${
                       i === currentStep
-                        ? "w-6 bg-white"
+                        ? "w-6 bg-card"
                         : i < currentStep
-                          ? "w-3 bg-white/60"
-                          : "w-3 bg-white/30"
+                          ? "w-3 bg-card/60"
+                          : "w-3 bg-card/30"
                     }`}
                   />
                 ))}

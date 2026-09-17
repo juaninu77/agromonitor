@@ -36,7 +36,7 @@ export interface AnimalAPI {
   category: string
   tagNumber: string
   location: string
-  marketValue: number
+  marketValue: number | null
   alerts: string[]
   // Campos adicionales para UI
   name?: string
@@ -108,7 +108,7 @@ export function useGanado(): UseGanadoResult {
       })
 
       const response = await fetch(`/api/ganado/bovinos?${params}`)
-      
+
       if (!response.ok) {
         if (response.status === 401) {
           setError('No autenticado')
@@ -195,4 +195,3 @@ export function useHerdOverview() {
     error,
   }
 }
-

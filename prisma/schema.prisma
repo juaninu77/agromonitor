@@ -206,15 +206,16 @@ model Categoria {
 
 // Establecimiento = Campo/Estancia
 model Establecimiento {
-  id        String   @id @default(uuid()) @db.Uuid
-  nombre    String
-  ubicacion String?
-  renspa    String? // SENASA
-  provincia String?
-  localidad String?
-  hectareas Float?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  reservasForraje ReservaForraje[]
+  id              String           @id @default(uuid()) @db.Uuid
+  nombre          String
+  ubicacion       String?
+  renspa          String? // SENASA
+  provincia       String?
+  localidad       String?
+  hectareas       Float?
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
 
   organizacionId String       @map("organizacion_id") @db.Uuid
   organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
@@ -281,11 +282,12 @@ model Sector {
 
 // Catálogo de forrajes
 model Forraje {
-  id     String  @id @default(uuid()) @db.Uuid
-  nombre String  @unique // 'festuca', 'alfalfa', 'raigrás', 'avena', 'sorgo'
-  tipo   String? // 'perenne' | 'anual'
-  clase  String? // 'pastura' | 'verdeo' | 'cultivo'
-  notas  String?
+  reservas ReservaForraje[]
+  id       String           @id @default(uuid()) @db.Uuid
+  nombre   String           @unique // 'festuca', 'alfalfa', 'raigrás', 'avena', 'sorgo'
+  tipo     String? // 'perenne' | 'anual'
+  clase    String? // 'pastura' | 'verdeo' | 'cultivo'
+  notas    String?
 
   sectorForrajes SectorForraje[]
 
@@ -294,10 +296,14 @@ model Forraje {
 
 // Qué forraje hay en cada sector y desde cuándo
 model SectorForraje {
-  id                  String    @id @default(uuid()) @db.Uuid
-  desde               DateTime  @db.Date
-  hasta               DateTime? @db.Date
-  densidadSiembraKgHa Float?    @map("densidad_siembra_kg_ha")
+  superficieHa        Float?           @map("superficie_ha")
+  estado              String           @default("implantado")
+  version             Int              @default(1)
+  reservas            ReservaForraje[]
+  id                  String           @id @default(uuid()) @db.Uuid
+  desde               DateTime         @db.Date
+  hasta               DateTime?        @db.Date
+  densidadSiembraKgHa Float?           @map("densidad_siembra_kg_ha")
   notas               String?
 
   sectorId String @map("sector_id") @db.Uuid
@@ -1240,6 +1246,7 @@ model SesionMangaItem {
 // Administración: todos los registros pertenecen a un campo, cuya organización
 // determina permisos. Las referencias entre módulos conservan el mismo campo.
 model ActivoPatrimonial {
+  equipo            EquipoFlota?
   id                String             @id @default(uuid()) @db.Uuid
   establecimientoId String             @map("establecimiento_id") @db.Uuid
   establecimiento   Establecimiento    @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
@@ -1352,4 +1359,69 @@ model ArchivoContenido {
   datos       Bytes
 
   @@map("archivos_contenido")
+}
+
+model EquipoFlota {
+  activoId               String               @id @map("activo_id") @db.Uuid
+  activo                 ActivoPatrimonial    @relation(fields: [activoId], references: [id], onDelete: Restrict)
+  patente                String?
+  marcaModelo            String               @map("marca_modelo")
+  unidad                 String
+  lectura                Decimal              @default(0) @db.Decimal(12, 1)
+  proximoServicioFecha   DateTime?            @map("proximo_servicio_fecha") @db.Date
+  proximoServicioLectura Decimal?             @map("proximo_servicio_lectura") @db.Decimal(12, 1)
+  version                Int                  @default(1)
+  mantenimientos         MantenimientoFlota[]
+
+  @@map("equipos_flota")
+}
+
+model MantenimientoFlota {
+  id        String      @id @default(uuid()) @db.Uuid
+  equipoId  String      @map("equipo_id") @db.Uuid
+  equipo    EquipoFlota @relation(fields: [equipoId], references: [activoId], onDelete: Restrict)
+  fecha     DateTime    @db.Date
+  lectura   Decimal     @db.Decimal(12, 1)
+  detalle   String
+  costo     Decimal?    @db.Decimal(14, 2)
+  moneda    String      @default("ARS")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  @@index([equipoId, fecha])
+  @@map("mantenimientos_flota")
+}
+
+model ReservaForraje {
+  id                String              @id @default(uuid()) @db.Uuid
+  establecimientoId String              @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento     @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
+  forrajeId         String              @map("forraje_id") @db.Uuid
+  forraje           Forraje             @relation(fields: [forrajeId], references: [id], onDelete: Restrict)
+  cultivoId         String?             @map("cultivo_id") @db.Uuid
+  cultivo           SectorForraje?      @relation(fields: [cultivoId], references: [id], onDelete: Restrict)
+  nombre            String
+  unidad            String
+  ubicacion         String
+  stock             Decimal             @default(0) @db.Decimal(12, 2)
+  minimo            Decimal             @default(0) @db.Decimal(12, 2)
+  movimientos       MovimientoForraje[]
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  @@index([establecimientoId, createdAt])
+  @@map("reservas_forraje")
+}
+
+model MovimientoForraje {
+  id        String         @id @default(uuid()) @db.Uuid
+  reservaId String         @map("reserva_id") @db.Uuid
+  reserva   ReservaForraje @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+  clave     String         @unique @db.Uuid
+  tipo      String
+  cantidad  Decimal        @db.Decimal(12, 2)
+  fecha     DateTime       @db.Date
+  motivo    String
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  @@index([reservaId, fecha])
+  @@map("movimientos_forraje")
 }

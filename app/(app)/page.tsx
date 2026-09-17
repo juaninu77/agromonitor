@@ -26,6 +26,7 @@ import {
 } from "lucide-react"
 
 interface DashboardStats {
+  animalesPesadosMes: number
   totalAnimales: number
   totalEstablecimientos: number
   totalLotes: number
@@ -36,8 +37,8 @@ interface DashboardStats {
   paricionesProximas: number
 }
 
-async function fetchDashboardStats(): Promise<DashboardStats> {
-  const res = await fetch("/api/dashboard/stats")
+async function fetchDashboardStats(establecimientoId: string): Promise<DashboardStats> {
+  const res = await fetch(`/api/dashboard/stats?establecimientoId=${establecimientoId}`)
   if (!res.ok) throw new Error("Error al cargar estadísticas")
   const json = await res.json()
   if (!json.success) throw new Error(json.error ?? "Error al cargar datos")
@@ -83,7 +84,7 @@ const mainKpis = [
     key: "totalLotes",
     title: "Total Lotes",
     icon: Layers,
-    color: "text-blue-600",
+    color: "text-primary",
     bg: "bg-blue-100",
   },
   {
@@ -145,18 +146,18 @@ export default function DashboardPage() {
     refetch,
   } = useQuery<DashboardStats>({
     queryKey: ["dashboard-stats", establecimientoActivo?.id],
-    queryFn: fetchDashboardStats,
+    queryFn: () => fetchDashboardStats(establecimientoActivo!.id),
     enabled: !!establecimientoActivo,
   })
 
   const tasaActividad =
     stats && stats.totalAnimales > 0
-      ? Math.round((stats.pesadasRecientes / stats.totalAnimales) * 100)
+      ? Math.round((stats.animalesPesadosMes / stats.totalAnimales) * 100)
       : 0
 
   if (isLoading || !establecimientoActivo) {
     return (
-      <div className="flex flex-col gap-6 p-4 md:p-6">
+      <div className="flex flex-col gap-6">
         <div>
           <Skeleton className="h-8 w-56 mb-2" />
           <Skeleton className="h-4 w-40" />
@@ -202,7 +203,7 @@ export default function DashboardPage() {
 
   if (!stats.tieneDatos) {
     return (
-      <div className="flex flex-col gap-6 p-4 md:p-6">
+      <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-3">
@@ -246,7 +247,7 @@ export default function DashboardPage() {
       bg: "bg-slate-100",
     },
     {
-      title: "Tasa actividad",
+      title: "Ganado pesado este mes",
       value: `${tasaActividad}%`,
       icon: Activity,
       color: "text-orange-600",
@@ -255,7 +256,7 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-6">
+    <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-3">
@@ -351,10 +352,10 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
           {quickActions.map((action) => (
             <Link key={action.label} href={action.href}>
-              <Card className="cursor-pointer hover:scale-[1.03] transition-transform h-full">
+              <Card className="cursor-pointer hover:border-primary/50 transition-colors h-full">
                 <CardContent className="p-5 flex flex-col items-center gap-3 text-center">
                   <div
-                    className={`p-3 rounded-xl ${action.color} text-white`}
+                    className={`p-3 rounded-xl bg-primary/10 text-primary`}
                   >
                     <action.icon className="h-6 w-6" />
                   </div>

@@ -139,22 +139,22 @@ export const AnimalListTab = memo(function AnimalListTab({
             <div className="border-2 rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50 border-b-2 border-gray-200">
+                  <thead className="bg-gray-50 border-b-2 border-border">
                     <tr>
                       <SortableHeader field="caravana" label="Caravana" currentOrderBy={orderBy} currentDirection={orderDirection} onSort={onSort} />
                       <SortableHeader field="nombre" label="Nombre" currentOrderBy={orderBy} currentDirection={orderDirection} onSort={onSort} />
                       <SortableHeader field="categoria" label="Categoría" currentOrderBy={orderBy} currentDirection={orderDirection} onSort={onSort} />
                       <SortableHeader field="raza" label="Raza" currentOrderBy={orderBy} currentDirection={orderDirection} onSort={onSort} />
                       <SortableHeader field="edad" label="Edad" currentOrderBy={orderBy} currentDirection={orderDirection} onSort={onSort} />
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Estado</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Salud</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">Acciones</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-foreground uppercase tracking-wider">Estado</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-foreground uppercase tracking-wider">Salud</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-foreground uppercase tracking-wider">Acciones</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="bg-card divide-y divide-gray-200">
                     {filteredAnimals.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                           No se encontraron animales con los filtros aplicados
                         </td>
                       </tr>
@@ -166,12 +166,12 @@ export const AnimalListTab = memo(function AnimalListTab({
                           onClick={() => router.push(`/ganado/${animal.id}`)}
                         >
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-sm font-medium text-gray-900">
+                            <span className="text-sm font-medium text-foreground">
                               {animal.tagNumber || animal.caravanaVisual || "N/A"}
                             </span>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-sm text-gray-900">{animal.name || "Sin nombre"}</span>
+                            <span className="text-sm text-foreground">{animal.name || "Sin nombre"}</span>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <Badge variant="outline" className={getCategoryColor(animal.category || "")}>
@@ -179,10 +179,10 @@ export const AnimalListTab = memo(function AnimalListTab({
                             </Badge>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-sm text-gray-600">{animal.breed || animal.raza?.nombre || "N/A"}</span>
+                            <span className="text-sm text-muted-foreground">{animal.breed || animal.raza?.nombre || "N/A"}</span>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-sm text-gray-600">{animal.age || animal.edad || "N/A"}</span>
+                            <span className="text-sm text-muted-foreground">{animal.age || animal.edad || "N/A"}</span>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <Badge
@@ -190,7 +190,7 @@ export const AnimalListTab = memo(function AnimalListTab({
                               className={
                                 animal.reproductiveStatus === "Preñada"
                                   ? "bg-green-100 text-green-800 border-green-200"
-                                  : "bg-gray-100 text-gray-800 border-gray-200"
+                                  : "bg-gray-100 text-foreground border-border"
                               }
                             >
                               {animal.reproductiveStatus || "N/A"}
@@ -198,7 +198,7 @@ export const AnimalListTab = memo(function AnimalListTab({
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <Badge variant="outline" className={getHealthStatusColor(animal.healthStatus || "")}>
-                              {animal.healthStatus || "Saludable"}
+                              {animal.healthStatus || "Sin evaluación sanitaria"}
                             </Badge>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-right">

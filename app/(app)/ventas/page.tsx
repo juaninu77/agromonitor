@@ -530,7 +530,7 @@ export default function VentasPage() {
 
   if (tenantLoading) {
     return (
-      <div className="space-y-6 p-4 md:p-6">
+      <div className="space-y-6">
         <Skeleton className="h-10 w-64" />
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -557,7 +557,7 @@ export default function VentasPage() {
   // ─── Render ──────────────────────────────────────────
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -871,7 +871,7 @@ export default function VentasPage() {
                               className={
                                 cliente.activo
                                   ? "bg-green-100 text-green-800 hover:bg-green-200"
-                                  : "bg-gray-100 text-gray-600"
+                                  : "bg-gray-100 text-muted-foreground"
                               }
                             >
                               {cliente.activo ? "Activo" : "Inactivo"}
@@ -991,7 +991,7 @@ export default function VentasPage() {
                               className={
                                 prov.activo
                                   ? "bg-green-100 text-green-800 hover:bg-green-200"
-                                  : "bg-gray-100 text-gray-600"
+                                  : "bg-gray-100 text-muted-foreground"
                               }
                             >
                               {prov.activo ? "Activo" : "Inactivo"}

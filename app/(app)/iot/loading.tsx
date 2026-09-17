@@ -28,7 +28,7 @@ export default function IoTLoading() {
         {/* KPIs skeleton */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           {Array.from({ length: 5 }).map((_, i) => (
-            <Card key={i} className="bg-white">
+            <Card key={i} className="bg-card">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-2">
@@ -44,14 +44,14 @@ export default function IoTLoading() {
 
         {/* Tabs skeleton */}
         <div className="space-y-4">
-          <div className="flex space-x-1 bg-white rounded-lg p-1">
+          <div className="flex space-x-1 bg-card rounded-lg p-1">
             {Array.from({ length: 5 }).map((_, i) => (
               <Skeleton key={i} className="h-9 w-24" />
             ))}
           </div>
 
           {/* Filters skeleton */}
-          <Card className="bg-white">
+          <Card className="bg-card">
             <CardContent className="p-4">
               <div className="flex flex-col md:flex-row gap-4">
                 <Skeleton className="h-10 flex-1" />
@@ -64,7 +64,7 @@ export default function IoTLoading() {
           {/* Device list skeleton */}
           <div className="space-y-4">
             {Array.from({ length: 6 }).map((_, i) => (
-              <Card key={i} className="bg-white">
+              <Card key={i} className="bg-card">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -109,4 +109,3 @@ export default function IoTLoading() {
     </div>
   )
 }
-

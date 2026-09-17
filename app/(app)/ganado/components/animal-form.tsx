@@ -9,16 +9,16 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
-import { 
-  Loader2, 
-  ChevronRight, 
-  ChevronLeft, 
-  Check, 
-  Tag, 
-  Dna, 
-  Baby, 
-  Scale, 
-  Calendar, 
+import {
+  Loader2,
+  ChevronRight,
+  ChevronLeft,
+  Check,
+  Tag,
+  Dna,
+  Baby,
+  Scale,
+  Calendar,
   MapPin,
   ClipboardList,
   Fingerprint
@@ -205,7 +205,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
     let fieldsToValidate: any[] = []
     if (step === 1) fieldsToValidate = ["caravanaVisual", "caravanaRfid", "cuig", "otroId"]
     if (step === 2) fieldsToValidate = ["especieId", "razaId", "categoriaId", "sexo", "fechaNacimiento", "origen"]
-    
+
     const isStepValid = await trigger(fieldsToValidate)
     if (isStepValid) setStep((s) => Math.min(s + 1, 4))
   }
@@ -226,7 +226,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
                   </div>
                   <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-blue-600">
                     <Check className="h-5 w-5 text-white" aria-hidden="true" />
-                    <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-bold text-blue-600 uppercase">
+                    <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-bold text-primary uppercase">
                       {s.name}
                     </span>
                   </div>
@@ -236,9 +236,9 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
                   <div className="absolute inset-0 flex items-center" aria-hidden="true">
                     <div className="h-0.5 w-full bg-slate-200" />
                   </div>
-                  <div className="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-blue-600 bg-white" aria-current="step">
-                    <s.icon className="h-4 w-4 text-blue-600" />
-                    <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-bold text-blue-600 uppercase">
+                  <div className="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-blue-600 bg-card" aria-current="step">
+                    <s.icon className="h-4 w-4 text-primary" />
+                    <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-bold text-primary uppercase">
                       {s.name}
                     </span>
                   </div>
@@ -248,7 +248,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
                   <div className="absolute inset-0 flex items-center" aria-hidden="true">
                     <div className="h-0.5 w-full bg-slate-200" />
                   </div>
-                  <div className="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 bg-white">
+                  <div className="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 bg-card">
                     <s.icon className="h-4 w-4 text-slate-400" />
                     <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-bold text-slate-400 uppercase">
                       {s.name}
@@ -268,7 +268,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
             <div className="lg:col-span-2 space-y-6">
               <div className="space-y-4">
                 <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                  <Fingerprint className="h-5 w-5 text-blue-600" />
+                  <Fingerprint className="h-5 w-5 text-primary" />
                   Identificación del Animal
                 </h3>
                 <p className="text-sm text-slate-500">Registra las marcas y números oficiales para seguimiento.</p>
@@ -342,7 +342,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
           <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
             <div className="space-y-4">
               <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                <Dna className="h-5 w-5 text-blue-600" />
+                <Dna className="h-5 w-5 text-primary" />
                 Información Biológica
               </h3>
               <p className="text-sm text-slate-500">Datos genéticos y de origen para trazabilidad.</p>
@@ -428,8 +428,8 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
                     onClick={() => setValue("sexo", "M")}
                     className={cn(
                       "flex flex-col items-center justify-center rounded-xl border-2 transition-all p-2",
-                      selectedSexo === "M" 
-                        ? "border-blue-600 bg-blue-50 text-blue-700" 
+                      selectedSexo === "M"
+                        ? "border-blue-600 bg-primary/10 text-blue-700"
                         : "border-slate-200 hover:border-slate-300 text-slate-500"
                     )}
                   >
@@ -440,8 +440,8 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
                     onClick={() => setValue("sexo", "F")}
                     className={cn(
                       "flex flex-col items-center justify-center rounded-xl border-2 transition-all p-2",
-                      selectedSexo === "F" 
-                        ? "border-pink-600 bg-pink-50 text-pink-700" 
+                      selectedSexo === "F"
+                        ? "border-pink-600 bg-pink-50 text-pink-700"
                         : "border-slate-200 hover:border-slate-300 text-slate-500"
                     )}
                   >
@@ -488,7 +488,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
           <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
             <div className="space-y-4">
               <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                <ClipboardList className="h-5 w-5 text-blue-600" />
+                <ClipboardList className="h-5 w-5 text-primary" />
                 Rasgos & Registro de Cabaña
               </h3>
               <p className="text-sm text-slate-500">Características físicas y estado de pedigrí.</p>
@@ -550,7 +550,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
                     id="registroCabana"
                     {...register("registroCabana")}
                     placeholder="Ej: 123456"
-                    className="h-11 border-2 border-blue-100 bg-white"
+                    className="h-11 border-2 border-blue-100 bg-card"
                   />
                 </div>
               )}
@@ -563,7 +563,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
           <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
             <div className="space-y-4">
               <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-blue-600" />
+                <MapPin className="h-5 w-5 text-primary" />
                 Ubicación & Datos Iniciales
               </h3>
               <p className="text-sm text-slate-500">Asignación a lote y registros de entrada.</p>
@@ -578,14 +578,14 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
                   disabled={loadingOptions || !establecimientoActivo || lotes.length === 0}
                 >
                   <SelectTrigger className={cn("h-11 border-2", errors.loteId ? "border-red-500" : "border-slate-200")}>
-                    <SelectValue 
+                    <SelectValue
                       placeholder={
-                        !establecimientoActivo 
-                          ? "Selecciona establecimiento" 
-                          : lotes.length === 0 
+                        !establecimientoActivo
+                          ? "Selecciona establecimiento"
+                          : lotes.length === 0
                             ? "Sin lotes disponibles"
                             : "Seleccionar lote (opcional)"
-                      } 
+                      }
                     />
                   </SelectTrigger>
                   <SelectContent>

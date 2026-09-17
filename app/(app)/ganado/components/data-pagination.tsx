@@ -69,16 +69,16 @@ export function DataPagination({ pagination, onPageChange, onLimitChange }: Data
   const endResult = Math.min(page * limit, total)
 
   return (
-    <div className="flex items-center justify-between px-2 py-4 border-t-2 border-gray-200">
+    <div className="flex items-center justify-between px-2 py-4 border-t-2 border-border">
       {/* Info y selector de items por página */}
       <div className="flex items-center gap-4">
-        <p className="text-sm text-gray-700">
+        <p className="text-sm text-foreground">
           Mostrando <span className="font-medium">{startResult}</span> a{" "}
           <span className="font-medium">{endResult}</span> de{" "}
           <span className="font-medium">{total}</span> resultados
         </p>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Mostrar:</span>
+          <span className="text-sm text-muted-foreground">Mostrar:</span>
           <Select
             value={limit.toString()}
             onValueChange={(value) => {

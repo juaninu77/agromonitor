@@ -24,14 +24,14 @@ export function ErrorState({ error, onRetry, type = "unknown" }: ErrorStateProps
             {config.icon}
           </div>
           <div className="text-center max-w-md">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            <h3 className="text-lg font-semibold text-foreground mb-2">
               {config.title}
             </h3>
-            <p className="text-sm text-gray-600 mb-1">
+            <p className="text-sm text-muted-foreground mb-1">
               {config.message}
             </p>
             {error && (
-              <p className="text-xs text-gray-500 mt-2 font-mono bg-white p-2 rounded border border-gray-200">
+              <p className="text-xs text-muted-foreground mt-2 font-mono bg-card p-2 rounded border border-border">
                 {error}
               </p>
             )}

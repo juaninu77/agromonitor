@@ -123,7 +123,7 @@ export function AdvancedFilters({ onFiltersChange }: AdvancedFiltersProps) {
   }
 
   return (
-    <div className="border-2 border-gray-200 rounded-lg p-4">
+    <div className="border border-border rounded-lg p-4">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <h3 className="font-semibold">Filtros Avanzados</h3>
@@ -161,7 +161,7 @@ export function AdvancedFilters({ onFiltersChange }: AdvancedFiltersProps) {
                     id={`raza-${raza.id}`}
                     checked={filters.razas.includes(raza.id)}
                     onChange={() => handleToggleRaza(raza.id)}
-                    className="rounded border-gray-300"
+                    className="rounded border-input"
                   />
                   <Label htmlFor={`raza-${raza.id}`} className="cursor-pointer">
                     {raza.nombre}
@@ -186,7 +186,7 @@ export function AdvancedFilters({ onFiltersChange }: AdvancedFiltersProps) {
                     id={`cat-${categoria.id}`}
                     checked={filters.categorias.includes(categoria.id)}
                     onChange={() => handleToggleCategoria(categoria.id)}
-                    className="rounded border-gray-300"
+                    className="rounded border-input"
                   />
                   <Label htmlFor={`cat-${categoria.id}`} className="cursor-pointer">
                     {categoria.nombre}
@@ -215,7 +215,7 @@ export function AdvancedFilters({ onFiltersChange }: AdvancedFiltersProps) {
                       ...prev,
                       pesoMin: e.target.value ? parseInt(e.target.value) : undefined
                     }))}
-                    className="w-24 px-2 py-1 border-2 border-gray-200 rounded"
+                    className="w-24 px-2 py-1 border border-border rounded"
                   />
                   <span>a</span>
                   <input
@@ -226,7 +226,7 @@ export function AdvancedFilters({ onFiltersChange }: AdvancedFiltersProps) {
                       ...prev,
                       pesoMax: e.target.value ? parseInt(e.target.value) : undefined
                     }))}
-                    className="w-24 px-2 py-1 border-2 border-gray-200 rounded"
+                    className="w-24 px-2 py-1 border border-border rounded"
                   />
                 </div>
               </div>
@@ -255,7 +255,7 @@ export function AdvancedFilters({ onFiltersChange }: AdvancedFiltersProps) {
                       ...prev,
                       ccMin: e.target.value ? parseFloat(e.target.value) : undefined
                     }))}
-                    className="w-24 px-2 py-1 border-2 border-gray-200 rounded"
+                    className="w-24 px-2 py-1 border border-border rounded"
                   />
                   <span>a</span>
                   <input
@@ -269,7 +269,7 @@ export function AdvancedFilters({ onFiltersChange }: AdvancedFiltersProps) {
                       ...prev,
                       ccMax: e.target.value ? parseFloat(e.target.value) : undefined
                     }))}
-                    className="w-24 px-2 py-1 border-2 border-gray-200 rounded"
+                    className="w-24 px-2 py-1 border border-border rounded"
                   />
                 </div>
               </div>

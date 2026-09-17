@@ -114,11 +114,11 @@ function Workspace({ campo, nombreCampo, initialModulo }: { campo: string; nombr
     <label className="space-y-1 text-sm" key={key}><span>{title}</span><Input value={draft[key]} onChange={e => update(key, e.target.value)} {...options} /></label>
   const select = (key: string, title: string, values: readonly string[]) =>
     <label className="space-y-1 text-sm" key={key}><span>{title}</span><select className={selectClass} value={draft[key]} onChange={e => update(key,e.target.value)}>{values.map(v => <option key={v} value={v}>{label(v)}</option>)}</select></label>
-  return <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
+  return <div className="space-y-6">
     <div><p className="text-sm text-muted-foreground">{nombreCampo}</p><h1 className="text-3xl font-bold tracking-tight">Administración del campo</h1><p className="mt-2 text-muted-foreground">Bienes, comprobantes y documentación en un solo lugar. Acceso para propietarios y encargados.</p></div>
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Secciones de administración">{modulos.map(m => { const Icon = config[m].icon; return <button key={m} onClick={() => changeModulo(m)} disabled={saving} aria-pressed={modulo === m} className={`flex items-center gap-3 rounded-xl border p-4 text-left text-sm font-medium transition-colors ${modulo === m ? "border-primary bg-primary/10 text-primary" : "bg-card hover:bg-muted"}`}><Icon className="h-5 w-5 shrink-0" />{config[m].label}</button> })}</div>
     <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="text-xl font-semibold">{config[modulo].label}</h2><p className="mt-1 max-w-3xl text-sm text-muted-foreground">{config[modulo].description}</p></div><Button onClick={() => begin()} disabled={saving || !!error}><Plus className="mr-2 h-4 w-4" />Nuevo registro</Button></div>
-    {notice && <p role="status" className="rounded-md bg-emerald-50 p-3 text-emerald-900">{notice}</p>}
+    {notice && <p role="status" className="erp-notice">{notice}</p>}
     {open && <Card><CardHeader><CardTitle>{editing ? "Editar registro" : "Nuevo registro"}</CardTitle></CardHeader><CardContent><form onSubmit={save} className="space-y-4"><fieldset disabled={saving} className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {input("titulo", "Título *", { required: true, maxLength: 180, placeholder: modulo === "patrimonio" ? "Ej. Tractor John Deere" : "Descripción del registro" })}
       {select("tipo", "Tipo", tipos[modulo])}{select("estado", "Estado", estados[modulo])}

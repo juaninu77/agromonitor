@@ -5,15 +5,15 @@
 @layer base {
   :root {
     /* Base colors - Light theme optimized */
-    --background: 0 0% 100%;
+    --background: 150 18% 97%;
     --foreground: 222 84% 4.9%;
     --card: 0 0% 100%;
     --card-foreground: 222 84% 4.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222 84% 4.9%;
 
-    /* Primary - Modern blue with excellent contrast */
-    --primary: 221 83% 53%;
+    /* Primary - AgroMonitor green */
+    --primary: 158 55% 25%;
     --primary-foreground: 210 40% 98%;
 
     /* Secondary - Soft neutral with warmth */
@@ -33,16 +33,16 @@
     --destructive-foreground: 210 40% 98%;
 
     /* Borders and inputs - More visible borders */
-    --border: 214 32% 80%;
-    --input: 214 32% 85%;
-    --ring: 221 83% 53%;
+    --border: 150 12% 86%;
+    --input: 150 12% 80%;
+    --ring: 158 55% 25%;
     --radius: 0.75rem;
 
     /* Custom Status Colors - Refined for better UX */
     --status-ok: 142 76% 36%;
     --status-alert: 0 84% 60%;
     --status-water: 199 89% 48%;
-    --status-warn: 38 92% 50%;
+    --status-warn: 32 90% 32%;
 
     /* Chart colors - Harmonious palette */
     --chart-1: 221 83% 53%;
@@ -54,12 +54,12 @@
     /* Sidebar - Clean and modern */
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 222 84% 4.9%;
-    --sidebar-primary: 221 83% 53%;
+    --sidebar-primary: 158 55% 25%;
     --sidebar-primary-foreground: 210 40% 98%;
     --sidebar-accent: 210 40% 96%;
     --sidebar-accent-foreground: 222 84% 4.9%;
     --sidebar-border: 214 32% 80%;
-    --sidebar-ring: 221 83% 53%;
+    --sidebar-ring: 158 55% 25%;
   }
 
   .dark {
@@ -72,7 +72,7 @@
     --popover-foreground: 210 40% 98%;
 
     /* Primary - Adjusted for dark theme */
-    --primary: 217 91% 60%;
+    --primary: 155 48% 60%;
     --primary-foreground: 222 84% 4.9%;
 
     /* Secondary - Dark theme neutrals */
@@ -94,7 +94,7 @@
     /* Borders and inputs - More visible in dark theme */
     --border: 217 32% 30%;
     --input: 217 32% 25%;
-    --ring: 217 91% 60%;
+    --ring: 155 48% 60%;
 
     /* Custom Status Colors - Dark theme optimized */
     --status-ok: 142 71% 45%;
@@ -112,12 +112,12 @@
     /* Sidebar - Dark theme */
     --sidebar-background: 222 84% 4.9%;
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary: 155 48% 60%;
     --sidebar-primary-foreground: 222 84% 4.9%;
     --sidebar-accent: 217 32% 17%;
     --sidebar-accent-foreground: 210 40% 98%;
     --sidebar-border: 217 32% 30%;
-    --sidebar-ring: 217 91% 60%;
+    --sidebar-ring: 155 48% 60%;
   }
 }
 
@@ -229,4 +229,19 @@
   .status-critical {
     @apply bg-status-alert/10 text-status-alert border-status-alert/30;
   }
+}
+
+/* AgroMonitor design system: spacing uses a 4px grid; the shell owns page gutters. */
+@layer components {
+  .erp-page { @apply mx-auto w-full max-w-[1440px] space-y-6 p-4 md:p-6 lg:p-8; }
+  .erp-title { @apply text-2xl font-semibold leading-tight tracking-tight md:text-3xl; }
+  .erp-field { @apply flex flex-col gap-2 text-sm font-medium; }
+  .erp-select { @apply h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal; }
+  .erp-tabs { @apply flex w-fit max-w-full flex-wrap gap-1 rounded-xl border bg-card p-1; }
+  .erp-notice { @apply rounded-lg border border-status-ok/20 bg-status-ok/10 p-4 text-sm text-status-ok; }
+  .erp-error { @apply rounded-lg border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive; }
+  .erp-page h1 { @apply text-2xl font-semibold leading-tight tracking-tight md:text-3xl; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

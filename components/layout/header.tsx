@@ -14,7 +14,7 @@ interface HeaderProps {
 
 export function Header({ onMenuClick }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-30 flex min-h-14 shrink-0 items-center gap-3 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur-md supports-[backdrop-filter]:bg-background/90 sm:gap-4 sm:px-6">
+    <header className="sticky top-0 z-30 flex min-h-14 shrink-0 flex-wrap items-center gap-2 sm:flex-nowrap border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur-md supports-[backdrop-filter]:bg-background/90 sm:gap-4 sm:px-6">
       {/*
         Debe coincidir con el breakpoint del sidebar en app-shell (lg).
         sm:hidden ocultaba el menú entre ~640px y 1024px → sin navegación en tablet.
@@ -33,11 +33,11 @@ export function Header({ onMenuClick }: HeaderProps) {
       {/* Selector de Campo (Multi-Tenancy) */}
       <EstablecimientoSelector />
 
-      <div className="flex-1">
+      <div className="order-last w-full sm:order-none sm:w-auto sm:flex-1">
         <CommandPalette />
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-2">
         <ThemeToggle />
         <NotificationCenter />
         <UserNav />

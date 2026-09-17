@@ -27,15 +27,15 @@ export function SortableHeader({
       return <ArrowUpDown className="h-4 w-4 opacity-40" />
     }
     if (currentDirection === 'asc') {
-      return <ArrowUp className="h-4 w-4 text-blue-600" />
+      return <ArrowUp className="h-4 w-4 text-primary" />
     }
-    return <ArrowDown className="h-4 w-4 text-blue-600" />
+    return <ArrowDown className="h-4 w-4 text-primary" />
   }
 
   return (
     <th
       className={cn(
-        "px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors select-none",
+        "px-4 py-3 text-left text-xs font-medium text-foreground uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors select-none",
         isActive && "bg-gray-50",
         className
       )}

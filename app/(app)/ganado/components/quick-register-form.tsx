@@ -7,13 +7,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { 
-  Loader2, 
-  Tag, 
-  Dna, 
-  Baby, 
-  Scale, 
-  Calendar, 
+import {
+  Loader2,
+  Tag,
+  Dna,
+  Baby,
+  Scale,
+  Calendar,
   Zap,
   CheckCircle2,
   Circle
@@ -91,7 +91,7 @@ export function QuickRegisterForm({ onSubmit, isSubmitting }: QuickRegisterFormP
     return (
       <div className="flex items-center justify-center py-12">
         <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto" />
+          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
           <p className="mt-2 text-sm text-slate-500">Cargando opciones...</p>
         </div>
       </div>
@@ -100,8 +100,8 @@ export function QuickRegisterForm({ onSubmit, isSubmitting }: QuickRegisterFormP
 
   return (
     <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6">
-      <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
-        <Zap className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
+      <div className="bg-primary/10 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
+        <Zap className="h-5 w-5 text-primary mt-0.5 shrink-0" />
         <div>
           <p className="text-sm font-semibold text-blue-900">Registro Ultrarrápido</p>
           <p className="text-xs text-blue-700">
@@ -150,8 +150,8 @@ export function QuickRegisterForm({ onSubmit, isSubmitting }: QuickRegisterFormP
                   onClick={() => setValue("sexo", "M")}
                   className={cn(
                     "flex items-center justify-center gap-2 rounded-lg border-2 transition-all",
-                    selectedSexo === "M" 
-                      ? "border-blue-600 bg-blue-50 text-blue-700" 
+                    selectedSexo === "M"
+                      ? "border-blue-600 bg-primary/10 text-blue-700"
                       : "border-slate-200 hover:border-slate-300 text-slate-600"
                   )}
                 >
@@ -163,8 +163,8 @@ export function QuickRegisterForm({ onSubmit, isSubmitting }: QuickRegisterFormP
                   onClick={() => setValue("sexo", "F")}
                   className={cn(
                     "flex items-center justify-center gap-2 rounded-lg border-2 transition-all",
-                    selectedSexo === "F" 
-                      ? "border-pink-600 bg-pink-50 text-pink-700" 
+                    selectedSexo === "F"
+                      ? "border-pink-600 bg-pink-50 text-pink-700"
                       : "border-slate-200 hover:border-slate-300 text-slate-600"
                   )}
                 >

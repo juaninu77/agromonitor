@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
+import { useTenant } from "@/lib/context/tenant-context"
 import {
   CommandDialog,
   CommandEmpty,
@@ -24,10 +25,14 @@ import {
   Plus,
   Loader2,
   FolderOpen,
+  Truck,
+  Sprout,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 const navCommands = [
+  { id: "flota", label: "Flota y mantenimiento", icon: Truck, action: "/flota" },
+  { id: "cultivos", label: "Cultivos, pasturas y reservas de forraje", icon: Sprout, action: "/cultivos" },
   { id: "administracion", label: "Administración: patrimonio, comprobantes y documentos", icon: FolderOpen, action: "/administracion" },
   { id: "dashboard", label: "Panel de Control", icon: LayoutDashboard, action: "/" },
   { id: "ganado", label: "Ganado", icon: Bot, action: "/ganado" },
@@ -58,6 +63,7 @@ export function CommandPalette() {
   const [animalResults, setAnimalResults] = useState<AnimalResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const router = useRouter()
+  const { establecimientoActivo } = useTenant()
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -70,31 +76,21 @@ export function CommandPalette() {
     return () => document.removeEventListener("keydown", down)
   }, [])
 
-  const searchAnimals = useCallback(async (term: string) => {
-    if (term.length < 2) {
-      setAnimalResults([])
-      return
-    }
-    setIsSearching(true)
-    try {
-      const res = await fetch(`/api/ganado/bovinos?search=${encodeURIComponent(term)}&limit=5`)
-      if (res.ok) {
-        const data = await res.json()
-        setAnimalResults(data.data || [])
-      }
-    } catch {
-      setAnimalResults([])
-    } finally {
-      setIsSearching(false)
-    }
-  }, [])
-
   useEffect(() => {
+    const controller = new AbortController()
+    setAnimalResults([])
+    setIsSearching(false)
+    if (search.length < 2 || !establecimientoActivo || !open) return
     const timer = setTimeout(() => {
-      searchAnimals(search)
+      setIsSearching(true)
+      fetch(`/api/ganado/bovinos?busqueda=${encodeURIComponent(search)}&establecimientoId=${establecimientoActivo.id}&limit=5`, { signal: controller.signal })
+        .then(async res => { if (!res.ok) throw Error(); return res.json() })
+        .then(data => { if (!controller.signal.aborted) setAnimalResults(data.data || []) })
+        .catch(() => { if (!controller.signal.aborted) setAnimalResults([]) })
+        .finally(() => { if (!controller.signal.aborted) setIsSearching(false) })
     }, 300)
-    return () => clearTimeout(timer)
-  }, [search, searchAnimals])
+    return () => { clearTimeout(timer); controller.abort() }
+  }, [search, establecimientoActivo, open])
 
   const runCommand = (command: string) => {
     setOpen(false)
@@ -139,7 +135,7 @@ export function CommandPalette() {
               {animalResults.map((animal) => (
                 <CommandItem
                   key={animal.id}
-                  onSelect={() => runCommand(`/ganado`)}
+                  onSelect={() => runCommand(`/ganado/${animal.id}`)}
                   className="flex items-center gap-2"
                 >
                   <Bot className="h-4 w-4 text-blue-600" />

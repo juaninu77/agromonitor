@@ -303,13 +303,13 @@ export default function GanadoPage() {
   )
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Gestión de Ganado Bovino</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Gestión de Ganado Bovino</h1>
           <div className="flex items-center gap-3 mt-1">
-            <p className="text-gray-600">Producción de carne y manejo reproductivo integral</p>
+            <p className="text-muted-foreground">Producción de carne y manejo reproductivo integral</p>
             <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
               <Database className="h-3 w-3 mr-1" />
               Base de datos
@@ -329,7 +329,7 @@ export default function GanadoPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
-              <div className="px-2 py-1.5 text-sm font-semibold text-gray-700">Exportar a Excel</div>
+              <div className="px-2 py-1.5 text-sm font-semibold text-foreground">Exportar a Excel</div>
               <DropdownMenuItem onClick={() => handleExportExcel(true)}>
                 <Download className="h-4 w-4 mr-2" />
                 Vista actual ({dataSource.animals.length})
@@ -339,7 +339,7 @@ export default function GanadoPage() {
                 Todos ({animales.length})
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <div className="px-2 py-1.5 text-sm font-semibold text-gray-700">Exportar a PDF</div>
+              <div className="px-2 py-1.5 text-sm font-semibold text-foreground">Exportar a PDF</div>
               <DropdownMenuItem onClick={() => handleExportPDF(true)}>
                 <Download className="h-4 w-4 mr-2" />
                 Vista actual ({dataSource.animals.length})
@@ -354,7 +354,7 @@ export default function GanadoPage() {
             <Plus className="h-4 w-4 mr-2" />
             Nuevo Animal
           </Button>
-          <Button onClick={() => setQuickWeighOpen(true)} variant="outline" className="border-2 border-blue-600 text-blue-700 hover:bg-blue-50">
+          <Button onClick={() => setQuickWeighOpen(true)} variant="outline" className="border-2 border-blue-600 text-blue-700 hover:bg-primary/10">
             <Scale className="h-4 w-4 mr-2" />
             Pesada
           </Button>
@@ -372,12 +372,12 @@ export default function GanadoPage() {
       )}
 
       {/* Tabs principales */}
-      <Card className="border-2 border-gray-200">
+      <Card className="border border-border">
         <CardContent className="p-4 md:p-6">
           <Tabs value={selectedTab} onValueChange={(v) => setSelectedTab(v as TabValue)} className="w-full">
-            <TabsList className="grid w-full grid-cols-3 border-2 border-gray-200">
-              <TabsTrigger value="lista" className="border-r-2 border-gray-200">Lista de Animales</TabsTrigger>
-              <TabsTrigger value="detalle" className="border-r-2 border-gray-200">Detalle Individual</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-3 border border-border">
+              <TabsTrigger value="lista" className="border-r-2 border-border">Lista de Animales</TabsTrigger>
+              <TabsTrigger value="detalle" className="border-r-2 border-border">Detalle Individual</TabsTrigger>
               <TabsTrigger value="reportes">Reportes</TabsTrigger>
             </TabsList>
 

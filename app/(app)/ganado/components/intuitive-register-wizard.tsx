@@ -11,9 +11,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Textarea } from "@/components/ui/textarea"
-import { 
-  Loader2, 
-  Tag, 
+import {
+  Loader2,
+  Tag,
   CheckCircle2,
   Circle,
   ArrowRight,
@@ -84,13 +84,13 @@ interface IntuitiveRegisterWizardProps {
 }
 
 // Componente de selección visual para categorías
-function CategorySelector({ 
-  categorias, 
-  selectedSexo, 
+function CategorySelector({
+  categorias,
+  selectedSexo,
   selectedCategoria,
   onSelect,
-  fechaNacimiento 
-}: { 
+  fechaNacimiento
+}: {
   categorias: Categoria[]
   selectedSexo: "M" | "F"
   selectedCategoria: string
@@ -131,7 +131,7 @@ function CategorySelector({
   }
 
   const getCategoryColor = (nombre: string, isSelected: boolean, isSuggested: boolean) => {
-    if (isSelected) return "border-blue-600 bg-blue-50 text-blue-700 shadow-lg shadow-blue-100"
+    if (isSelected) return "border-blue-600 bg-primary/10 text-blue-700 shadow-lg shadow-blue-100"
     if (isSuggested) return "border-emerald-400 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-200"
     return "border-slate-200 hover:border-slate-300 text-slate-600 hover:bg-slate-50"
   }
@@ -146,7 +146,7 @@ function CategorySelector({
           </span>
         </div>
       )}
-      
+
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {categoriasFiltradas.map((cat) => {
           const Icon = getCategoryIcon(cat.nombre)
@@ -166,7 +166,7 @@ function CategorySelector({
               <Icon className="h-8 w-8" />
               <span className="text-sm font-semibold text-center">{cat.nombre}</span>
               {isSelected && (
-                <CheckCircle2 className="h-4 w-4 text-blue-600 absolute top-2 right-2" />
+                <CheckCircle2 className="h-4 w-4 text-primary absolute top-2 right-2" />
               )}
               {isSuggested && !isSelected && (
                 <Badge className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[10px]">
@@ -193,7 +193,7 @@ function RazaSelector({
 }) {
   const [search, setSearch] = useState("")
 
-  const razasFiltradas = razas.filter(r => 
+  const razasFiltradas = razas.filter(r =>
     r.nombre.toLowerCase().includes(search.toLowerCase())
   )
 
@@ -226,7 +226,7 @@ function RazaSelector({
                   className={cn(
                     "flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all",
                     selectedRaza === raza.id
-                      ? "border-blue-600 bg-blue-50 text-blue-700"
+                      ? "border-blue-600 bg-primary/10 text-blue-700"
                       : "border-slate-200 hover:border-slate-300 text-slate-600"
                   )}
                 >
@@ -249,7 +249,7 @@ function RazaSelector({
                     className={cn(
                       "flex items-center justify-center gap-2 p-2 rounded-lg border transition-all text-sm",
                       selectedRaza === raza.id
-                        ? "border-blue-600 bg-blue-50 text-blue-700"
+                        ? "border-blue-600 bg-primary/10 text-blue-700"
                         : "border-slate-200 hover:border-slate-300 text-slate-500"
                     )}
                   >
@@ -273,7 +273,7 @@ function RazaSelector({
               className={cn(
                 "flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all",
                 selectedRaza === raza.id
-                  ? "border-blue-600 bg-blue-50 text-blue-700"
+                  ? "border-blue-600 bg-primary/10 text-blue-700"
                   : "border-slate-200 hover:border-slate-300 text-slate-600"
               )}
             >
@@ -459,7 +459,7 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
     return (
       <div className="flex items-center justify-center py-16">
         <div className="text-center">
-          <Loader2 className="h-10 w-10 animate-spin text-blue-600 mx-auto" />
+          <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
           <p className="mt-3 text-slate-500">Preparando formulario...</p>
         </div>
       </div>
@@ -473,14 +473,14 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-100 rounded-xl">
-              <Zap className="h-6 w-6 text-blue-600" />
+              <Zap className="h-6 w-6 text-primary" />
             </div>
             <div>
               <h2 className="text-xl font-bold text-slate-800">Registro de Animal</h2>
               <p className="text-sm text-slate-500">Paso {step} de {totalSteps}</p>
             </div>
           </div>
-          
+
           {registeredCount > 0 && (
             <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">
               <CheckCircle2 className="h-3 w-3 mr-1" />
@@ -494,11 +494,11 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
           <Progress value={progressPercent} className="h-2" />
           <div className="flex justify-between mt-2">
             {["Identificación", "Clasificación", "Detalles"].map((label, i) => (
-              <div 
+              <div
                 key={label}
                 className={cn(
                   "text-xs font-medium transition-colors",
-                  i + 1 <= step ? "text-blue-600" : "text-slate-400"
+                  i + 1 <= step ? "text-primary" : "text-slate-400"
                 )}
               >
                 {label}
@@ -513,8 +513,8 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
         {step === 1 && (
           <Card className="border-2 border-slate-100 shadow-sm">
             <CardContent className="pt-6 space-y-6">
-              <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl">
-                <Info className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
+              <div className="flex items-start gap-3 p-4 bg-primary/10 border border-blue-100 rounded-xl">
+                <Info className="h-5 w-5 text-primary mt-0.5 shrink-0" />
                 <div>
                   <p className="text-sm font-semibold text-blue-900">Identificación del animal</p>
                   <p className="text-xs text-blue-700">
@@ -537,8 +537,8 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                         className={cn(
                           "rounded-xl border-2 px-3 py-3 text-sm font-semibold transition-all",
                           active
-                            ? "border-blue-600 bg-blue-50 text-blue-800 shadow-md"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                            ? "border-blue-600 bg-primary/10 text-blue-800 shadow-md"
+                            : "border-slate-200 bg-card text-slate-600 hover:border-slate-300"
                         )}
                       >
                         {labelEspecie(esp.nombre)}
@@ -567,8 +567,8 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                     autoFocus
                     className={cn(
                       "h-14 text-2xl font-bold text-center border-2 transition-all",
-                      errors.caravanaVisual 
-                        ? "border-red-400 bg-red-50 focus:border-red-500" 
+                      errors.caravanaVisual
+                        ? "border-red-400 bg-red-50 focus:border-red-500"
                         : "border-slate-200 focus:border-blue-500"
                     )}
                   />
@@ -591,7 +591,7 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                     className={cn(
                       "flex flex-col items-center justify-center gap-3 p-6 rounded-xl border-2 transition-all duration-200",
                       selectedSexo === "M"
-                        ? "border-blue-600 bg-blue-50 text-blue-700 shadow-lg shadow-blue-100"
+                        ? "border-blue-600 bg-primary/10 text-blue-700 shadow-lg shadow-blue-100"
                         : "border-slate-200 hover:border-slate-300 text-slate-500 hover:bg-slate-50"
                     )}
                   >
@@ -602,9 +602,9 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                       <Crown className="h-8 w-8" />
                     </div>
                     <span className="text-lg font-bold">MACHO</span>
-                    {selectedSexo === "M" && <CheckCircle2 className="h-5 w-5 text-blue-600" />}
+                    {selectedSexo === "M" && <CheckCircle2 className="h-5 w-5 text-primary" />}
                   </button>
-                  
+
                   <button
                     type="button"
                     onClick={() => setValue("sexo", "F")}
@@ -756,7 +756,7 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                         className={cn(
                           "p-3 rounded-lg border-2 transition-all text-sm font-medium",
                           watch("origen") === opt.value
-                            ? "border-blue-600 bg-blue-50 text-blue-700"
+                            ? "border-blue-600 bg-primary/10 text-blue-700"
                             : "border-slate-200 hover:border-slate-300 text-slate-600"
                         )}
                       >
@@ -789,7 +789,7 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                   )}
                 >
                   <span className={cn(
-                    "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform shadow",
+                    "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-card transition-transform shadow",
                     continueRegistering ? "translate-x-5" : "translate-x-0"
                   )} />
                 </button>
@@ -798,7 +798,7 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                     {continueRegistering ? "Continuar registrando" : "Cerrar al guardar"}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {continueRegistering 
+                    {continueRegistering
                       ? "El formulario se limpiará para registrar otro animal"
                       : "Se cerrará el diálogo después de guardar"
                     }
@@ -806,12 +806,12 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                 </div>
                 <Repeat className={cn(
                   "h-5 w-5 ml-auto",
-                  continueRegistering ? "text-blue-600" : "text-slate-400"
+                  continueRegistering ? "text-primary" : "text-slate-400"
                 )} />
               </div>
 
               {/* Resumen */}
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
+              <div className="p-4 bg-primary/10 border border-blue-200 rounded-xl space-y-2">
                 <p className="text-sm font-bold text-blue-900">Resumen del registro:</p>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="text-blue-700">
@@ -847,7 +847,7 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                 Anterior
               </Button>
             )}
-            
+
             <Button
               type="button"
               variant="ghost"
@@ -896,5 +896,3 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
     </div>
   )
 }
-
-

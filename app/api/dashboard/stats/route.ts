@@ -3,14 +3,17 @@ import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
 import { scopeEstablecimiento, scopeEventoAnimalOLote } from "@/lib/api/tenant"
 
-export const GET = withAuth(async (_request, ctx) => {
+export const GET = withAuth(async (request, ctx) => {
   try {
-    const { establecimientoIds } = ctx
+    const selected = request.nextUrl.searchParams.get("establecimientoId")
+    if (selected && !ctx.establecimientoIds.includes(selected)) {
+      return NextResponse.json({ error: "No tenés acceso a este campo" }, { status: 403 })
+    }
+    const establecimientoIds = selected ? [selected] : ctx.establecimientoIds
 
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
     const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
 
     const [
       totalAnimales,
@@ -19,6 +22,7 @@ export const GET = withAuth(async (_request, ctx) => {
       ventasMes,
       pesadasRecientes,
       tactosPendientes,
+      animalesPesadosMes,
     ] = await Promise.all([
       prisma.animal.count({
         where: { estadoVital: "activo", ...scopeEstablecimiento(establecimientoIds) },
@@ -29,27 +33,31 @@ export const GET = withAuth(async (_request, ctx) => {
           fecha: { gte: startOfMonth },
           ...scopeEventoAnimalOLote(establecimientoIds),
         },
-      }).catch(() => 0),
+      }),
       prisma.evtBaja.count({
         where: {
           fecha: { gte: startOfMonth },
           motivo: "venta",
           animal: scopeEstablecimiento(establecimientoIds),
         },
-      }).catch(() => 0),
+      }),
       prisma.evtPesada.count({
         where: {
-          fecha: { gte: thirtyDaysAgo },
+          fecha: { gte: startOfMonth, lte: now },
           ...scopeEventoAnimalOLote(establecimientoIds),
         },
-      }).catch(() => 0),
+      }),
       prisma.evtTacto.count({
         where: {
           resultado: "preñada",
           fechaProbableParto: { gte: now, lte: in7Days },
           hembra: scopeEstablecimiento(establecimientoIds),
         },
-      }).catch(() => 0),
+      }),
+      prisma.animal.count({ where: {
+        estadoVital: "activo", ...scopeEstablecimiento(establecimientoIds),
+        eventosPesada: { some: { fecha: { gte: startOfMonth, lte: now } } },
+      } }),
     ])
 
     const tieneDatos = totalAnimales > 0 || totalLotes > 0
@@ -64,6 +72,7 @@ export const GET = withAuth(async (_request, ctx) => {
         eventsSanidadMes,
         ventasMes,
         pesadasRecientes,
+        animalesPesadosMes,
         paricionesProximas: tactosPendientes,
       },
     })

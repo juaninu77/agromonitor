@@ -99,7 +99,7 @@ export function QuickWeighForm({ onSubmit, isSubmitting }: QuickWeighFormProps) 
         {/* Selección de Animal */}
         <div className="space-y-2">
           <Label htmlFor="animalId">
-            Animal * <span className="text-xs text-gray-500">(Busca por caravana o nombre)</span>
+            Animal * <span className="text-xs text-muted-foreground">(Busca por caravana o nombre)</span>
           </Label>
           <Input
             type="text"
@@ -114,7 +114,7 @@ export function QuickWeighForm({ onSubmit, isSubmitting }: QuickWeighFormProps) 
             </SelectTrigger>
             <SelectContent className="max-h-60">
               {filteredAnimales.length === 0 ? (
-                <div className="px-2 py-4 text-center text-sm text-gray-500">
+                <div className="px-2 py-4 text-center text-sm text-muted-foreground">
                   No se encontraron animales
                 </div>
               ) : (
@@ -123,7 +123,7 @@ export function QuickWeighForm({ onSubmit, isSubmitting }: QuickWeighFormProps) 
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{animal.caravanaVisual}</span>
                       {animal.nombre && (
-                        <span className="text-gray-500">- {animal.nombre}</span>
+                        <span className="text-muted-foreground">- {animal.nombre}</span>
                       )}
                     </div>
                   </SelectItem>
@@ -140,7 +140,7 @@ export function QuickWeighForm({ onSubmit, isSubmitting }: QuickWeighFormProps) 
           {/* Peso */}
           <div className="space-y-2">
             <Label htmlFor="peso">
-              Peso (kg) * <span className="text-xs text-gray-500">(1-2000 kg)</span>
+              Peso (kg) * <span className="text-xs text-muted-foreground">(1-2000 kg)</span>
             </Label>
             <Input
               id="peso"
@@ -174,7 +174,7 @@ export function QuickWeighForm({ onSubmit, isSubmitting }: QuickWeighFormProps) 
         {/* Notas opcionales */}
         <div className="space-y-2">
           <Label htmlFor="notas">
-            Notas <span className="text-xs text-gray-500">(Opcional)</span>
+            Notas <span className="text-xs text-muted-foreground">(Opcional)</span>
           </Label>
           <Input
             id="notas"
@@ -185,7 +185,7 @@ export function QuickWeighForm({ onSubmit, isSubmitting }: QuickWeighFormProps) 
       </div>
 
       {/* Botones */}
-      <div className="flex gap-3 pt-4 border-t-2 border-gray-200">
+      <div className="flex gap-3 pt-4 border-t-2 border-border">
         <Button
           type="submit"
           disabled={isSubmitting}
@@ -205,7 +205,7 @@ export function QuickWeighForm({ onSubmit, isSubmitting }: QuickWeighFormProps) 
         </Button>
       </div>
 
-      <p className="text-xs text-gray-500 text-center">
+      <p className="text-xs text-muted-foreground text-center">
         El peso se agregará al historial del animal y se actualizará su peso actual
       </p>
     </form>

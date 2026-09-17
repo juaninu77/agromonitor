@@ -116,7 +116,7 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
         {/* Selección de Animal */}
         <div className="space-y-2">
           <Label htmlFor="animalId">
-            Animal * <span className="text-xs text-gray-500">(Busca por caravana o nombre)</span>
+            Animal * <span className="text-xs text-muted-foreground">(Busca por caravana o nombre)</span>
           </Label>
           <Input
             type="text"
@@ -131,7 +131,7 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
             </SelectTrigger>
             <SelectContent className="max-h-60">
               {filteredAnimales.length === 0 ? (
-                <div className="px-2 py-4 text-center text-sm text-gray-500">
+                <div className="px-2 py-4 text-center text-sm text-muted-foreground">
                   No se encontraron animales
                 </div>
               ) : (
@@ -140,7 +140,7 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{animal.caravanaVisual}</span>
                       {animal.nombre && (
-                        <span className="text-gray-500">- {animal.nombre}</span>
+                        <span className="text-muted-foreground">- {animal.nombre}</span>
                       )}
                     </div>
                   </SelectItem>
@@ -196,7 +196,7 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
         <div className="space-y-2">
           <Label htmlFor="descripcion">
             Descripción *
-            <span className="text-xs text-gray-500 ml-1">
+            <span className="text-xs text-muted-foreground ml-1">
               (Nombre de la vacuna, tratamiento aplicado, etc.)
             </span>
           </Label>
@@ -216,7 +216,7 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
           {/* Producto */}
           <div className="space-y-2">
             <Label htmlFor="producto">
-              Producto/Medicamento <span className="text-xs text-gray-500">(Opcional)</span>
+              Producto/Medicamento <span className="text-xs text-muted-foreground">(Opcional)</span>
             </Label>
             <Input
               id="producto"
@@ -228,7 +228,7 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
           {/* Dosis */}
           <div className="space-y-2">
             <Label htmlFor="dosis">
-              Dosis <span className="text-xs text-gray-500">(Opcional)</span>
+              Dosis <span className="text-xs text-muted-foreground">(Opcional)</span>
             </Label>
             <Input
               id="dosis"
@@ -241,7 +241,7 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
         {/* Veterinario */}
         <div className="space-y-2">
           <Label htmlFor="veterinario">
-            Veterinario <span className="text-xs text-gray-500">(Opcional)</span>
+            Veterinario <span className="text-xs text-muted-foreground">(Opcional)</span>
           </Label>
           <Input
             id="veterinario"
@@ -252,7 +252,7 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
       </div>
 
       {/* Botones */}
-      <div className="flex gap-3 pt-4 border-t-2 border-gray-200">
+      <div className="flex gap-3 pt-4 border-t-2 border-border">
         <Button
           type="submit"
           disabled={isSubmitting}
@@ -272,7 +272,7 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
         </Button>
       </div>
 
-      <p className="text-xs text-gray-500 text-center">
+      <p className="text-xs text-muted-foreground text-center">
         El evento se agregará al historial sanitario del animal
       </p>
     </form>

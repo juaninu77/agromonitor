@@ -66,6 +66,7 @@ import { toast } from "sonner"
 
 import { useTenant } from "@/lib/context/tenant-context"
 import { formatDate } from "@/lib/utils"
+import { PreparacionSenasa } from "@/components/ganado/preparacion-senasa"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -452,7 +453,7 @@ export default function AnimalDetailPage() {
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
-          <p className="text-gray-500">Cargando datos del animal...</p>
+          <p className="text-muted-foreground">Cargando datos del animal...</p>
         </div>
       </div>
     )
@@ -465,10 +466,10 @@ export default function AnimalDetailPage() {
         <Card className="max-w-md w-full">
           <CardContent className="flex flex-col items-center gap-4 py-10">
             <AlertCircle className="h-12 w-12 text-red-500" />
-            <h2 className="text-xl font-semibold text-gray-900">
+            <h2 className="text-xl font-semibold text-foreground">
               {error?.message || "Animal no encontrado"}
             </h2>
-            <p className="text-gray-500 text-center">
+            <p className="text-muted-foreground text-center">
               No se pudo cargar la información del animal. Verificá el ID o intentá nuevamente.
             </p>
             <Button variant="outline" onClick={() => router.push("/ganado")}>
@@ -484,7 +485,7 @@ export default function AnimalDetailPage() {
   const badge = ESTADO_BADGE[animal.estadoVital] ?? ESTADO_BADGE.activo
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-6">
       {/* ================================================================ */}
       {/* HEADER                                                          */}
       {/* ================================================================ */}
@@ -495,14 +496,14 @@ export default function AnimalDetailPage() {
           </Button>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
+              <h1 className="text-2xl md:text-3xl font-bold text-foreground">
                 {getAnimalName(animal)}
               </h1>
               <Badge variant={badge.variant} className={badge.className}>
                 {badge.label}
               </Badge>
             </div>
-            <p className="text-sm text-gray-500 mt-0.5">
+            <p className="text-sm text-muted-foreground mt-0.5">
               {animal.especie?.nombre ? `${animal.especie.nombre} — ` : ""}
               {animal.raza?.nombre || ""} {animal.categoria?.nombre ? `/ ${animal.categoria.nombre}` : ""}
             </p>
@@ -513,7 +514,7 @@ export default function AnimalDetailPage() {
           <Button
             variant="outline"
             size="sm"
-            className="border-blue-300 text-blue-700 hover:bg-blue-50"
+            className="border-blue-300 text-blue-700 hover:bg-primary/10"
             onClick={() => setPesoDialogOpen(true)}
           >
             <Scale className="h-4 w-4 mr-1.5" />
@@ -555,7 +556,7 @@ export default function AnimalDetailPage() {
         {/* Card 1: Identificación */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-1.5">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
               <Tag className="h-4 w-4" />
               Identificación
             </CardTitle>
@@ -571,7 +572,7 @@ export default function AnimalDetailPage() {
         {/* Card 2: Datos básicos */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-1.5">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
               <Dna className="h-4 w-4" />
               Datos básicos
             </CardTitle>
@@ -588,7 +589,7 @@ export default function AnimalDetailPage() {
         {/* Card 3: Estado actual */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-1.5">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
               <Activity className="h-4 w-4" />
               Estado actual
             </CardTitle>
@@ -610,7 +611,7 @@ export default function AnimalDetailPage() {
         {/* Card 4: Físico */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-1.5">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
               <Palette className="h-4 w-4" />
               Físico
             </CardTitle>
@@ -627,10 +628,11 @@ export default function AnimalDetailPage() {
       {/* ================================================================ */}
       {/* TABS                                                             */}
       {/* ================================================================ */}
-      <Card className="border-2 border-gray-200">
+      <Card className="border border-border">
         <CardContent className="p-4 md:p-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2 sm:grid-cols-5">
+            <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+              <TabsTrigger value="senasa">Ficha / SENASA</TabsTrigger>
               <TabsTrigger value="pesadas" className="text-xs sm:text-sm">
                 <Scale className="h-3.5 w-3.5 mr-1 hidden sm:inline-block" />
                 Pesadas
@@ -653,11 +655,12 @@ export default function AnimalDetailPage() {
               </TabsTrigger>
             </TabsList>
 
+            <TabsContent value="senasa" className="mt-6"><PreparacionSenasa animalId={animal.id}/></TabsContent>
             {/* ---- Pesadas ---- */}
             <TabsContent value="pesadas" className="mt-6 space-y-6">
               {chartData.length > 1 && (
                 <div>
-                  <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-1.5">
+                  <h3 className="text-sm font-medium text-foreground mb-3 flex items-center gap-1.5">
                     <TrendingUp className="h-4 w-4" />
                     Evolución de peso
                   </h3>
@@ -733,7 +736,7 @@ export default function AnimalDetailPage() {
                       <TableRow key={e.id}>
                         <TableCell>{formatDate(e.fecha)}</TableCell>
                         <TableCell className="font-medium">{e.producto?.nombre || "—"}</TableCell>
-                        <TableCell className="text-gray-500">{e.producto?.principioActivo || "—"}</TableCell>
+                        <TableCell className="text-muted-foreground">{e.producto?.principioActivo || "—"}</TableCell>
                         <TableCell className="text-right">{e.dosis ?? "—"}</TableCell>
                       </TableRow>
                     ))}
@@ -775,7 +778,7 @@ export default function AnimalDetailPage() {
             {/* ---- Movimientos ---- */}
             <TabsContent value="movimientos" className="mt-6 space-y-6">
               <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-1.5">
+                <h3 className="text-sm font-medium text-foreground mb-3 flex items-center gap-1.5">
                   <MapPin className="h-4 w-4" />
                   Historial de lotes
                 </h3>
@@ -812,7 +815,7 @@ export default function AnimalDetailPage() {
               <Separator />
 
               <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-1.5">
+                <h3 className="text-sm font-medium text-foreground mb-3 flex items-center gap-1.5">
                   <ArrowRightLeft className="h-4 w-4" />
                   Eventos de movimiento
                 </h3>
@@ -862,7 +865,7 @@ export default function AnimalDetailPage() {
                             {formatDate(ev.fecha, "long")}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-700 mt-1">{ev.descripcion}</p>
+                        <p className="text-sm text-foreground mt-1">{ev.descripcion}</p>
                       </div>
                     </div>
                   ))}
@@ -880,7 +883,7 @@ export default function AnimalDetailPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Scale className="h-5 w-5 text-blue-600" />
+              <Scale className="h-5 w-5 text-primary" />
               Registrar peso
             </DialogTitle>
             <DialogDescription>
@@ -1041,8 +1044,8 @@ export default function AnimalDetailPage() {
 function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div className="flex justify-between gap-2">
-      <span className="text-gray-500 shrink-0">{label}</span>
-      <span className="font-medium text-gray-900 text-right truncate">
+      <span className="text-muted-foreground shrink-0">{label}</span>
+      <span className="font-medium text-foreground text-right truncate">
         {value || "—"}
       </span>
     </div>
@@ -1065,7 +1068,7 @@ function TimelineIcon({ tipo }: { tipo: string }) {
     Servicio: { icon: <Heart className="h-3.5 w-3.5" />, bg: "bg-pink-100 text-pink-700" },
     Tacto: { icon: <Activity className="h-3.5 w-3.5" />, bg: "bg-cyan-100 text-cyan-700" },
     Parto: { icon: <Baby className="h-3.5 w-3.5" />, bg: "bg-amber-100 text-amber-700" },
-    Movimiento: { icon: <ArrowRightLeft className="h-3.5 w-3.5" />, bg: "bg-gray-100 text-gray-700" },
+    Movimiento: { icon: <ArrowRightLeft className="h-3.5 w-3.5" />, bg: "bg-gray-100 text-foreground" },
   }
   const { icon, bg } = iconMap[tipo] ?? iconMap.Movimiento
 

@@ -135,6 +135,7 @@ export function CommandPalette() {
               {animalResults.map((animal) => (
                 <CommandItem
                   key={animal.id}
+                  value={`${animal.caravanaVisual ?? ""} ${animal.nombre ?? ""} ${animal.id}`}
                   onSelect={() => runCommand(`/ganado/${animal.id}`)}
                   className="flex items-center gap-2"
                 >

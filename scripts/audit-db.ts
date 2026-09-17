@@ -137,11 +137,11 @@ add(
 // ---- Reporte ----
 const pass = checks.filter((c) => c.ok).length
 const total = checks.length
-console.log("\n=== Auditoría de base de datos ===\n")
+console.log("\n=== Auditoría estática del código y esquema (no conecta a Neon) ===\n")
 for (const c of checks) {
   console.log(`${c.ok ? "✅" : "❌"} ${c.nombre}${c.detalle ? `  — ${c.detalle}` : ""}`)
 }
-console.log(`\n${pass}/${total} objetivos cumplidos.\n`)
+console.log(`\n${pass}/${total} comprobaciones del repositorio aprobadas. Esto no verifica el esquema ni los datos reales.\n`)
 
 if (pass !== total) {
   process.exit(1)

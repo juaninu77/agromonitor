@@ -2,6 +2,12 @@
 
 Fecha: 16 de septiembre de 2026.
 
+**Actualización:** Neon ya fue conectado y se completó una primera auditoría
+de solo lectura de `agromonitor/main/neondb`. Ver
+[resultados y diferencias confirmadas](AUDITORIA_NEON_2026-09-16.md).
+El apartado siguiente conserva el estado inicial de la planificación; el
+informe enlazado reemplaza sus pendientes de acceso y verificación de Neon.
+
 ## Estado comprobado
 
 La PR #2 fue integrada en main. Esta revisión parte de esa versión. El esquema Prisma contiene 45 modelos. **Todavía no se inspeccionó la base real de Neon**: el conector no está disponible en esta sesión. No se ejecutaron migraciones ni escrituras sobre la base. Tampoco se confirmó una URL de preview funcionando.

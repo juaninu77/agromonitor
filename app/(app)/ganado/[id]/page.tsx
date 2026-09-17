@@ -399,7 +399,7 @@ export default function AnimalDetailPage() {
     return [...animal.eventosPesada]
       .sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
       .map((e) => ({
-        fecha: new Date(e.fecha).toLocaleDateString("es-AR", { day: "2-digit", month: "short" }),
+        fecha: new Date(e.fecha).toLocaleDateString("es-AR", { day: "2-digit", month: "short", timeZone: "UTC" }),
         peso: e.pesoKg,
       }))
   }, [animal?.eventosPesada])

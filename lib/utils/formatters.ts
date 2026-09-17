@@ -42,6 +42,10 @@ export function formatDate(
   format: 'short' | 'long' | 'relative' = 'short'
 ): string {
   const dateObj = typeof date === 'string' ? new Date(date) : date
+  // PostgreSQL DATE is serialized at midnight UTC; it is a calendar day, not
+  // an instant to move to the previous day when displayed in Argentina.
+  const calendarDay = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}(?:T00:00:00(?:\.000)?Z)?$/.test(date)
+  const timeZone = calendarDay ? 'UTC' : undefined
 
   if (format === 'relative') {
     return formatDistanceToNow(dateObj, {
@@ -54,11 +58,12 @@ export function formatDate(
     return dateObj.toLocaleDateString('es-AR', {
       year: 'numeric',
       month: 'long',
-      day: 'numeric'
+      day: 'numeric',
+      timeZone,
     })
   }
 
-  return dateObj.toLocaleDateString('es-AR')
+  return dateObj.toLocaleDateString('es-AR', { timeZone })
 }
 
 /**

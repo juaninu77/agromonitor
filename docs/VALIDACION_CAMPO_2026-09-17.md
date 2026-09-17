@@ -6,7 +6,7 @@ Entrega: PR #5, rama `codex/diseno-flota-forrajes`.
 
 | Prueba | Resultado |
 | --- | --- |
-| Vitest | 108 pruebas aprobadas en 13 archivos |
+| Vitest | 111 pruebas aprobadas en 14 archivos |
 | Campo por HTTP + Neon | 69 comprobaciones aprobadas |
 | Administración y archivos privados | 70 comprobaciones aprobadas |
 | Ganado, catálogos y páginas | 50 comprobaciones aprobadas |
@@ -16,9 +16,9 @@ Entrega: PR #5, rama `codex/diseno-flota-forrajes`.
 | Lint | Sin errores; advertencias históricas de hooks y entidades de texto |
 | Build de producción | Compilación, tipos y generación de páginas aprobados |
 
-Total de pruebas unitarias y comprobaciones HTTP/Neon: **360**. No equivale a demostrar ausencia de todos los defectos ni sustituye pruebas con dispositivos de campo.
+Total de pruebas unitarias y comprobaciones HTTP/Neon: **363**. No equivale a demostrar ausencia de todos los defectos ni sustituye pruebas con dispositivos de campo.
 
-La revisión visual cubre encabezado y navegación adaptables, panel por campo, búsqueda, ficha animal, formularios y estados de los módulos nuevos. Durante la revisión se corrigieron el encabezado móvil, el campo del panel, el porcentaje superior a 100 y el filtrado de resultados remotos del buscador.
+La revisión visual cubre encabezado y navegación adaptables, panel por campo, búsqueda, ficha animal, formularios y estados de los módulos nuevos. Durante la revisión se corrigieron el encabezado móvil, el campo del panel, el porcentaje superior a 100 el filtrado de resultados remotos del buscador y las fechas de calendario que se desplazaban al día anterior en Argentina.
 
 ## Base de datos
 

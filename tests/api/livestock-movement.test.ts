@@ -16,12 +16,17 @@ function request(body: object) {
 }
 beforeEach(() => {
   vi.resetAllMocks()
-  mocks.lote.mockResolvedValue({ id: loteDestinoId, establecimientoId: "est1", nombre: "Lote 1" })
-  mocks.animals.mockResolvedValue([{ id: animalId, establecimientoId: "est1" }])
+  mocks.lote.mockResolvedValue({ id: loteDestinoId, establecimientoId: "est1", especieId: "ovino", nombre: "Lote 1" })
+  mocks.animals.mockResolvedValue([{ id: animalId, establecimientoId: "est1", especieId: "ovino" }])
   mocks.count.mockResolvedValue(0)
   mocks.transaction.mockImplementation((callback) => callback({ animalLoteHist: { count: mocks.count, updateMany: mocks.close, create: mocks.create } }))
 })
 describe("movimiento entre lotes", () => {
+  it("rechaza cruzar bovinos a un lote ovino del mismo campo", async () => {
+    mocks.animals.mockResolvedValue([{ id: animalId, establecimientoId: "est1", especieId: "bovino" }])
+    expect((await POST(request({ animalIds: [animalId], loteDestinoId }))).status).toBe(400)
+    expect(mocks.transaction).not.toHaveBeenCalled()
+  })
   it("rechaza cruces de establecimiento aunque ambos sean accesibles", async () => {
     mocks.animals.mockResolvedValue([{ id: animalId, establecimientoId: "est2" }])
     expect((await POST(request({ animalIds: [animalId], loteDestinoId }))).status).toBe(400)

@@ -1,5 +1,8 @@
 "use client"
 
+import { useGanadoScope } from "@/components/ganado/ganado-scope"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -46,9 +49,15 @@ interface AnimalEntry {
 
 interface BatchRegisterFormProps {
   onClose: () => void
+  onSuccess: () => void
+  onBusyChange: (busy: boolean) => void
 }
 
-export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
+export function BatchRegisterForm({ onClose, onBusyChange, onSuccess }: BatchRegisterFormProps) {
+  const { especie, organizacionId, establecimientoId } = useGanadoScope()
+  const [especies, setEspecies] = useState<{ id: string; nombre: string }[]>([])
+  const [especieId, setEspecieId] = useState("")
+  const [catalogError, setCatalogError] = useState("")
   const [step, setStep] = useState<'config' | 'entries'>('config')
   const [razas, setRazas] = useState<Raza[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
@@ -68,20 +77,35 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
 
   const lastInputRef = useRef<HTMLInputElement>(null)
 
-  // Cargar datos
   useEffect(() => {
-    Promise.all([
-      fetch('/api/razas').then(r => r.json()),
-      fetch('/api/categorias?especie=bovino').then(r => r.json())
-    ]).then(([razasData, categoriasData]) => {
-      if (razasData.success) setRazas(razasData.data)
-      if (categoriasData.success) setCategorias(categoriasData.data)
-    }).finally(() => setLoading(false))
-  }, [])
+    const controller = new AbortController()
+    fetch("/api/especies", { signal: controller.signal }).then(r => r.json()).then(result => {
+      if (!result.success) throw new Error("No se pudieron cargar las especies")
+      const list = result.data.filter((e: { nombre: string; organizacionId: string }) => e.organizacionId === organizacionId && (especie === "todos" || e.nombre.toLowerCase() === especie))
+      setEspecies(list)
+      setEspecieId(list.length === 1 ? list[0].id : "")
+    }).catch(() => { if (!controller.signal.aborted) setCatalogError("No se pudieron cargar las especies. Cerrá y volvé a abrir el registro.") }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [especie, organizacionId])
+
+  useEffect(() => {
+    if (!especieId) return
+    const controller = new AbortController()
+    setLoading(true)
+    setCatalogError("")
+    setRazas([])
+    setCategorias([])
+    Promise.all([fetch(`/api/razas?especieId=${especieId}`, { signal: controller.signal }).then(r => r.json()), fetch(`/api/categorias?especieId=${especieId}`, { signal: controller.signal }).then(r => r.json())])
+      .then(([razasData, categoriasData]) => {
+        if (!razasData.success || !categoriasData.success) throw new Error("Error de catálogos")
+        setRazas(razasData.data); setCategorias(categoriasData.data)
+      }).catch(() => { if (!controller.signal.aborted) setCatalogError("No se pudieron cargar las razas y categorías.") }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [especieId])
 
   // Filtrar categorías por sexo
   const categoriasFiltradas = categorias.filter(cat => {
-    if (cat.sexo === null) return true
+    if (cat.sexo == null) return true
     return cat.sexo === selectedSexo
   })
 
@@ -125,7 +149,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
   }
 
   // Validar configuración
-  const isConfigValid = selectedRaza && selectedCategoria
+  const isConfigValid = !!especieId && !!establecimientoId && !catalogError && selectedRaza && selectedCategoria
 
   // Validar entradas
   const validEntries = entries.filter(e => e.caravanaVisual.trim() !== '')
@@ -133,9 +157,10 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
 
   // Guardar todos los animales
   const handleSaveAll = async () => {
-    if (!hasValidEntries) return
+    if (!hasValidEntries || !isConfigValid || isSaving) return
 
     setIsSaving(true)
+    onBusyChange(true)
     const entriesToSave = entries.filter(e => e.caravanaVisual.trim() !== '' && e.status !== 'saved')
 
     let savedCount = 0
@@ -152,7 +177,9 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            caravanaVisual: entry.caravanaVisual,
+            establecimientoId,
+            especieId,
+            caravanaVisual: entry.caravanaVisual.trim(),
             razaId: selectedRaza,
             categoriaId: selectedCategoria,
             sexo: selectedSexo,
@@ -182,8 +209,10 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
     }
 
     setIsSaving(false)
+    onBusyChange(false)
 
     if (savedCount > 0) {
+      onSuccess()
       toast.success(`${savedCount} animal${savedCount > 1 ? 'es' : ''} registrado${savedCount > 1 ? 's' : ''}`, {
         description: errorCount > 0
           ? `${errorCount} con errores. Revisa la lista.`
@@ -238,6 +267,8 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-6">
+            {catalogError && <p role="alert" className="text-destructive">{catalogError}</p>}
+            <div className="space-y-2"><Label>Especie</Label><Select value={especieId} onValueChange={id => { setEspecieId(id); setSelectedRaza(""); setSelectedCategoria("") }} disabled={especies.length === 1 || savedCount > 0}><SelectTrigger aria-label="Especie del registro masivo"><SelectValue placeholder="Seleccionar especie" /></SelectTrigger><SelectContent>{especies.map(e => <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>)}</SelectContent></Select></div>
             {/* Sexo */}
             <div className="space-y-3">
               <Label className="font-bold text-slate-700">Sexo</Label>
@@ -323,6 +354,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
               </div>
             </div>
 
+            {!categoriasFiltradas.length && <p className="text-sm text-muted-foreground">No hay categorías para este sexo. Podés agregarlas en Configuración → Catálogo.</p>}
             {/* Origen */}
             <div className="space-y-3">
               <Label className="font-bold text-slate-700">Origen</Label>
@@ -352,7 +384,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
             <Button
               onClick={() => setStep('entries')}
               disabled={!isConfigValid}
-              className="w-full h-12 bg-blue-600 hover:bg-blue-700"
+              className="w-full"
             >
               Continuar a ingresar caravanas
               <ArrowRight className="h-4 w-4 ml-2" />
@@ -378,6 +410,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
                 <Button
                   variant="ghost"
                   size="sm"
+                  disabled={isSaving || savedCount > 0}
                   onClick={() => setStep('config')}
                   className="text-blue-700 hover:bg-blue-100"
                 >
@@ -433,7 +466,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
                         onChange={(e) => updateEntry(entry.id, 'caravanaVisual', e.target.value)}
                         onKeyDown={(e) => handleKeyDown(e, index)}
                         placeholder="Número de caravana"
-                        disabled={entry.status === 'saved' || entry.status === 'saving'}
+                        disabled={isSaving || entry.status === 'saved' || entry.status === 'saving'}
                         className={cn(
                           "h-10 border-2",
                           entry.status === 'saved' && "bg-emerald-50 border-emerald-300",
@@ -448,7 +481,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
                       value={entry.pesoInicial || ''}
                       onChange={(e) => updateEntry(entry.id, 'pesoInicial', e.target.value ? parseFloat(e.target.value) : undefined)}
                       placeholder="Peso (kg) - opcional"
-                      disabled={entry.status === 'saved' || entry.status === 'saving'}
+                      disabled={isSaving || entry.status === 'saved' || entry.status === 'saving'}
                       className="h-10 border-2"
                     />
                   </div>
@@ -490,6 +523,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
               <Button
                 type="button"
                 variant="outline"
+                disabled={isSaving}
                 onClick={addEntry}
                 className="w-full h-10 border-2 border-dashed border-slate-300 text-slate-600 hover:bg-slate-50"
               >
@@ -507,8 +541,8 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
           <div className="flex items-center justify-between pt-4 border-t border-slate-100">
             <Button
               variant="outline"
-              onClick={() => setStep('config')}
-              disabled={isSaving}
+              disabled={isSaving || savedCount > 0}
+                  onClick={() => setStep('config')}
               className="border-2"
             >
               Volver
@@ -518,6 +552,7 @@ export function BatchRegisterForm({ onClose }: BatchRegisterFormProps) {
               <span className="text-sm text-slate-500">
                 {validEntries.length} animal{validEntries.length !== 1 ? 'es' : ''} para registrar
               </span>
+              {pendingCount === 0 && savedCount > 0 && <Button onClick={onClose}>Listo</Button>}
               <Button
                 onClick={handleSaveAll}
                 disabled={!hasValidEntries || isSaving || pendingCount === 0}

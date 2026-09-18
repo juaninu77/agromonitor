@@ -15,7 +15,7 @@ export interface PDFExportOptions {
 export function exportAnimalsToPDF(options: PDFExportOptions) {
   const {
     filename = `ganado_${new Date().toISOString().split('T')[0]}.pdf`,
-    title = 'Reporte de Ganado Bovino',
+    title = 'Reporte de Ganado',
     subtitle = `Generado el ${new Date().toLocaleDateString('es-ES', {
       year: 'numeric',
       month: 'long',
@@ -69,8 +69,8 @@ export function exportAnimalsToPDF(options: PDFExportOptions) {
       head: [['Métrica', 'Valor']],
       body: [
         ['Total de Animales', stats.total.toString()],
-        ['Peso Promedio', `${stats.pesoPromedio} kg`],
-        ['CC Promedio', stats.ccPromedio.toString()],
+        ['Peso Promedio', stats.pesoPromedio > 0 ? `${stats.pesoPromedio} kg` : 'Sin pesadas'],
+        ['CC Promedio', stats.ccPromedio === '0' ? 'Sin registros' : stats.ccPromedio.toString()],
       ],
       theme: 'grid',
       headStyles: { fillColor: primaryColor, textColor: [255, 255, 255] },
@@ -93,6 +93,7 @@ export function exportAnimalsToPDF(options: PDFExportOptions) {
   const tableData = data.map(animal => [
     animal.caravanaVisual || '-',
     animal.nombre || animal.otroId || '-',
+    animal.especie?.nombre || '-',
     animal.raza?.nombre || '-',
     animal.categoria?.nombre || '-',
     animal.sexo === 'M' ? 'Macho' : 'Hembra',
@@ -100,13 +101,13 @@ export function exportAnimalsToPDF(options: PDFExportOptions) {
     animal.pesoActual ? `${animal.pesoActual} kg` : '-',
     animal.ccActual || '-',
     animal.ubicacion || '-',
-    animal.healthStatus || 'Saludable',
+    animal.healthStatus || 'Sin evaluación',
   ])
 
   // Tabla principal
   autoTable(doc, {
     startY: yPosition,
-    head: [['Caravana', 'Nombre', 'Raza', 'Categoría', 'Sexo', 'Edad', 'Peso', 'CC', 'Ubicación', 'Salud']],
+    head: [['Caravana', 'Nombre', 'Especie', 'Raza', 'Categoría', 'Sexo', 'Edad', 'Peso', 'CC', 'Ubicación', 'Salud']],
     body: tableData,
     theme: 'striped',
     headStyles: {

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Loader2, Syringe } from "lucide-react"
-import { useEffect, useState } from "react"
+import { AnimalPicker } from "@/components/ganado/animal-picker"
 
 // Schema para registro rápido de evento sanitario
 const quickHealthSchema = z.object({
@@ -31,11 +31,7 @@ interface QuickHealthFormProps {
   isSubmitting: boolean
 }
 
-interface Animal {
-  id: string
-  caravanaVisual: string
-  nombre?: string
-}
+
 
 const TIPO_EVENTO_LABELS: Record<string, string> = {
   vacunacion: "Vacunación",
@@ -46,10 +42,6 @@ const TIPO_EVENTO_LABELS: Record<string, string> = {
 }
 
 export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps) {
-  const [animales, setAnimales] = useState<Animal[]>([])
-  const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState("")
-
   const {
     register,
     handleSubmit,
@@ -68,90 +60,20 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
   const selectedAnimalId = watch("animalId")
   const tipoEvento = watch("tipoEvento")
 
-  useEffect(() => {
-    fetch('/api/ganado/bovinos?limit=1000')
-      .then(r => r.json())
-      .then(data => {
-        if (data.success) {
-          setAnimales(data.data)
-        }
-      })
-      .finally(() => setLoading(false))
-  }, [])
-
   const handleFormSubmit = async (data: QuickHealthData) => {
-    await onSubmit(data)
+    try { await onSubmit(data) } catch { return }
     reset({
+      animalId: "", descripcion: "", producto: "", dosis: "", veterinario: "",
       fecha: new Date().toISOString().split('T')[0],
       tipoEvento: "vacunacion",
     })
-    setSearchTerm("")
-  }
 
-  // Filtrar animales por término de búsqueda
-  const filteredAnimales = animales.filter(animal =>
-    animal.caravanaVisual.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (animal.nombre && animal.nombre.toLowerCase().includes(searchTerm.toLowerCase()))
-  )
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
-      </div>
-    )
   }
 
   return (
     <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
-      <div className="bg-purple-50 border-2 border-purple-200 rounded-lg p-3 mb-4">
-        <p className="text-sm text-purple-800">
-          <Syringe className="inline h-4 w-4 mr-1" />
-          <strong>Evento Sanitario Rápido:</strong> Registra vacunaciones, tratamientos o curaciones
-          de forma rápida. Se creará un registro en el historial sanitario del animal.
-        </p>
-      </div>
-
       <div className="space-y-4">
-        {/* Selección de Animal */}
-        <div className="space-y-2">
-          <Label htmlFor="animalId">
-            Animal * <span className="text-xs text-muted-foreground">(Busca por caravana o nombre)</span>
-          </Label>
-          <Input
-            type="text"
-            placeholder="Buscar animal..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="mb-2"
-          />
-          <Select onValueChange={(value) => setValue("animalId", value)}>
-            <SelectTrigger className={errors.animalId ? "border-red-500" : ""}>
-              <SelectValue placeholder="Seleccionar animal" />
-            </SelectTrigger>
-            <SelectContent className="max-h-60">
-              {filteredAnimales.length === 0 ? (
-                <div className="px-2 py-4 text-center text-sm text-muted-foreground">
-                  No se encontraron animales
-                </div>
-              ) : (
-                filteredAnimales.map((animal) => (
-                  <SelectItem key={animal.id} value={animal.id}>
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{animal.caravanaVisual}</span>
-                      {animal.nombre && (
-                        <span className="text-muted-foreground">- {animal.nombre}</span>
-                      )}
-                    </div>
-                  </SelectItem>
-                ))
-              )}
-            </SelectContent>
-          </Select>
-          {errors.animalId && (
-            <p className="text-sm text-red-600">{errors.animalId.message}</p>
-          )}
-        </div>
+        <AnimalPicker value={selectedAnimalId || ""} onChange={id => setValue("animalId", id, { shouldValidate: !!id })} disabled={isSubmitting} error={errors.animalId?.message} />
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Tipo de Evento */}
@@ -159,7 +81,7 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
             <Label htmlFor="tipoEvento">Tipo de Evento *</Label>
             <Select
               onValueChange={(value: any) => setValue("tipoEvento", value)}
-              defaultValue="vacunacion"
+              value={tipoEvento}
             >
               <SelectTrigger className={errors.tipoEvento ? "border-red-500" : ""}>
                 <SelectValue />
@@ -256,7 +178,7 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
         <Button
           type="submit"
           disabled={isSubmitting}
-          className="flex-1 bg-purple-600 hover:bg-purple-700"
+          className="flex-1"
         >
           {isSubmitting ? (
             <>

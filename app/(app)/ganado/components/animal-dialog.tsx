@@ -1,5 +1,7 @@
 "use client"
 
+import { useGanadoScope } from "@/components/ganado/ganado-scope"
+
 import { useState, useEffect } from "react"
 import {
   Dialog,
@@ -30,6 +32,7 @@ export function AnimalDialog({
   initialData,
   mode = 'create'
 }: AnimalDialogProps) {
+  const { establecimientoId } = useGanadoScope()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoadingData, setIsLoadingData] = useState(false)
   const [formData, setFormData] = useState<Partial<AnimalFormData> | undefined>(initialData)
@@ -88,7 +91,7 @@ export function AnimalDialog({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...data, ...(mode === "create" ? { establecimientoId } : {}) }),
       })
 
       const result = await response.json()

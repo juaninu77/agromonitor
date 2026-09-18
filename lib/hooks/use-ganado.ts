@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback } from 'react'
-import { toast } from 'sonner'
+import { useQuery } from "@tanstack/react-query"
+import { ganadoParams, type GanadoQuery } from "@/lib/ganado/query"
 
 // Tipos para los datos de la API
 export interface AnimalAPI {
@@ -9,8 +9,10 @@ export interface AnimalAPI {
   cuig?: string
   caravanaVisual?: string
   caravanaRfid?: string
+  estadoVital: string
+  establecimientoId: string
   nombre: string
-  sexo: 'M' | 'F'
+  sexo: "M" | "F"
   fechaNacimiento?: string
   edad?: string
   origen: string
@@ -55,6 +57,9 @@ export interface GanadoStats {
   total: number
   porCategoria: Record<string, number>
   pesoPromedio: number
+  conPeso: number
+  activos: number
+  pesoPorCategoria: { category: string; avgWeight: number; count: number }[]
 }
 
 export interface PaginationInfo {
@@ -66,132 +71,33 @@ export interface PaginationInfo {
   hasPrevPage: boolean
 }
 
-export interface UseGanadoResult {
-  animales: AnimalAPI[]
-  stats: GanadoStats | null
-  pagination: PaginationInfo | null
-  isLoading: boolean
-  error: string | null
-  refetch: () => Promise<void>
-  setPage: (page: number) => void
-  setLimit: (limit: number) => void
-  setOrderBy: (field: string) => void
-  setOrderDirection: (direction: 'asc' | 'desc') => void
-  orderBy: string
-  orderDirection: 'asc' | 'desc'
-}
-
-/**
- * Hook para cargar datos de ganado bovino desde la API
- */
-export function useGanado(): UseGanadoResult {
-  const [animales, setAnimales] = useState<AnimalAPI[]>([])
-  const [stats, setStats] = useState<GanadoStats | null>(null)
-  const [pagination, setPagination] = useState<PaginationInfo | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [page, setPage] = useState(1)
-  const [limit, setLimit] = useState(25)
-  const [orderBy, setOrderBy] = useState('caravana')
-  const [orderDirection, setOrderDirection] = useState<'asc' | 'desc'>('asc')
-
-  const fetchGanado = useCallback(async () => {
-    try {
-      setIsLoading(true)
-      setError(null)
-
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: limit.toString(),
-        orderBy: orderBy,
-        orderDirection: orderDirection,
-      })
-
-      const response = await fetch(`/api/ganado/bovinos?${params}`)
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          setError('No autenticado')
-          return
-        }
-        throw new Error(`Error ${response.status}`)
+export function useGanado(filters: GanadoQuery) {
+  const params = filters.establecimientoId
+    ? ganadoParams(filters).toString()
+    : ""
+  const query = useQuery({
+    queryKey: ["ganado-lista", params],
+    enabled: !!params,
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/ganado/bovinos?${params}`, { signal })
+      const result = await response.json()
+      if (!response.ok || !result.success)
+        throw new Error(result.error || "No se pudo cargar el ganado")
+      return result as {
+        data: AnimalAPI[]
+        stats: GanadoStats
+        pagination: PaginationInfo
       }
-
-      const data = await response.json()
-
-      if (data.success) {
-        // Transformar datos para compatibilidad con UI existente
-        const animalesTransformados = data.data.map((animal: AnimalAPI) => ({
-          ...animal,
-          name: animal.nombre,
-          birthDate: animal.fechaNacimiento,
-          age: animal.edad || '',
-        }))
-
-        setAnimales(animalesTransformados)
-        setStats(data.stats)
-        setPagination(data.pagination)
-      } else {
-        throw new Error(data.error || 'Error al cargar datos')
-      }
-    } catch (err) {
-      console.error('Error fetching ganado:', err)
-      const errorMessage = err instanceof Error ? err.message : 'Error desconocido'
-      setError(errorMessage)
-
-      // Mostrar toast de error
-      toast.error('Error al cargar datos', {
-        description: errorMessage,
-        duration: 5000,
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }, [page, limit, orderBy, orderDirection])
-
-  useEffect(() => {
-    fetchGanado()
-  }, [fetchGanado])
-
+    },
+  })
   return {
-    animales,
-    stats,
-    pagination,
-    isLoading,
-    error,
-    refetch: fetchGanado,
-    setPage,
-    setLimit,
-    setOrderBy,
-    setOrderDirection,
-    orderBy,
-    orderDirection,
-  }
-}
-
-/**
- * Hook para obtener el resumen del rodeo
- */
-export function useHerdOverview() {
-  const { animales, stats, isLoading, error } = useGanado()
-
-  const herdOverview = {
-    totalAnimals: stats?.total || 0,
-    breedingCows: stats?.porCategoria?.['vaca'] || 0,
-    bulls: stats?.porCategoria?.['toro'] || 0,
-    steers: stats?.porCategoria?.['novillo'] || 0,
-    heifers: stats?.porCategoria?.['vaquillona'] || 0,
-    calves: (stats?.porCategoria?.['ternero'] || 0) + (stats?.porCategoria?.['ternera'] || 0),
-    averageWeight: stats?.pesoPromedio || 0,
-    averageDailyGain: 0, // TODO: calcular desde pesadas
-    calvingRate: 0, // TODO: calcular desde pariciones
-    mortalityRate: 0, // TODO: calcular desde bajas
-    averageBodyCondition: 0, // TODO: calcular desde pesadas
-  }
-
-  return {
-    herdOverview,
-    isLoading,
-    error,
+    animales: query.data?.data ?? [],
+    stats: query.data?.stats ?? null,
+    pagination: query.data?.pagination ?? null,
+    isLoading: query.isFetching,
+    error: query.error?.message ?? null,
+    refetch: async () => {
+      await query.refetch()
+    },
   }
 }

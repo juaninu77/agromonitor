@@ -76,7 +76,7 @@ export const GET = withAuth(async (req, ctx) => {
         animalId,
         ...scopeEventoAnimal(ctx.establecimientoIds),
       },
-      orderBy: { fecha: "desc" },
+      orderBy: [{ fecha: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     })
 
     return NextResponse.json({ success: true, data: pesos })

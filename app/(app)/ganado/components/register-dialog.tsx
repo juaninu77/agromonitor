@@ -1,5 +1,8 @@
 "use client"
 
+import { useGanadoScope } from "@/components/ganado/ganado-scope"
+import { especieLabels } from "@/lib/ganado/query"
+
 import { useState, useCallback } from "react"
 import dynamic from "next/dynamic"
 import {
@@ -56,8 +59,11 @@ interface RegisterDialogProps {
 }
 
 export function RegisterDialog({ open, onOpenChange, onSuccess }: RegisterDialogProps) {
+  const { establecimientoId, especie } = useGanadoScope()
   const [activeTab, setActiveTab] = useState<"single" | "batch">("single")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [batchBusy, setBatchBusy] = useState(false)
+  const busy = isSubmitting || batchBusy
 
   const handleSingleSubmit = useCallback(async (data: any) => {
     setIsSubmitting(true)
@@ -65,7 +71,7 @@ export function RegisterDialog({ open, onOpenChange, onSuccess }: RegisterDialog
       const response = await fetch('/api/ganado/bovinos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...data, establecimientoId }),
       })
 
       if (!response.ok) {
@@ -93,7 +99,7 @@ export function RegisterDialog({ open, onOpenChange, onSuccess }: RegisterDialog
     } finally {
       setIsSubmitting(false)
     }
-  }, [onSuccess])
+  }, [onSuccess, establecimientoId])
 
   const handleClose = useCallback(() => {
     onOpenChange(false)
@@ -101,22 +107,22 @@ export function RegisterDialog({ open, onOpenChange, onSuccess }: RegisterDialog
   }, [onOpenChange, onSuccess])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={next => { if (!busy) onOpenChange(next) }}>
       <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto">
         <DialogHeader className="pb-4 border-b border-slate-100">
-          <DialogTitle className="text-2xl font-bold flex items-center gap-3">
-            <div className="p-2 bg-gradient-to-br from-blue-500 to-emerald-500 rounded-xl">
-              <Sparkles className="h-6 w-6 text-white" />
+          <DialogTitle className="text-xl font-semibold flex items-center gap-3">
+            <div className="p-2 bg-primary/10 rounded-xl">
+              <Sparkles className="h-5 w-5 text-primary" />
             </div>
-            Registrar Animales
+            Registrar animales · {especieLabels[especie]}
           </DialogTitle>
           <DialogDescription>
-            Elige el modo de registro según tu necesidad: individual para detalles completos o masivo para registrar varios animales rápidamente.
+            Individual para un animal o masivo para varios de la misma categoría.
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
-          <TabsList className="grid w-full grid-cols-2 p-1 bg-slate-100 rounded-xl h-14">
+        <Tabs value={activeTab} onValueChange={(v) => { if (!busy) setActiveTab(v as typeof activeTab) }}>
+          <TabsList className="grid w-full grid-cols-2 p-1 bg-slate-100 rounded-xl h-11">
             <TabsTrigger
               value="single"
               className="flex items-center gap-2 rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm h-full"
@@ -148,7 +154,7 @@ export function RegisterDialog({ open, onOpenChange, onSuccess }: RegisterDialog
           </TabsContent>
 
           <TabsContent value="batch" className="mt-6">
-            <BatchRegisterForm onClose={handleClose} />
+            <BatchRegisterForm onClose={handleClose} onSuccess={onSuccess} onBusyChange={setBatchBusy} />
           </TabsContent>
         </Tabs>
       </DialogContent>

@@ -237,6 +237,8 @@ model Establecimiento {
 
 // Sector unificado: potrero, corral, manga, feedlot
 model Sector {
+  geometria    Json?    // GeoJSON WGS84: Point o Polygon; no altera la superficie declarada.
+  version      Int      @default(1)
   id           String   @id @default(uuid()) @db.Uuid
   nombre       String
   tipo         String // 'potrero' | 'corral' | 'manga' | 'feedlot' | 'embarcadero' | 'enfermeria' | 'otro'

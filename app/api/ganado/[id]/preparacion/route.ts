@@ -11,7 +11,7 @@ export const GET=withAuth(async(_request,ctx)=>{
     establecimiento:{select:{nombre:true,renspa:true}},especie:{select:{nombre:true}},categoria:{select:{nombre:true}},raza:{select:{nombre:true}},
     loteHist:{where:{hasta:null},include:{lote:{select:{nombre:true}}}},
     ubicacionHist:{where:{hasta:null},include:{sector:{select:{nombre:true}}}},
-    eventosPesada:{orderBy:{fecha:"desc"},take:1},
+    eventosPesada:{orderBy:[{fecha:"desc"},{createdAt:"desc"},{id:"desc"}],take:1},
     eventosSanidad:{orderBy:{fecha:"desc"},take:5,include:{producto:{select:{nombre:true}}}},
   }})
   if(!animal)return NextResponse.json({error:"Animal no encontrado"},{status:404})

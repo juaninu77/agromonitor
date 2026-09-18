@@ -1,6 +1,10 @@
 "use client"
 
 import { useState, useMemo } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import MapWorkspace from "@/components/mapa/map-workspace"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { SECTOR_TYPES } from "@/lib/mapa/geometry"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useTenant } from "@/lib/context/tenant-context"
 import { toast } from "sonner"
@@ -60,6 +64,7 @@ import {
 // ─── Tipos ───────────────────────────────────────────────
 
 interface Sector {
+  version: number
   id: string
   nombre: string
   tipo: string
@@ -99,15 +104,7 @@ interface LoteSimple {
 
 // ─── Constantes ──────────────────────────────────────────
 
-const TIPO_SECTOR_OPTIONS = [
-  { value: "potrero", label: "Potrero" },
-  { value: "corral", label: "Corral" },
-  { value: "manga", label: "Manga" },
-  { value: "feedlot", label: "Feedlot" },
-  { value: "embarcadero", label: "Embarcadero" },
-  { value: "enfermeria", label: "Enfermería" },
-  { value: "otro", label: "Otro" },
-]
+const TIPO_SECTOR_OPTIONS = SECTOR_TYPES.map(([value, label]) => ({ value, label }))
 
 const USO_OPTIONS = [
   { value: "pastoreo", label: "Pastoreo" },
@@ -152,6 +149,14 @@ async function fetchLotes(estId: string): Promise<LoteSimple[]> {
 // ─── Página principal ────────────────────────────────────
 
 export default function PotrerosPage() {
+  const { establecimientoActivo } = useTenant()
+  return <PotrerosWorkspace key={establecimientoActivo?.id ?? "sin-campo"} />
+}
+function PotrerosWorkspace() {
+  const router = useRouter()
+  const params = useSearchParams()
+  const view = params.get("vista") === "lista" ? "lista" : "mapa"
+  const setView = (value: string) => router.replace(`/potreros?vista=${value}`, { scroll: false })
   const { establecimientoActivo, isLoading: tenantLoading } = useTenant()
   const queryClient = useQueryClient()
   const estId = establecimientoActivo?.id ?? ""
@@ -191,18 +196,19 @@ export default function PotrerosPage() {
 
   const crearSectorMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
-      const res = await fetch("/api/sectores", {
-        method: "POST",
+      const res = await fetch(editingSector ? `/api/sectores/${editingSector.id}` : "/api/sectores", {
+        method: editingSector ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, establecimientoId: estId }),
+        body: JSON.stringify({ ...data, establecimientoId: estId, ...(editingSector ? { version: editingSector.version } : {}) }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || "Error al crear sector")
       return json.data
     },
     onSuccess: () => {
-      toast.success("Sector creado correctamente")
+      toast.success(editingSector ? "Sector actualizado" : "Sector creado correctamente")
       queryClient.invalidateQueries({ queryKey: ["sectores", estId] })
+      queryClient.invalidateQueries({ queryKey: ["mapa", estId] })
       setShowSectorDialog(false)
       setEditingSector(null)
     },
@@ -345,17 +351,21 @@ export default function PotrerosPage() {
         <div>
           <h1 className="flex items-center gap-3 text-2xl font-bold tracking-tight md:text-3xl">
             <MapPin className="h-7 w-7 text-primary md:h-8 md:w-8" />
-            Potreros y Sectores
+            Potreros y mapa
           </h1>
           <p className="mt-1 text-muted-foreground">
-            Gestión de sectores, mediciones de pasto y asignación de lotes
+            Ubicá potreros, cultivos e instalaciones y organizá el trabajo del campo.
           </p>
         </div>
-        <Button onClick={openNewSector}>
+        {view === "lista" && <Button onClick={openNewSector}>
           <Plus className="mr-2 h-4 w-4" /> Nuevo sector
-        </Button>
+        </Button>}
       </div>
 
+      <Tabs value={view} onValueChange={setView}>
+        <TabsList aria-label="Vista de potreros"><TabsTrigger value="mapa">Mapa del campo</TabsTrigger><TabsTrigger value="lista">Sectores y pastoreo</TabsTrigger></TabsList>
+        <TabsContent value="mapa"><MapWorkspace fieldId={estId} onList={() => setView("lista")} /></TabsContent>
+        <TabsContent value="lista" className="space-y-6">
       {/* ── KPI cards ── */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <KpiCard
@@ -405,6 +415,8 @@ export default function PotrerosPage() {
         </div>
       )}
 
+        </TabsContent>
+      </Tabs>
       {/* ── Dialog: Crear / Editar sector ── */}
       <SectorFormDialog
         open={showSectorDialog}

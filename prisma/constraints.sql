@@ -73,7 +73,7 @@ BEGIN
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sectores_tipo_chk') THEN
     ALTER TABLE sectores ADD CONSTRAINT sectores_tipo_chk
-      CHECK (tipo IN ('potrero', 'corral', 'manga', 'feedlot', 'embarcadero', 'enfermeria', 'otro')) NOT VALID;
+      CHECK (tipo IN ('potrero', 'corral', 'manga', 'feedlot', 'embarcadero', 'enfermeria', 'otro', 'cultivo', 'galpon', 'aguada', 'casa')) NOT VALID;
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evt_baja_motivo_chk') THEN

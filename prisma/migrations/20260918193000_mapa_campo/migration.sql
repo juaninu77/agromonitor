@@ -1,0 +1,2 @@
+ALTER TABLE "sectores" ADD COLUMN "geometria" JSONB;
+ALTER TABLE "sectores" ADD COLUMN "version" INTEGER NOT NULL DEFAULT 1;

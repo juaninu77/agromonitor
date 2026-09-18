@@ -1,5 +1,7 @@
 "use client"
 
+import { useGanadoScope } from "@/components/ganado/ganado-scope"
+
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { animalFormSchema, type AnimalFormData } from "@/lib/validations/animal-schema"
@@ -68,6 +70,7 @@ const STEPS = [
 ]
 
 export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormProps) {
+  const { especie, organizacionId } = useGanadoScope()
   const { establecimientoActivo } = useTenant()
   const [step, setStep] = useState(1)
   const [especies, setEspecies] = useState<EspecieOpt[]>([])
@@ -101,10 +104,10 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
   const especieIdWatch = watch("especieId")
 
   const cargarCatalogos = useCallback(
-    async (nombreEspecie: string, especieUuid: string) => {
+    async (nombreEspecie: string, especieUuid: string, signal: AbortSignal) => {
       const [razasRes, categoriasRes] = await Promise.all([
-        fetch(`/api/razas?especie=${encodeURIComponent(nombreEspecie)}`),
-        fetch(`/api/categorias?especie=${encodeURIComponent(nombreEspecie)}`),
+        fetch(`/api/razas?especieId=${encodeURIComponent(especieUuid)}`, { signal }),
+        fetch(`/api/categorias?especieId=${encodeURIComponent(especieUuid)}`, { signal }),
       ])
       if (razasRes.ok) {
         const razasData = await razasRes.json()
@@ -131,7 +134,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
 
       if (establecimientoActivo) {
         try {
-          const lotesRes = await fetch(`/api/establecimientos/${establecimientoActivo.id}/lotes`)
+          const lotesRes = await fetch(`/api/establecimientos/${establecimientoActivo.id}/lotes`, { signal })
           if (lotesRes.ok) {
             const lotesData = await lotesRes.json()
             setLotes(
@@ -153,7 +156,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
         const res = await fetch("/api/especies")
         const data = await res.json()
         if (!data.success || cancelled) return
-        const list = data.data as EspecieOpt[]
+        const list = data.data.filter((e: { organizacionId: string; nombre: string; id: string }) => initialData?.especieId ? e.id === initialData.especieId : e.organizacionId === organizacionId && (especie === "todos" || e.nombre.toLowerCase() === especie)) as EspecieOpt[]
         setEspecies(list)
         if (list.length === 0) {
           setLoadingOptions(false)
@@ -163,7 +166,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
         if (existing && list.some((e) => e.id === existing)) {
           setValue("especieId", existing)
         } else {
-          const bov = list.find((e) => e.nombre === "bovino")
+          const bov = list.find((e) => e.nombre === especie) || list[0]
           if (bov) setValue("especieId", bov.id)
         }
       } catch (e) {
@@ -174,7 +177,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
     return () => {
       cancelled = true
     }
-  }, [initialData?.especieId, setValue])
+  }, [initialData?.especieId, setValue, especie, organizacionId])
 
   useEffect(() => {
     if (!especieIdWatch || especies.length === 0) return
@@ -184,20 +187,25 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
     if (prevEspecieRef.current !== null && prevEspecieRef.current !== especieIdWatch) {
       setValue("razaId", "")
       setValue("categoriaId", "")
+      setValue("loteId", "")
     }
     prevEspecieRef.current = especieIdWatch
 
     let cancelled = false
+    const controller = new AbortController()
     ;(async () => {
       setLoadingOptions(true)
       try {
-        await cargarCatalogos(esp.nombre, esp.id)
+        await cargarCatalogos(esp.nombre, esp.id, controller.signal)
+      } catch (error) {
+        if (!controller.signal.aborted) console.error("Error al cargar catálogos", error)
       } finally {
         if (!cancelled) setLoadingOptions(false)
       }
     })()
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [especieIdWatch, especies, cargarCatalogos, setValue])
 

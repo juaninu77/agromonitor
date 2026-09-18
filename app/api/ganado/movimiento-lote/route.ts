@@ -39,7 +39,7 @@ export const POST = withAuth(async (request, ctx) => {
         id: { in: animalIds },
         establecimientoId: { in: ctx.establecimientoIds },
       },
-      select: { id: true, establecimientoId: true },
+      select: { id: true, establecimientoId: true, especieId: true },
     })
 
     if (animalesDelTenant.length !== animalIds.length) {
@@ -54,6 +54,10 @@ export const POST = withAuth(async (request, ctx) => {
         { error: "El lote y los animales deben pertenecer al mismo establecimiento" },
         { status: 400 }
       )
+    }
+
+    if (animalesDelTenant.some(animal => animal.especieId !== loteDestino.especieId)) {
+      return NextResponse.json({ error: "El lote debe corresponder a la especie de todos los animales" }, { status: 400 })
     }
 
     const result = await prisma.$transaction(async (tx) => {

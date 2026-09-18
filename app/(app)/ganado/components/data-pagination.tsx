@@ -69,9 +69,9 @@ export function DataPagination({ pagination, onPageChange, onLimitChange }: Data
   const endResult = Math.min(page * limit, total)
 
   return (
-    <div className="flex items-center justify-between px-2 py-4 border-t-2 border-border">
+    <div className="flex flex-col gap-3 border-t py-3 xl:flex-row xl:items-center xl:justify-between">
       {/* Info y selector de items por página */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-3">
         <p className="text-sm text-foreground">
           Mostrando <span className="font-medium">{startResult}</span> a{" "}
           <span className="font-medium">{endResult}</span> de{" "}
@@ -86,7 +86,7 @@ export function DataPagination({ pagination, onPageChange, onLimitChange }: Data
               onPageChange(1) // Resetear a la primera página
             }}
           >
-            <SelectTrigger className="h-8 w-[70px] border-2">
+            <SelectTrigger aria-label="Animales por página" className="h-9 w-[70px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -100,7 +100,7 @@ export function DataPagination({ pagination, onPageChange, onLimitChange }: Data
       </div>
 
       {/* Controles de paginación */}
-      <Pagination>
+      <Pagination className="w-auto">
         <PaginationContent>
           <PaginationItem>
             <PaginationPrevious

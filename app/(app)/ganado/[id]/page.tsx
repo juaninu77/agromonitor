@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo, useCallback } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -64,6 +64,7 @@ import {
 } from "recharts"
 import { toast } from "sonner"
 
+import { leerEspecie } from "@/lib/ganado/query"
 import { useTenant } from "@/lib/context/tenant-context"
 import { formatDate } from "@/lib/utils"
 import { PreparacionSenasa } from "@/components/ganado/preparacion-senasa"
@@ -74,6 +75,7 @@ import { PreparacionSenasa } from "@/components/ganado/preparacion-senasa"
 
 interface AnimalDetail {
   id: string
+  establecimientoId: string
   cuig: string | null
   caravanaVisual: string | null
   caravanaRfid: string | null
@@ -164,6 +166,7 @@ interface BajaEvent {
 
 interface Lote {
   id: string
+  especie: { id: string; nombre: string }
   nombre: string
 }
 
@@ -254,10 +257,12 @@ async function fetchProductos(): Promise<{ id: string; nombre: string }[]> {
 export default function AnimalDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const regreso = `/ganado?especie=${leerEspecie(searchParams.get("especie"))}`
   const queryClient = useQueryClient()
   const { establecimientoActivo } = useTenant()
 
-  const [activeTab, setActiveTab] = useState("pesadas")
+  const [activeTab, setActiveTab] = useState("senasa")
 
   // Quick-action dialogs
   const [pesoDialogOpen, setPesoDialogOpen] = useState(false)
@@ -286,9 +291,9 @@ export default function AnimalDetailPage() {
   })
 
   const { data: lotes = [] } = useQuery({
-    queryKey: ["lotes", establecimientoActivo?.id],
-    queryFn: () => fetchLotes(establecimientoActivo!.id),
-    enabled: !!establecimientoActivo?.id && moverDialogOpen,
+    queryKey: ["lotes", animal?.establecimientoId],
+    queryFn: () => fetchLotes(animal!.establecimientoId),
+    enabled: !!animal?.establecimientoId && moverDialogOpen,
   })
 
   const { data: productos = [] } = useQuery({
@@ -472,7 +477,7 @@ export default function AnimalDetailPage() {
             <p className="text-muted-foreground text-center">
               No se pudo cargar la información del animal. Verificá el ID o intentá nuevamente.
             </p>
-            <Button variant="outline" onClick={() => router.push("/ganado")}>
+            <Button variant="outline" onClick={() => router.push(regreso)}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               Volver al listado
             </Button>
@@ -491,7 +496,7 @@ export default function AnimalDetailPage() {
       {/* ================================================================ */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => router.push("/ganado")}>
+          <Button variant="ghost" size="icon" aria-label="Volver al listado de ganado" onClick={() => router.push(regreso)}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
@@ -541,7 +546,7 @@ export default function AnimalDetailPage() {
           <Button
             size="sm"
             className="bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700"
-            onClick={() => router.push(`/ganado?edit=${id}`)}
+            onClick={() => router.push(`${regreso}&edit=${id}`)}
           >
             <Edit className="h-4 w-4 mr-1.5" />
             Editar
@@ -1008,7 +1013,7 @@ export default function AnimalDetailPage() {
                   <SelectValue placeholder="Seleccionar lote" />
                 </SelectTrigger>
                 <SelectContent>
-                  {lotes.map((l) => (
+                  {lotes.filter(l => l.especie?.id === animal.especie?.id).map((l) => (
                     <SelectItem key={l.id} value={l.id}>
                       {l.nombre}
                     </SelectItem>

@@ -25,7 +25,7 @@ export const GET = withAuth(async (request, ctx) => {
         proveedor: { select: { id: true, nombre: true } },
         genealogia: true,
         eventosPesada: {
-          orderBy: { fecha: 'desc' },
+          orderBy: [{ fecha: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
           ...(fullHistory ? {} : { take: 5 }),
         },
         eventosSanidad: {
@@ -143,6 +143,7 @@ export const PATCH = withAuth(async (request, ctx) => {
       if (!esp) {
         return NextResponse.json({ error: "Especie no válida" }, { status: 400 })
       }
+      if (body.especieId !== animalExistente.especieId) return NextResponse.json({ error: "La especie de un animal registrado no puede cambiarse desde su ficha" }, { status: 400 })
       updateData.especieId = body.especieId
     }
     if (body.razaId !== undefined) updateData.razaId = body.razaId
@@ -166,6 +167,7 @@ export const PATCH = withAuth(async (request, ctx) => {
     // Validar lote destino (si se cambia) — debe pertenecer al tenant
     if (body.loteId) {
       const lote = await loteDelTenant(body.loteId, ctx.establecimientoIds)
+      if (lote && (lote.establecimientoId !== animalExistente.establecimientoId || lote.especieId !== especieFinal)) return NextResponse.json({ error: "El lote debe pertenecer al campo y especie del animal" }, { status: 400 })
       if (!lote) {
         return NextResponse.json(
           { error: "Lote no encontrado" },
@@ -177,7 +179,7 @@ export const PATCH = withAuth(async (request, ctx) => {
     // Validar sector destino (si se cambia) — debe pertenecer al tenant
     if (body.sectorId) {
       const sector = await sectorDelTenant(body.sectorId, ctx.establecimientoIds)
-      if (!sector) {
+      if (!sector || sector.establecimientoId !== animalExistente.establecimientoId) {
         return NextResponse.json(
           { error: "Sector no encontrado" },
           { status: 404 }

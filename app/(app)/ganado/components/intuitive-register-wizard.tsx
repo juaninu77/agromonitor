@@ -1,5 +1,7 @@
 "use client"
 
+import { useGanadoScope } from "@/components/ganado/ganado-scope"
+
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -32,7 +34,7 @@ import {
   ChevronRight,
   Zap,
   Target,
-  ClipboardList
+  ClipboardList,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -68,7 +70,6 @@ interface Raza {
   nombre: string
 }
 
-
 interface Categoria {
   id: string
   nombre: string
@@ -89,7 +90,7 @@ function CategorySelector({
   selectedSexo,
   selectedCategoria,
   onSelect,
-  fechaNacimiento
+  fechaNacimiento,
 }: {
   categorias: Categoria[]
   selectedSexo: "M" | "F"
@@ -98,26 +99,34 @@ function CategorySelector({
   fechaNacimiento?: string
 }) {
   // Calcular edad en meses si hay fecha de nacimiento
-  const edadMeses = fechaNacimiento ? (() => {
-    const nacimiento = new Date(fechaNacimiento)
-    const hoy = new Date()
-    return (hoy.getFullYear() - nacimiento.getFullYear()) * 12 + (hoy.getMonth() - nacimiento.getMonth())
-  })() : null
+  const edadMeses = fechaNacimiento
+    ? (() => {
+        const nacimiento = new Date(fechaNacimiento)
+        const hoy = new Date()
+        return (
+          (hoy.getFullYear() - nacimiento.getFullYear()) * 12 +
+          (hoy.getMonth() - nacimiento.getMonth())
+        )
+      })()
+    : null
 
   // Filtrar y ordenar categorías por sexo
-  const categoriasFiltradas = categorias.filter(cat => {
-    if (cat.sexo === null) return true
+  const categoriasFiltradas = categorias.filter((cat) => {
+    if (cat.sexo == null) return true
     return cat.sexo === selectedSexo
   })
 
   // Sugerir categoría basada en edad
-  const categoriaSugerida = edadMeses !== null ? categoriasFiltradas.find(cat => {
-    const min = cat.edadMinMeses
-    const max = cat.edadMaxMeses
-    if (min != null && edadMeses < min) return false
-    if (max != null && edadMeses > max) return false
-    return true
-  }) : null
+  const categoriaSugerida =
+    edadMeses !== null
+      ? categoriasFiltradas.find((cat) => {
+          const min = cat.edadMinMeses
+          const max = cat.edadMaxMeses
+          if (min != null && edadMeses < min) return false
+          if (max != null && edadMeses > max) return false
+          return true
+        })
+      : null
 
   const getCategoryIcon = (nombre: string) => {
     const lower = nombre.toLowerCase()
@@ -125,14 +134,35 @@ function CategorySelector({
     if (lower.includes("toro")) return Crown
     if (lower.includes("vaca")) return Heart
     if (lower.includes("novillo") || lower.includes("vaquillona")) return Target
-    if (lower.includes("cordero") || lower.includes("cordera") || lower.includes("oveja") || lower.includes("carnero") || lower.includes("borrego")) return Heart
-    if (lower.includes("potrill") || lower.includes("potranc") || lower.includes("caballo") || lower.includes("yegua") || lower.includes("semiental") || lower.includes("semental")) return Zap
+    if (
+      lower.includes("cordero") ||
+      lower.includes("cordera") ||
+      lower.includes("oveja") ||
+      lower.includes("carnero") ||
+      lower.includes("borrego")
+    )
+      return Heart
+    if (
+      lower.includes("potrill") ||
+      lower.includes("potranc") ||
+      lower.includes("caballo") ||
+      lower.includes("yegua") ||
+      lower.includes("semiental") ||
+      lower.includes("semental")
+    )
+      return Zap
     return Beef
   }
 
-  const getCategoryColor = (nombre: string, isSelected: boolean, isSuggested: boolean) => {
-    if (isSelected) return "border-blue-600 bg-primary/10 text-blue-700 shadow-lg shadow-blue-100"
-    if (isSuggested) return "border-emerald-400 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-200"
+  const getCategoryColor = (
+    nombre: string,
+    isSelected: boolean,
+    isSuggested: boolean,
+  ) => {
+    if (isSelected)
+      return "border-blue-600 bg-primary/10 text-blue-700 shadow-lg shadow-blue-100"
+    if (isSuggested)
+      return "border-emerald-400 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-200"
     return "border-slate-200 hover:border-slate-300 text-slate-600 hover:bg-slate-50"
   }
 
@@ -142,7 +172,8 @@ function CategorySelector({
         <div className="flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-200 rounded-lg">
           <Sparkles className="h-4 w-4 text-emerald-600" />
           <span className="text-sm text-emerald-700">
-            Sugerencia: <strong>{categoriaSugerida.nombre}</strong> basada en la edad ({edadMeses} meses)
+            Sugerencia: <strong>{categoriaSugerida.nombre}</strong> basada en la
+            edad ({edadMeses} meses)
           </span>
         </div>
       )}
@@ -160,11 +191,13 @@ function CategorySelector({
               onClick={() => onSelect(cat.id)}
               className={cn(
                 "flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 transition-all duration-200",
-                getCategoryColor(cat.nombre, isSelected, isSuggested)
+                getCategoryColor(cat.nombre, isSelected, isSuggested),
               )}
             >
               <Icon className="h-8 w-8" />
-              <span className="text-sm font-semibold text-center">{cat.nombre}</span>
+              <span className="text-sm font-semibold text-center">
+                {cat.nombre}
+              </span>
               {isSelected && (
                 <CheckCircle2 className="h-4 w-4 text-primary absolute top-2 right-2" />
               )}
@@ -185,114 +218,54 @@ function CategorySelector({
 function RazaSelector({
   razas,
   selectedRaza,
-  onSelect
+  onSelect,
 }: {
   razas: Raza[]
   selectedRaza: string
   onSelect: (id: string) => void
 }) {
   const [search, setSearch] = useState("")
-
-  const razasFiltradas = razas.filter(r =>
-    r.nombre.toLowerCase().includes(search.toLowerCase())
+  const filtered = razas.filter((r) =>
+    r.nombre.toLowerCase().includes(search.toLowerCase()),
   )
-
-  const razasComunes = ["Angus", "Hereford", "Brangus", "Braford", "Charolais", "Limousin"]
-  const razasDestacadas = razas.filter(r => razasComunes.some(rc => r.nombre.toLowerCase().includes(rc.toLowerCase())))
-  const otrasRazas = razas.filter(r => !razasComunes.some(rc => r.nombre.toLowerCase().includes(rc.toLowerCase())))
-
   return (
-    <div className="space-y-4">
-      <div className="relative">
+    <div className="space-y-3">
+      {razas.length > 6 && (
         <Input
-          placeholder="Buscar raza..."
+          aria-label="Buscar raza"
+          placeholder="Buscar raza…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="pl-10 h-11 border-2"
         />
-        <Tag className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-      </div>
-
-      {search === "" && (
-        <>
-          <div className="space-y-2">
-            <Label className="text-xs text-slate-500 uppercase tracking-wider">Razas más comunes</Label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-              {razasDestacadas.map((raza) => (
-                <button
-                  key={raza.id}
-                  type="button"
-                  onClick={() => onSelect(raza.id)}
-                  className={cn(
-                    "flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all",
-                    selectedRaza === raza.id
-                      ? "border-blue-600 bg-primary/10 text-blue-700"
-                      : "border-slate-200 hover:border-slate-300 text-slate-600"
-                  )}
-                >
-                  {selectedRaza === raza.id && <CheckCircle2 className="h-4 w-4" />}
-                  <span className="font-medium">{raza.nombre}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {otrasRazas.length > 0 && (
-            <div className="space-y-2">
-              <Label className="text-xs text-slate-500 uppercase tracking-wider">Otras razas</Label>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                {otrasRazas.map((raza) => (
-                  <button
-                    key={raza.id}
-                    type="button"
-                    onClick={() => onSelect(raza.id)}
-                    className={cn(
-                      "flex items-center justify-center gap-2 p-2 rounded-lg border transition-all text-sm",
-                      selectedRaza === raza.id
-                        ? "border-blue-600 bg-primary/10 text-blue-700"
-                        : "border-slate-200 hover:border-slate-300 text-slate-500"
-                    )}
-                  >
-                    {selectedRaza === raza.id && <CheckCircle2 className="h-3 w-3" />}
-                    <span>{raza.nombre}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
       )}
-
-      {search !== "" && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          {razasFiltradas.map((raza) => (
-            <button
-              key={raza.id}
-              type="button"
-              onClick={() => onSelect(raza.id)}
-              className={cn(
-                "flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all",
-                selectedRaza === raza.id
-                  ? "border-blue-600 bg-primary/10 text-blue-700"
-                  : "border-slate-200 hover:border-slate-300 text-slate-600"
-              )}
-            >
-              {selectedRaza === raza.id && <CheckCircle2 className="h-4 w-4" />}
-              <span className="font-medium">{raza.nombre}</span>
-            </button>
-          ))}
-          {razasFiltradas.length === 0 && (
-            <p className="col-span-full text-center text-slate-500 py-4">
-              No se encontraron razas con "{search}"
-            </p>
-          )}
-        </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {filtered.map((raza) => (
+          <Button
+            type="button"
+            key={raza.id}
+            variant={selectedRaza === raza.id ? "default" : "outline"}
+            aria-pressed={selectedRaza === raza.id}
+            onClick={() => onSelect(raza.id)}
+          >
+            {raza.nombre}
+          </Button>
+        ))}
+      </div>
+      {!filtered.length && (
+        <p className="text-sm text-muted-foreground">
+          No hay razas para esta selección.
+        </p>
       )}
     </div>
   )
 }
 
-export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: IntuitiveRegisterWizardProps) {
+export function IntuitiveRegisterWizard({
+  onSubmit,
+  onClose,
+  isSubmitting,
+}: IntuitiveRegisterWizardProps) {
+  const { especie, organizacionId } = useGanadoScope()
   const [step, setStep] = useState(1)
   const [especies, setEspecies] = useState<EspecieOpt[]>([])
   const [razas, setRazas] = useState<Raza[]>([])
@@ -329,30 +302,42 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
   const fechaNacimiento = watch("fechaNacimiento")
   const especieIdWatch = watch("especieId")
 
-  const cargarCatalogos = useCallback(async (nombreEspecie: string) => {
-    const [razasData, categoriasData] = await Promise.all([
-      fetch(`/api/razas?especie=${encodeURIComponent(nombreEspecie)}`).then((r) => r.json()),
-      fetch(`/api/categorias?especie=${encodeURIComponent(nombreEspecie)}`).then((r) => r.json()),
-    ])
-    if (razasData.success) {
-      setRazas((razasData.data || []).map((r: { id: string; nombre: string }) => ({ id: r.id, nombre: r.nombre })))
-    } else {
-      setRazas([])
-    }
-    if (categoriasData.success) {
-      setCategorias(
-        (categoriasData.data || []).map((c: Categoria) => ({
-          id: c.id,
-          nombre: c.nombre,
-          sexo: c.sexo,
-          edadMinMeses: c.edadMinMeses,
-          edadMaxMeses: c.edadMaxMeses,
-        }))
-      )
-    } else {
-      setCategorias([])
-    }
-  }, [])
+  const cargarCatalogos = useCallback(
+    async (especieUuid: string, signal: AbortSignal) => {
+      const [razasData, categoriasData] = await Promise.all([
+        fetch(`/api/razas?especieId=${encodeURIComponent(especieUuid)}`, {
+          signal,
+        }).then((r) => r.json()),
+        fetch(`/api/categorias?especieId=${encodeURIComponent(especieUuid)}`, {
+          signal,
+        }).then((r) => r.json()),
+      ])
+      if (razasData.success) {
+        setRazas(
+          (razasData.data || []).map((r: { id: string; nombre: string }) => ({
+            id: r.id,
+            nombre: r.nombre,
+          })),
+        )
+      } else {
+        setRazas([])
+      }
+      if (categoriasData.success) {
+        setCategorias(
+          (categoriasData.data || []).map((c: Categoria) => ({
+            id: c.id,
+            nombre: c.nombre,
+            sexo: c.sexo,
+            edadMinMeses: c.edadMinMeses,
+            edadMaxMeses: c.edadMaxMeses,
+          })),
+        )
+      } else {
+        setCategorias([])
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -361,13 +346,22 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
         const espRes = await fetch("/api/especies")
         const espJson = await espRes.json()
         if (!espJson.success || cancelled) return
-        const list = espJson.data as EspecieOpt[]
+        const list = espJson.data.filter(
+          (e: { organizacionId: string; nombre: string }) =>
+            e.organizacionId === organizacionId &&
+            (especie === "todos" || e.nombre.toLowerCase() === especie),
+        ) as EspecieOpt[]
         setEspecies(list)
         const bov = list.find((e) => e.nombre === "bovino")
         const initialId = bov?.id ?? list[0]?.id
         if (initialId) {
           setValue("especieId", initialId)
         }
+      } catch {
+        if (!cancelled)
+          toast.error(
+            "No se pudieron cargar las especies. Cerrá y volvé a abrir el registro.",
+          )
       } finally {
         if (!cancelled) setLoadingEspecies(false)
       }
@@ -375,30 +369,38 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
     return () => {
       cancelled = true
     }
-  }, [setValue])
+  }, [setValue, especie, organizacionId])
 
   useEffect(() => {
     if (especies.length === 0 || !especieIdWatch) return
     const nombre = especies.find((e) => e.id === especieIdWatch)?.nombre
     if (!nombre) return
 
-    if (prevEspecieRef.current !== null && prevEspecieRef.current !== especieIdWatch) {
+    if (
+      prevEspecieRef.current !== null &&
+      prevEspecieRef.current !== especieIdWatch
+    ) {
       setValue("razaId", "")
       setValue("categoriaId", "")
     }
     prevEspecieRef.current = especieIdWatch
 
     let cancelled = false
+    const controller = new AbortController()
     ;(async () => {
       setCatalogosLoading(true)
       try {
-        await cargarCatalogos(nombre)
+        await cargarCatalogos(especieIdWatch, controller.signal)
+      } catch (error) {
+        if (!controller.signal.aborted)
+          toast.error("No se pudieron cargar las razas y categorías")
       } finally {
         if (!cancelled) setCatalogosLoading(false)
       }
     })()
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [especieIdWatch, especies, cargarCatalogos, setValue])
 
@@ -476,15 +478,19 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
               <Zap className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-800">Registro de Animal</h2>
-              <p className="text-sm text-slate-500">Paso {step} de {totalSteps}</p>
+              <h2 className="text-xl font-bold text-slate-800">
+                Registro de Animal
+              </h2>
+              <p className="text-sm text-slate-500">
+                Paso {step} de {totalSteps}
+              </p>
             </div>
           </div>
 
           {registeredCount > 0 && (
             <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">
               <CheckCircle2 className="h-3 w-3 mr-1" />
-              {registeredCount} registrado{registeredCount > 1 ? 's' : ''}
+              {registeredCount} registrado{registeredCount > 1 ? "s" : ""}
             </Badge>
           )}
         </div>
@@ -498,7 +504,7 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                 key={label}
                 className={cn(
                   "text-xs font-medium transition-colors",
-                  i + 1 <= step ? "text-primary" : "text-slate-400"
+                  i + 1 <= step ? "text-primary" : "text-slate-400",
                 )}
               >
                 {label}
@@ -516,16 +522,21 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
               <div className="flex items-start gap-3 p-4 bg-primary/10 border border-blue-100 rounded-xl">
                 <Info className="h-5 w-5 text-primary mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-semibold text-blue-900">Identificación del animal</p>
+                  <p className="text-sm font-semibold text-blue-900">
+                    Identificación del animal
+                  </p>
                   <p className="text-xs text-blue-700">
-                    Elegí la especie (bovino, ovino, equino…), el número de caravana visual y el sexo.
+                    Indicá la caravana y el sexo. La especie corresponde a la
+                    vista elegida.
                   </p>
                 </div>
               </div>
 
               {/* Especie */}
               <div className="space-y-3">
-                <Label className="text-base font-bold text-slate-700">Tipo de animal</Label>
+                <Label className="text-base font-bold text-slate-700">
+                  Tipo de animal
+                </Label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {especies.map((esp) => {
                     const active = especieIdWatch === esp.id
@@ -533,12 +544,16 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                       <button
                         key={esp.id}
                         type="button"
-                        onClick={() => setValue("especieId", esp.id, { shouldValidate: true })}
+                        onClick={() =>
+                          setValue("especieId", esp.id, {
+                            shouldValidate: true,
+                          })
+                        }
                         className={cn(
                           "rounded-xl border-2 px-3 py-3 text-sm font-semibold transition-all",
                           active
                             ? "border-blue-600 bg-primary/10 text-blue-800 shadow-md"
-                            : "border-slate-200 bg-card text-slate-600 hover:border-slate-300"
+                            : "border-slate-200 bg-card text-slate-600 hover:border-slate-300",
                         )}
                       >
                         {labelEspecie(esp.nombre)}
@@ -569,7 +584,7 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                       "h-14 text-2xl font-bold text-center border-2 transition-all",
                       errors.caravanaVisual
                         ? "border-red-400 bg-red-50 focus:border-red-500"
-                        : "border-slate-200 focus:border-blue-500"
+                        : "border-slate-200 focus:border-blue-500",
                     )}
                   />
                 </div>
@@ -583,7 +598,9 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
 
               {/* Selector de Sexo */}
               <div className="space-y-3">
-                <Label className="text-base font-bold text-slate-700">Sexo del Animal</Label>
+                <Label className="text-base font-bold text-slate-700">
+                  Sexo del Animal
+                </Label>
                 <div className="grid grid-cols-2 gap-4">
                   <button
                     type="button"
@@ -592,17 +609,21 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                       "flex flex-col items-center justify-center gap-3 p-6 rounded-xl border-2 transition-all duration-200",
                       selectedSexo === "M"
                         ? "border-blue-600 bg-primary/10 text-blue-700 shadow-lg shadow-blue-100"
-                        : "border-slate-200 hover:border-slate-300 text-slate-500 hover:bg-slate-50"
+                        : "border-slate-200 hover:border-slate-300 text-slate-500 hover:bg-slate-50",
                     )}
                   >
-                    <div className={cn(
-                      "p-3 rounded-full",
-                      selectedSexo === "M" ? "bg-blue-100" : "bg-slate-100"
-                    )}>
+                    <div
+                      className={cn(
+                        "p-3 rounded-full",
+                        selectedSexo === "M" ? "bg-blue-100" : "bg-slate-100",
+                      )}
+                    >
                       <Crown className="h-8 w-8" />
                     </div>
                     <span className="text-lg font-bold">MACHO</span>
-                    {selectedSexo === "M" && <CheckCircle2 className="h-5 w-5 text-primary" />}
+                    {selectedSexo === "M" && (
+                      <CheckCircle2 className="h-5 w-5 text-primary" />
+                    )}
                   </button>
 
                   <button
@@ -612,17 +633,21 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                       "flex flex-col items-center justify-center gap-3 p-6 rounded-xl border-2 transition-all duration-200",
                       selectedSexo === "F"
                         ? "border-pink-600 bg-pink-50 text-pink-700 shadow-lg shadow-pink-100"
-                        : "border-slate-200 hover:border-slate-300 text-slate-500 hover:bg-slate-50"
+                        : "border-slate-200 hover:border-slate-300 text-slate-500 hover:bg-slate-50",
                     )}
                   >
-                    <div className={cn(
-                      "p-3 rounded-full",
-                      selectedSexo === "F" ? "bg-pink-100" : "bg-slate-100"
-                    )}>
+                    <div
+                      className={cn(
+                        "p-3 rounded-full",
+                        selectedSexo === "F" ? "bg-pink-100" : "bg-slate-100",
+                      )}
+                    >
                       <Heart className="h-8 w-8" />
                     </div>
                     <span className="text-lg font-bold">HEMBRA</span>
-                    {selectedSexo === "F" && <CheckCircle2 className="h-5 w-5 text-pink-600" />}
+                    {selectedSexo === "F" && (
+                      <CheckCircle2 className="h-5 w-5 text-pink-600" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -632,7 +657,9 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                 <Label className="text-base font-bold text-slate-700 flex items-center gap-2">
                   <Calendar className="h-5 w-5 text-slate-500" />
                   Fecha de Nacimiento
-                  <Badge variant="outline" className="text-xs">Opcional</Badge>
+                  <Badge variant="outline" className="text-xs">
+                    Opcional
+                  </Badge>
                 </Label>
                 <Input
                   type="date"
@@ -640,7 +667,8 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                   className="h-12 border-2 border-slate-200"
                 />
                 <p className="text-xs text-slate-500">
-                  Si ingresas la fecha, te sugeriremos la categoría automáticamente
+                  Si ingresas la fecha, te sugeriremos la categoría
+                  automáticamente
                 </p>
               </div>
             </CardContent>
@@ -654,20 +682,27 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
               <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-100 rounded-xl">
                 <Sparkles className="h-5 w-5 text-emerald-600 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-semibold text-emerald-900">Clasificación inteligente</p>
+                  <p className="text-sm font-semibold text-emerald-900">
+                    Clasificación inteligente
+                  </p>
                   <p className="text-xs text-emerald-700">
-                    Selecciona la raza y categoría. Te sugerimos opciones basadas en los datos anteriores.
+                    Selecciona la raza y categoría. Te sugerimos opciones
+                    basadas en los datos anteriores.
                   </p>
                 </div>
               </div>
 
               {/* Selector de Raza */}
               <div className="space-y-3">
-                <Label className="text-base font-bold text-slate-700">Raza</Label>
+                <Label className="text-base font-bold text-slate-700">
+                  Raza
+                </Label>
                 {catalogosLoading ? (
                   <div className="flex items-center justify-center gap-2 py-10 text-slate-500">
                     <Loader2 className="h-6 w-6 animate-spin" />
-                    <span className="text-sm">Cargando razas y categorías…</span>
+                    <span className="text-sm">
+                      Cargando razas y categorías…
+                    </span>
                   </div>
                 ) : (
                   <RazaSelector
@@ -689,7 +724,8 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                 <Label className="text-base font-bold text-slate-700">
                   Categoría
                   <span className="ml-2 text-sm font-normal text-slate-500">
-                    (Mostrando para {selectedSexo === "M" ? "machos" : "hembras"})
+                    (Mostrando para{" "}
+                    {selectedSexo === "M" ? "machos" : "hembras"})
                   </span>
                 </Label>
                 <CategorySelector
@@ -717,7 +753,9 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
               <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-100 rounded-xl">
                 <ClipboardList className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-semibold text-amber-900">Datos adicionales</p>
+                  <p className="text-sm font-semibold text-amber-900">
+                    Datos adicionales
+                  </p>
                   <p className="text-xs text-amber-700">
                     Información opcional para completar el registro.
                   </p>
@@ -752,12 +790,17 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
                       <button
                         key={opt.value}
                         type="button"
-                        onClick={() => setValue("origen", opt.value as "cria_propia" | "compra" | "otro")}
+                        onClick={() =>
+                          setValue(
+                            "origen",
+                            opt.value as "cria_propia" | "compra" | "otro",
+                          )
+                        }
                         className={cn(
                           "p-3 rounded-lg border-2 transition-all text-sm font-medium",
                           watch("origen") === opt.value
                             ? "border-blue-600 bg-primary/10 text-blue-700"
-                            : "border-slate-200 hover:border-slate-300 text-slate-600"
+                            : "border-slate-200 hover:border-slate-300 text-slate-600",
                         )}
                       >
                         {opt.label}
@@ -769,7 +812,9 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
 
               {/* Notas */}
               <div className="space-y-3">
-                <Label className="font-bold text-slate-700">Observaciones</Label>
+                <Label className="font-bold text-slate-700">
+                  Observaciones
+                </Label>
                 <Textarea
                   {...register("notas")}
                   placeholder="Notas adicionales sobre el animal..."
@@ -782,49 +827,67 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
               <div className="flex items-center gap-3 p-4 bg-slate-50 border border-slate-200 rounded-xl">
                 <button
                   type="button"
+                  aria-label={
+                    continueRegistering
+                      ? "Continuar registrando: activado"
+                      : "Continuar registrando: desactivado"
+                  }
+                  aria-pressed={continueRegistering}
                   onClick={() => setContinueRegistering(!continueRegistering)}
                   className={cn(
                     "relative h-6 w-11 rounded-full transition-colors",
-                    continueRegistering ? "bg-blue-600" : "bg-slate-300"
+                    continueRegistering ? "bg-blue-600" : "bg-slate-300",
                   )}
                 >
-                  <span className={cn(
-                    "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-card transition-transform shadow",
-                    continueRegistering ? "translate-x-5" : "translate-x-0"
-                  )} />
+                  <span
+                    className={cn(
+                      "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-card transition-transform shadow",
+                      continueRegistering ? "translate-x-5" : "translate-x-0",
+                    )}
+                  />
                 </button>
                 <div>
                   <p className="text-sm font-semibold text-slate-700">
-                    {continueRegistering ? "Continuar registrando" : "Cerrar al guardar"}
+                    {continueRegistering
+                      ? "Continuar registrando"
+                      : "Cerrar al guardar"}
                   </p>
                   <p className="text-xs text-slate-500">
                     {continueRegistering
                       ? "El formulario se limpiará para registrar otro animal"
-                      : "Se cerrará el diálogo después de guardar"
-                    }
+                      : "Se cerrará el diálogo después de guardar"}
                   </p>
                 </div>
-                <Repeat className={cn(
-                  "h-5 w-5 ml-auto",
-                  continueRegistering ? "text-primary" : "text-slate-400"
-                )} />
+                <Repeat
+                  className={cn(
+                    "h-5 w-5 ml-auto",
+                    continueRegistering ? "text-primary" : "text-slate-400",
+                  )}
+                />
               </div>
 
               {/* Resumen */}
               <div className="p-4 bg-primary/10 border border-blue-200 rounded-xl space-y-2">
-                <p className="text-sm font-bold text-blue-900">Resumen del registro:</p>
+                <p className="text-sm font-bold text-blue-900">
+                  Resumen del registro:
+                </p>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="text-blue-700">
-                    <span className="text-blue-500">Caravana:</span> {watch("caravanaVisual") || "—"}
+                    <span className="text-blue-500">Caravana:</span>{" "}
+                    {watch("caravanaVisual") || "—"}
                   </div>
                   <div className="text-blue-700">
-                    <span className="text-blue-500">Sexo:</span> {selectedSexo === "M" ? "Macho" : "Hembra"}
+                    <span className="text-blue-500">Sexo:</span>{" "}
+                    {selectedSexo === "M" ? "Macho" : "Hembra"}
                   </div>
                   <div className="text-blue-700">
-                    <span className="text-blue-500">Raza:</span> {razas.find(r => r.id === selectedRaza)?.nombre || "—"}
+                    <span className="text-blue-500">Raza:</span>{" "}
+                    {razas.find((r) => r.id === selectedRaza)?.nombre || "—"}
                   </div>
                   <div className="text-blue-700">
-                    <span className="text-blue-500">Categoría:</span> {categorias.find(c => c.id === selectedCategoria)?.nombre || "—"}
+                    <span className="text-blue-500">Categoría:</span>{" "}
+                    {categorias.find((c) => c.id === selectedCategoria)
+                      ?.nombre || "—"}
                   </div>
                 </div>
               </div>
@@ -886,7 +949,9 @@ export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting }: Int
               ) : (
                 <>
                   <CheckCircle2 className="h-5 w-5 mr-2" />
-                  {continueRegistering ? "Guardar y Siguiente" : "Guardar Animal"}
+                  {continueRegistering
+                    ? "Guardar y Siguiente"
+                    : "Guardar Animal"}
                 </>
               )}
             </Button>

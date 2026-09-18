@@ -60,6 +60,9 @@ export function exportToExcel(options: ExportOptions) {
 export function exportAnimalsToExcel(animals: any[], filename?: string) {
   const columns: ExportColumn[] = [
     { header: 'Caravana', key: 'caravanaVisual', width: 12 },
+    { header: 'Especie', key: 'especie', width: 12, formatter: (val) => val?.nombre || '' },
+    { header: 'Estado', key: 'estadoVital', width: 12 },
+    { header: 'RFID', key: 'caravanaRfid', width: 22 },
     { header: 'Nombre', key: 'nombre', width: 20 },
     { header: 'Raza', key: 'raza', width: 15, formatter: (val) => val?.nombre || '' },
     { header: 'Categoría', key: 'categoria', width: 15, formatter: (val) => val?.nombre || '' },
@@ -77,7 +80,7 @@ export function exportAnimalsToExcel(animals: any[], filename?: string) {
 
   exportToExcel({
     filename: filename || `ganado_${new Date().toISOString().split('T')[0]}.xlsx`,
-    sheetName: 'Ganado Bovino',
+    sheetName: 'Ganado',
     columns,
     data: animals
   })

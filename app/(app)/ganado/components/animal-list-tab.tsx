@@ -1,239 +1,270 @@
 "use client"
 
-import { memo, useState, useMemo, useCallback, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { Badge } from "@/components/ui/badge"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Filter, List, Grid3x3 } from "lucide-react"
-import { getCategoryColor, getHealthStatusColor } from "@/lib/utils/livestock-helpers"
-import { AnimalCard } from "./animal-card"
-import { LoadingState } from "./loading-state"
+import { Badge } from "@/components/ui/badge"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { List, Grid3x3, ArrowUpDown, Plus } from "lucide-react"
+import type { AnimalAPI, PaginationInfo } from "@/lib/hooks/use-ganado"
 import { DataPagination } from "./data-pagination"
-import { SortableHeader } from "./sortable-header"
-import { EmptyGanadoState } from "@/components/ganado/empty-ganado-state"
 
 interface AnimalListTabProps {
-  animals: any[]
+  animals: AnimalAPI[]
   isLoading: boolean
-  pagination: any
+  pagination: PaginationInfo | null
   orderBy: string
   orderDirection: "asc" | "desc"
-  totalLotes: number
-  onAnimalSelect: (animal: any) => void
+  onAnimalSelect: (animal: AnimalAPI) => void
   onOpenEdit: (id: string) => void
   onSort: (field: string) => void
   onPageChange: (page: number) => void
   onLimitChange: (limit: number) => void
+  onRegister: () => void
+  hasFilters: boolean
 }
 
-export const AnimalListTab = memo(function AnimalListTab({
+export function AnimalListTab({
   animals,
   isLoading,
   pagination,
   orderBy,
   orderDirection,
-  totalLotes,
   onAnimalSelect,
   onOpenEdit,
   onSort,
   onPageChange,
   onLimitChange,
+  onRegister,
+  hasFilters,
 }: AnimalListTabProps) {
-  const router = useRouter()
-  const [searchTerm, setSearchTerm] = useState("")
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
-  const [filterStatus, setFilterStatus] = useState("todos")
-  const [viewMode, setViewMode] = useState<"lista" | "tarjetas">("lista")
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm)
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [searchTerm])
-
-  const filteredAnimals = useMemo(() => {
-    return animals.filter((animal: any) => {
-      const matchesSearch =
-        (animal.name?.toLowerCase() || "").includes(debouncedSearchTerm.toLowerCase()) ||
-        (animal.tagNumber || "").includes(debouncedSearchTerm)
-
-      const matchesFilter =
-        filterStatus === "todos" ||
-        (filterStatus === "reproductores" &&
-          (animal.category?.toLowerCase().includes("toro") ||
-            animal.category?.toLowerCase().includes("vaca"))) ||
-        (filterStatus === "engorde" && animal.category?.toLowerCase().includes("novillo")) ||
-        (filterStatus === "reposicion" && animal.category?.toLowerCase().includes("vaquillona")) ||
-        (filterStatus === "atencion" && animal.healthStatus === "Atención")
-
-      return matchesSearch && matchesFilter
-    })
-  }, [animals, debouncedSearchTerm, filterStatus])
-
-  if (isLoading) {
-    return (
-      <LoadingState
-        message="Cargando animales..."
-        submessage="Obteniendo datos de la base de datos"
-      />
-    )
-  }
-
+  const [view, setView] = useState("lista")
   return (
-    <>
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
-        <div className="flex-1">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Buscar por nombre o número de caravana..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 border-2"
-            />
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-48 border-2">
-              <Filter className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Filtrar por categoría" />
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground" role="status">
+          {isLoading
+            ? "Buscando animales…"
+            : `${pagination?.total ?? 0} resultados`}
+        </p>
+        <div className="flex items-center gap-2">
+          <Select value={orderBy} onValueChange={onSort}>
+            <SelectTrigger className="w-36" aria-label="Ordenar animales por">
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="todos">Todos los animales</SelectItem>
-              <SelectItem value="reproductores">Reproductores</SelectItem>
-              <SelectItem value="engorde">Novillos engorde</SelectItem>
-              <SelectItem value="reposicion">Vaquillonas reposición</SelectItem>
-              <SelectItem value="atencion">Requieren atención</SelectItem>
+              {Object.entries({
+                caravana: "Caravana",
+                nombre: "Nombre",
+                categoria: "Categoría",
+                raza: "Raza",
+                edad: "Edad",
+              }).map(([key, label]) => (
+                <SelectItem key={key} value={key}>
+                  {label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
-          <div className="flex border-2 rounded-md overflow-hidden">
+          <Button
+            size="icon"
+            variant="outline"
+            aria-label={
+              orderDirection === "asc"
+                ? "Orden ascendente. Cambiar a descendente"
+                : "Orden descendente. Cambiar a ascendente"
+            }
+            onClick={() => onSort(orderBy)}
+          >
+            <ArrowUpDown className="h-4 w-4" />
+          </Button>
+          <div
+            className="hidden gap-1 sm:flex"
+            role="group"
+            aria-label="Presentación de animales"
+          >
             <Button
-              variant={viewMode === "lista" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setViewMode("lista")}
-              className="rounded-none border-0"
+              size="icon"
+              variant={view === "lista" ? "default" : "ghost"}
+              aria-label="Ver lista"
+              aria-pressed={view === "lista"}
+              onClick={() => setView("lista")}
             >
               <List className="h-4 w-4" />
             </Button>
             <Button
-              variant={viewMode === "tarjetas" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setViewMode("tarjetas")}
-              className="rounded-none border-0 border-l-2"
+              size="icon"
+              variant={view === "tarjetas" ? "default" : "ghost"}
+              aria-label="Ver tarjetas"
+              aria-pressed={view === "tarjetas"}
+              onClick={() => setView("tarjetas")}
             >
               <Grid3x3 className="h-4 w-4" />
             </Button>
           </div>
         </div>
       </div>
-
-      {filteredAnimals.length === 0 && animals.length === 0 ? (
-        <EmptyGanadoState totalLotes={totalLotes} />
+      {isLoading ? (
+        <div
+          className="h-40 animate-pulse rounded-lg bg-muted"
+          aria-label="Cargando listado"
+        />
+      ) : animals.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-8 text-center">
+          <h2 className="font-semibold">
+            {hasFilters
+              ? "No hay coincidencias"
+              : "Todavía no hay animales activos en esta vista"}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {hasFilters
+              ? "Probá otra caravana o limpiá los filtros."
+              : "Podés registrar animales o consultar los vendidos desde el filtro de estado."}
+          </p>
+          {!hasFilters && (
+            <Button onClick={onRegister} className="mt-4">
+              <Plus className="mr-2 h-4 w-4" />
+              Registrar animal
+            </Button>
+          )}
+        </div>
       ) : (
         <>
-          {viewMode === "lista" ? (
-            <div className="border-2 rounded-lg overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b-2 border-border">
-                    <tr>
-                      <SortableHeader field="caravana" label="Caravana" currentOrderBy={orderBy} currentDirection={orderDirection} onSort={onSort} />
-                      <SortableHeader field="nombre" label="Nombre" currentOrderBy={orderBy} currentDirection={orderDirection} onSort={onSort} />
-                      <SortableHeader field="categoria" label="Categoría" currentOrderBy={orderBy} currentDirection={orderDirection} onSort={onSort} />
-                      <SortableHeader field="raza" label="Raza" currentOrderBy={orderBy} currentDirection={orderDirection} onSort={onSort} />
-                      <SortableHeader field="edad" label="Edad" currentOrderBy={orderBy} currentDirection={orderDirection} onSort={onSort} />
-                      <th className="px-4 py-3 text-left text-xs font-medium text-foreground uppercase tracking-wider">Estado</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-foreground uppercase tracking-wider">Salud</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-foreground uppercase tracking-wider">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-card divide-y divide-gray-200">
-                    {filteredAnimals.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
-                          No se encontraron animales con los filtros aplicados
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredAnimals.map((animal: any) => (
-                        <tr
-                          key={animal.id}
-                          className="hover:bg-gray-50 cursor-pointer transition-colors"
-                          onClick={() => router.push(`/ganado/${animal.id}`)}
+          {view === "lista" && (
+            <div className="hidden overflow-x-auto rounded-lg border sm:block">
+              <table className="w-full text-sm">
+                <caption className="sr-only">
+                  Ganado del campo y especie seleccionados
+                </caption>
+                <thead className="bg-muted/60">
+                  <tr>
+                    {[
+                      "Animal",
+                      "Peso",
+                      "Lote y ubicación",
+                      "Estado",
+                      "Ficha",
+                    ].map((title) => (
+                      <th
+                        key={title}
+                        scope="col"
+                        className="px-4 py-3 text-left font-medium"
+                      >
+                        {title}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {animals.map((a) => (
+                    <tr key={a.id} className="hover:bg-muted/40">
+                      <td className="px-4 py-3">
+                        <button
+                          className="text-left font-semibold text-primary underline-offset-4 hover:underline focus-visible:underline"
+                          onClick={() => onAnimalSelect(a)}
                         >
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-sm font-medium text-foreground">
-                              {animal.tagNumber || animal.caravanaVisual || "N/A"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-sm text-foreground">{animal.name || "Sin nombre"}</span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <Badge variant="outline" className={getCategoryColor(animal.category || "")}>
-                              {animal.category || "N/A"}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-sm text-muted-foreground">{animal.breed || animal.raza?.nombre || "N/A"}</span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-sm text-muted-foreground">{animal.age || animal.edad || "N/A"}</span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <Badge
-                              variant="outline"
-                              className={
-                                animal.reproductiveStatus === "Preñada"
-                                  ? "bg-green-100 text-green-800 border-green-200"
-                                  : "bg-gray-100 text-foreground border-border"
-                              }
-                            >
-                              {animal.reproductiveStatus || "N/A"}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <Badge variant="outline" className={getHealthStatusColor(animal.healthStatus || "")}>
-                              {animal.healthStatus || "Sin evaluación sanitaria"}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                router.push(`/ganado/${animal.id}`)
-                              }}
-                            >
-                              Ver ficha
-                            </Button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredAnimals.map((animal) => (
-                <AnimalCard
-                  key={animal.id}
-                  animal={animal}
-                  onSelect={onAnimalSelect}
-                  onEdit={onOpenEdit}
-                />
-              ))}
+                          {a.caravanaVisual || a.caravanaRfid || a.nombre}
+                        </button>
+                        {a.nombre && a.nombre !== a.caravanaVisual && (
+                          <p className="text-xs">{a.nombre}</p>
+                        )}
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {a.especie?.nombre} ·{" "}
+                          {a.categoria?.nombre || "Sin categoría"} ·{" "}
+                          {a.raza?.nombre || "Sin raza"}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 tabular-nums">
+                        {a.pesoActual ? `${a.pesoActual} kg` : "Sin pesada"}
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {a.edad || "Edad sin registrar"}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3">
+                        {a.lote || "Sin lote"}
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {a.ubicacion || "Sin ubicación"}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline" className="capitalize">
+                          {a.estadoVital}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => onAnimalSelect(a)}
+                          aria-label={`Ver ficha de ${a.caravanaVisual || a.nombre}`}
+                        >
+                          Ver ficha
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
-
-          {pagination && filteredAnimals.length > 0 && (
+          <div
+            className={`grid gap-3 ${view === "lista" ? "sm:hidden" : "sm:grid-cols-2 xl:grid-cols-3"}`}
+          >
+            {animals.map((a) => (
+              <article key={a.id} className="rounded-lg border p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-semibold">
+                    {a.caravanaVisual || a.caravanaRfid || a.nombre}
+                  </h3>
+                  <Badge variant="outline" className="capitalize">
+                    {a.estadoVital}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {a.especie?.nombre} · {a.categoria?.nombre || "Sin categoría"}{" "}
+                  · {a.raza?.nombre || "Sin raza"}
+                </p>
+                <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Peso</dt>
+                    <dd>
+                      {a.pesoActual ? `${a.pesoActual} kg` : "Sin pesada"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Edad</dt>
+                    <dd>{a.edad || "Sin registrar"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Lote</dt>
+                    <dd>{a.lote || "Sin lote"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Ubicación</dt>
+                    <dd>{a.ubicacion || "Sin ubicación"}</dd>
+                  </div>
+                </dl>
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => onAnimalSelect(a)}
+                  >
+                    Ver ficha
+                  </Button>
+                  <Button variant="ghost" onClick={() => onOpenEdit(a.id)}>
+                    Editar
+                  </Button>
+                </div>
+              </article>
+            ))}
+          </div>
+          {pagination && (
             <DataPagination
               pagination={pagination}
               onPageChange={onPageChange}
@@ -242,6 +273,6 @@ export const AnimalListTab = memo(function AnimalListTab({
           )}
         </>
       )}
-    </>
+    </div>
   )
-})
+}

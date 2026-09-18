@@ -1,3 +1,4 @@
+import { ganadoPaginacionSchema } from "@/lib/ganado/query"
 import { NextResponse } from "next/server"
 import { withAuth } from "@/lib/api/with-auth"
 import {
@@ -30,14 +31,11 @@ export const GET = withAuth(async (request, ctx) => {
     const ccMin = searchParams.get("ccMin")
     const ccMax = searchParams.get("ccMax")
 
-    // Parámetros de paginación
-    const page = parseInt(searchParams.get("page") || "1")
-    const limit = parseInt(searchParams.get("limit") || "25")
+    const parsed = ganadoPaginacionSchema.safeParse(Object.fromEntries(searchParams))
+    if (!parsed.success) return NextResponse.json({ error: "Filtros o paginación inválidos" }, { status: 400 })
+    const { page, limit, orderDirection, especie, estadoVital } = parsed.data
     const skip = (page - 1) * limit
-
-    // Parámetros de ordenamiento
-    const orderByField = searchParams.get("orderBy") || "caravanaVisual"
-    const orderDirection = (searchParams.get("orderDirection") || "asc") as "asc" | "desc"
+    const orderByField = searchParams.get("orderBy") || "caravana"
 
     // Construir el objeto orderBy para Prisma
     const getOrderByClause = () => {
@@ -75,6 +73,9 @@ export const GET = withAuth(async (request, ctx) => {
       where.especieId = especieIdFilter
     }
 
+    if (especie && especie !== "todos") where.especie = { nombre: { equals: especie, mode: "insensitive" } }
+    if (estadoVital && estadoVital !== "todos") where.estadoVital = estadoVital
+
     if (categoriaId) {
       where.categoriaId = categoriaId
     }
@@ -95,6 +96,7 @@ export const GET = withAuth(async (request, ctx) => {
       where.OR = [
         { caravanaVisual: { contains: busqueda, mode: 'insensitive' } },
         { cuig: { contains: busqueda, mode: 'insensitive' } },
+        { caravanaRfid: { contains: busqueda, mode: 'insensitive' } },
         { otroId: { contains: busqueda, mode: 'insensitive' } },
       ]
     }
@@ -162,7 +164,7 @@ export const GET = withAuth(async (request, ctx) => {
         raza: true,
         categoria: true,
         eventosPesada: {
-          orderBy: { fecha: 'desc' },
+          orderBy: [{ fecha: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
           take: 1
         },
         ubicacionHist: {
@@ -177,7 +179,7 @@ export const GET = withAuth(async (request, ctx) => {
         },
         genealogia: true,
       },
-      orderBy: orderByClause,
+      orderBy: [orderByClause, { id: "asc" }],
       skip,
       take: limit
     })
@@ -211,6 +213,8 @@ export const GET = withAuth(async (request, ctx) => {
         caravanaRfid: animal.caravanaRfid,
         nombre: animal.otroId || animal.caravanaVisual || animal.cuig || 'Sin ID',
         sexo: animal.sexo,
+        estadoVital: animal.estadoVital,
+        establecimientoId: animal.establecimientoId,
         fechaNacimiento: animal.fechaNacimiento?.toISOString(),
         edad,
         origen: animal.origen,
@@ -249,7 +253,7 @@ export const GET = withAuth(async (request, ctx) => {
       include: {
         categoria: true,
         eventosPesada: {
-          orderBy: { fecha: 'desc' },
+          orderBy: [{ fecha: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
           take: 1
         }
       }
@@ -259,6 +263,9 @@ export const GET = withAuth(async (request, ctx) => {
       total: totalAnimales,
       porCategoria: {} as Record<string, number>,
       pesoPromedio: 0,
+      conPeso: 0,
+      activos: todosAnimales.filter(a => a.estadoVital === "activo").length,
+      pesoPorCategoria: [] as { category: string; avgWeight: number; count: number }[],
     }
 
     for (const a of todosAnimales) {
@@ -272,6 +279,17 @@ export const GET = withAuth(async (request, ctx) => {
     const pesosValidos = todosAnimales
       .map(a => a.eventosPesada[0]?.pesoKg)
       .filter((p): p is number => p !== null && p !== undefined && p > 0)
+
+    stats.conPeso = pesosValidos.length
+    const pesosCategoria = new Map<string, number[]>()
+    for (const animal of todosAnimales) {
+      const peso = animal.eventosPesada[0]?.pesoKg
+      if (peso && peso > 0) {
+        const nombre = animal.categoria?.nombre || "Sin categoría"
+        pesosCategoria.set(nombre, [...(pesosCategoria.get(nombre) || []), peso])
+      }
+    }
+    stats.pesoPorCategoria = Array.from(pesosCategoria, ([category, pesos]) => ({ category, count: pesos.length, avgWeight: Math.round(pesos.reduce((a, b) => a + b, 0) / pesos.length) }))
 
     if (pesosValidos.length > 0) {
       stats.pesoPromedio = Math.round(

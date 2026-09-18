@@ -1,54 +1,36 @@
-"use client"
+import type { GanadoStats } from "@/lib/hooks/use-ganado"
 
-import { memo } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { MilkIcon as Cow, Heart, Weight, TrendingUp, Baby } from "lucide-react"
-import { LoadingCards } from "./loading-state"
-
-interface HerdOverviewData {
-  totalAnimals: number
-  breedingCows: number
-  averageWeight: number
-  averageDailyGain: number
-  calvingRate: number
-}
-
-interface HerdOverviewProps {
-  data: HerdOverviewData
+export function HerdOverview({
+  stats,
+  isLoading,
+}: {
+  stats: GanadoStats | null
   isLoading: boolean
-}
-
-export const HerdOverview = memo(function HerdOverview({ data, isLoading }: HerdOverviewProps) {
-  if (isLoading) {
-    return <LoadingCards message="Cargando estadísticas del rodeo..." />
-  }
-
-  const cards = [
-    { title: "Total Animales", value: data.totalAnimals, unit: "Cabezas", icon: Cow, color: "text-primary" },
-    { title: "Vacas Madres", value: data.breedingCows, unit: "Reproductoras", icon: Heart, color: "text-green-600" },
-    { title: "Peso Promedio", value: data.averageWeight, unit: "kg", icon: Weight, color: "text-purple-600" },
-    { title: "Ganancia Diaria", value: data.averageDailyGain, unit: "kg/día", icon: TrendingUp, color: "text-orange-600" },
-    { title: "Tasa de Parición", value: `${data.calvingRate}%`, unit: "Parición", icon: Baby, color: "text-red-600" },
+}) {
+  const metrics = [
+    { label: "Animales encontrados", value: stats?.total ?? 0 },
+    {
+      label: "Peso promedio",
+      value: stats?.conPeso ? `${stats.pesoPromedio} kg` : "Sin pesadas",
+    },
+    {
+      label: "Sin pesada registrada",
+      value: stats ? stats.total - stats.conPeso : 0,
+    },
   ]
-
   return (
-    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-      {cards.map((card) => (
-        <Card key={card.title} className="border border-border hover:border-blue-300 hover:shadow-lg transition-all">
-          <CardHeader className="pb-2 border-b-2 border-gray-100">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{card.title}</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2">
-              <card.icon className={`h-8 w-8 ${card.color}`} />
-              <div>
-                <p className="text-2xl font-bold">{card.value}</p>
-                <p className="text-xs text-muted-foreground">{card.unit}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <dl
+      className="grid grid-cols-3 gap-3 rounded-lg bg-muted/50 p-3"
+      aria-busy={isLoading}
+    >
+      {metrics.map((m) => (
+        <div key={m.label}>
+          <dt className="text-xs text-muted-foreground">{m.label}</dt>
+          <dd className="mt-1 text-lg font-semibold tabular-nums sm:text-xl">
+            {isLoading ? "…" : m.value}
+          </dd>
+        </div>
       ))}
-    </div>
+    </dl>
   )
-})
+}

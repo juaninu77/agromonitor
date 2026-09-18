@@ -1,6 +1,6 @@
 # Validación de Ganado por especie
 
-Fecha: 18/09/2026. Rama de código: `codex/ganado-especies-ux`.
+Fecha: 18/09/2026. Ramas de código: `codex/ganado-especies-ux` y corrección final `codex/ficha-ultimo-peso`.
 
 ## Entorno
 
@@ -16,12 +16,12 @@ Fecha: 18/09/2026. Rama de código: `codex/ganado-especies-ux`.
 | --- | --- |
 | TypeScript | Aprobado |
 | Vitest: 16 archivos | 129 tests aprobados |
-| `scripts/test-ganado-especies-http.ts` | 49 comprobaciones aprobadas |
+| `scripts/test-ganado-especies-http.ts` | 50 comprobaciones aprobadas |
 | Regresión `scripts/test-erp-http.ts` | 50 comprobaciones aprobadas |
 | Auditoría estática de código y esquema | 14/14; no es una auditoría de datos de producción |
 | Compilación de producción y lint | Aprobados; continúan advertencias históricas de hooks en otros módulos |
 
-Las 228 pruebas funcionales son 129 + 49 + 50. La auditoría estática se informa por separado. No se afirma que todos los escenarios posibles del ERP estén cubiertos.
+Las 229 pruebas funcionales son 129 + 50 + 50. La auditoría estática se informa por separado. No se afirma que todos los escenarios posibles del ERP estén cubiertos.
 
 ## Casos comprobados contra PostgreSQL
 
@@ -34,7 +34,7 @@ La prueba genera un campo `Ensayo especies …` separado de La Alameda, con 30 o
 - Alta ovina; rechazo de raza y lote bovinos en ese alta.
 - Edición de notas y rechazo de cambio de especie desde la edición común.
 - Rechazo de movimiento a lote de otra especie y movimiento válido a una majada.
-- Dos pesadas del mismo día: prevalece la última registrada.
+- Dos pesadas del mismo día: prevalece la última registrada también en el resumen de preparación documental.
 - Evento sanitario con el producto exacto de su organización; rechazo de producto ajeno.
 - Ficha con historia de pesadas y sanidad y endpoint de preparación documental.
 - Promedio y cantidad de pesadas calculados sobre todas las páginas.
@@ -44,6 +44,8 @@ La prueba genera un campo `Ensayo especies …` separado de La Alameda, con 30 o
 Se recorrieron El Molino vacío y La Alameda poblada. Se creó `UX-OV-1809` desde el asistente ovino y se registró una pesada. Se registraron `UX-MAJ-01` y `UX-MAJ-02` desde Masivo. Se comprobó la preselección de especie, raza Merino y categoría oveja; la selección en pesada devolvió la oveja buscada. La última pesada se mostró en el listado después de corregir el desempate por fecha.
 
 La revisión responsive incluyó 390 × 844 y la vista de escritorio del navegador. En celular se usan tarjetas y filtros desplegables. La revisión no equivale a una certificación completa de accesibilidad ni a pruebas con usuarios independientes.
+
+La revisión final confirmó 8 ovinos y 14 bovinos activos separados en La Alameda, la vuelta desde la ficha conservando Ovinos y 49 kg coincidentes en el estado actual y el resumen de documentación. Este último resumen requirió aplicar también el desempate por momento de registro; se agregó una comprobación HTTP contra PostgreSQL y se recompiló el preview.
 
 `scripts/seed-demo-especies.ts` completa de forma repetible las categorías faltantes de machos y hembras de la organización ficticia, sin reemplazar registros existentes. Permite probar altas de carneros y corderos además de ovejas.
 

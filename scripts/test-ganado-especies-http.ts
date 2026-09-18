@@ -322,7 +322,8 @@ async function main() {
       detail.eventosSanidad.length === 1,
     "Full ovine history and edits preserved",
   )
-  await a.json(`/api/ganado/${animal.id}/preparacion`, 200)
+  const preparation = await a.json(`/api/ganado/${animal.id}/preparacion`, 200)
+  ok(preparation.data.peso === 45, "Document preparation uses latest same-day weight")
   const report = await a.json(
     list("especie=ovino&estadoVital=activo&limit=1"),
     200,

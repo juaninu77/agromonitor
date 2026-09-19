@@ -351,26 +351,14 @@ function PotrerosWorkspace() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* ── Encabezado ── */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="flex items-center gap-3 text-2xl font-bold tracking-tight md:text-3xl">
-            <MapPin className="h-7 w-7 text-primary md:h-8 md:w-8" />
-            Potreros y mapa
-          </h1>
-          <p className="mt-1 text-muted-foreground">
-            Ubicá potreros, cultivos e instalaciones y organizá el trabajo del campo.
-          </p>
+    <div className="space-y-3">
+      <Tabs value={view} onValueChange={setView} className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="flex items-center gap-2 !text-xl"><MapPin className="h-5 w-5 text-primary"/>Potreros</h1>
+          <TabsList aria-label="Vista de potreros"><TabsTrigger value="mapa">Mapa</TabsTrigger><TabsTrigger value="lista">Listado</TabsTrigger></TabsList>
+          {view === "lista" && <Button onClick={openNewSector} disabled={!canEdit}><Plus className="mr-2 h-4 w-4"/>Nuevo sector</Button>}
         </div>
-        {view === "lista" && <Button onClick={openNewSector} disabled={!canEdit}>
-          <Plus className="mr-2 h-4 w-4" /> Nuevo sector
-        </Button>}
-      </div>
-
-      <Tabs value={view} onValueChange={setView}>
-        <TabsList aria-label="Vista de potreros"><TabsTrigger value="mapa">Mapa del campo</TabsTrigger><TabsTrigger value="lista">Sectores y pastoreo</TabsTrigger></TabsList>
-        <TabsContent value="mapa"><MapWorkspace fieldId={estId} onList={() => setView("lista")} /></TabsContent>
+        <TabsContent value="mapa" className="!mt-3"><MapWorkspace fieldId={estId} onList={() => setView("lista")} /></TabsContent>
         <TabsContent value="lista" className="space-y-6">
       {/* ── KPI cards ── */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">

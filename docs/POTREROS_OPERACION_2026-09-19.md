@@ -5,8 +5,8 @@ La edición actualiza el contorno durante el arrastre de cada vértice. Deshacer
 ## Uso diario
 
 - **Agregar** reúne potreros, parcelas agrícolas, galpones, aguadas, caminos, tranqueras y el límite general. El límite del campo no se suma como otra parcela.
-- Seleccionar un lugar abre un resumen; **Abrir ficha del lugar** muestra sus animales, actividad, campañas, fotos/documentos y existencias, según el tipo.
-- En **Animales**, filtrar bovinos u ovinos, seleccionar animales y confirmar el destino. La operación actualiza ubicación e historial en una transacción. Ingresar un grupo completo también inicia pastoreo en una parcela. Los movimientos son actuales; no se reescriben ubicaciones históricas desde este flujo.
+- Seleccionar un lugar abre directamente su ficha lateral y mantiene el mapa visible. **Volver a lugares** recupera la lista con sus filtros. La ficha tiene un resumen y acceso a ganado, actividad, campañas, archivos o existencias, según el tipo.
+- **Mover animales** abre la selección y el destino. **Ganado** permite consultar sin mostrar el formulario de movimiento: botones Todos/Bovinos/Ovinos con cantidades y búsqueda por caravana o identificación alternativa. Al cambiar un filtro se limpia la selección para no trasladar animales que dejaron de verse. La operación actualiza ubicación e historial en una transacción. Ingresar un grupo completo también inicia pastoreo en una parcela. Los movimientos son actuales; no se reescriben ubicaciones históricas desde este flujo.
 - Una salida parcial cierra el pastoreo declarado del grupo para no presentarlo como completamente ubicado en un único potrero. Las ubicaciones individuales siguen siendo la referencia para los conteos.
 - **Actividad y tareas** registra notas, tareas, revisiones de agua, descansos, labores y mediciones. Cada registro lleva fecha. Completar una tarea conserva el historial. Sin revisión registrada es distinto de sin agua.
 - **Cultivos** registra campañas sobre la misma parcela. Cerrá la campaña previa cuando corresponda. No se crea otra geometría al registrar una siembra. Las campañas que se superponen no pueden superar la superficie declarada.
@@ -15,7 +15,9 @@ La edición actualiza el contorno durante el arrastre de cada vértice. Deshacer
 
 ## Mapa y conectividad
 
-El panel se puede ocultar y el mapa ampliar. Hay búsqueda por nombre, filtros por tipo/estado/tareas y colores por estado. Los conteos del listado y del mapa usan la misma consulta de ubicaciones actuales.
+El panel se puede ocultar y el mapa ampliar. El encabezado compacto y el panel con desplazamiento propio aprovechan la altura disponible. Tipo de lugar, estado y búsqueda se combinan: por ejemplo Potrero + Con tareas pendientes. Limpiar filtros muestra nuevamente todos los lugares. Una parcela con ganado y cultivo aparece en ambos filtros de uso. Los conteos del listado y del mapa usan la misma consulta de ubicaciones actuales.
+
+Las acciones se adaptan al lugar: Mover animales y Registrar actividad para un potrero, Entrada/salida de stock para un galpón. Los formularios se abren al elegir una acción y se cierran al guardar o cancelar. Mientras hay una operación abierta, se evita cambiar de lugar por un clic accidental en el mapa. Editar límites sigue accesible en el encabezado de la ficha; no modifica la información de los animales.
 
 Los borradores del dibujo se conservan por usuario y campo en este dispositivo. Se recuperan al volver o recargar; siguen pendientes hasta pulsar Guardar. Esto no implica que la aplicación funcione completamente sin conexión: las imágenes, las consultas y los guardados necesitan Internet. No se almacenan imágenes satelitales para uso sin conexión.
 
@@ -33,7 +35,7 @@ La edición usa los eventos de arrastre y la actualización de puntos de Leaflet
 
 ## Validación
 
-150 pruebas unitarias, incluida la actualización del contorno durante el evento de arrastre; 69 pruebas HTTP de regresión del ERP; 90 comprobaciones HTTP específicas de Potreros (conteos, traslados, permisos, tareas, agua, campañas, stock concurrente y adjuntos); 14 controles estáticos y análisis de seguridad de la migración. También se verificaron en navegador el arrastre, deshacer/rehacer, recuperación del borrador después de recargar, ficha, separación de especies, alta de una tarea ficticia, importación KML y visualización a 390 px.
+157 pruebas unitarias, incluida la actualización del contorno durante el evento de arrastre; 69 pruebas HTTP de regresión del ERP; 90 comprobaciones HTTP específicas de Potreros (conteos, traslados, permisos, tareas, agua, campañas, stock concurrente y adjuntos); 14 controles estáticos y análisis de seguridad de la migración. También se verificaron en navegador el arrastre, deshacer/rehacer, recuperación del borrador después de recargar, ficha, separación de especies, alta de una tarea ficticia, importación KML y visualización a 390 px.
 
 ## Próximas mejoras
 

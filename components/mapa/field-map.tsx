@@ -10,7 +10,7 @@ import { bindVertexDrag } from "@/lib/mapa/live-edit"
 
 interface Props {
   sectors: MapSector[]; selected: string | null; draft: MapDraft | null; focus: MapFocus | null;
-  satellite: boolean; colorByState?: boolean; expanded?: boolean; fitKey: number; onSelect: (id: string) => void; onVertices: (vertices: Position[]) => void;
+  satellite: boolean; colorByState?: boolean; fitKey: number; onSelect: (id: string) => void; onVertices: (vertices: Position[]) => void;
 }
 export default function FieldMap(props: Props) {
   const host = useRef<HTMLDivElement>(null), map = useRef<L.Map | null>(null)
@@ -93,7 +93,7 @@ export default function FieldMap(props: Props) {
     if (bounds.isValid()) map.current?.fitBounds(bounds, { padding: [25, 25], maxZoom: 16 })
   }, [props.fitKey])
   // Leaflet adds classes to its host; keep that className stable when resizing.
-  return <div className={`relative isolate overflow-hidden rounded-xl border bg-muted ${props.expanded ? "h-[calc(100dvh-180px)]" : "h-[460px] sm:h-[min(70vh,650px)]"}`}>
+  return <div className="relative isolate h-full min-h-0 overflow-hidden rounded-xl border bg-muted">
     <div ref={host} role="region" aria-label="Mapa del campo. Usá los controles para dibujar áreas o marcar instalaciones." className="h-full w-full font-sans" />
     {tilesFailed && <p role="status" className="absolute bottom-8 left-3 right-3 z-[500] rounded-md bg-background/95 p-2 text-xs shadow">Algunas imágenes no cargaron. Probá otra vista o acercamiento. Tus sectores siguen guardados.</p>}
   </div>

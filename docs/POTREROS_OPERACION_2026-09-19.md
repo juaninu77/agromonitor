@@ -33,7 +33,7 @@ La edición usa los eventos de arrastre y la actualización de puntos de Leaflet
 
 ## Validación
 
-150 pruebas unitarias, incluida la actualización del contorno durante el evento de arrastre; 69 pruebas HTTP de regresión del ERP; pruebas HTTP específicas de Potreros (conteos, traslados, permisos, tareas, agua, campañas, stock concurrente y adjuntos); 14 controles estáticos y análisis de seguridad de la migración. También se verificaron en navegador el arrastre, deshacer/rehacer, recuperación del borrador después de recargar, ficha, separación de especies, alta de una tarea ficticia, importación KML y visualización a 390 px.
+150 pruebas unitarias, incluida la actualización del contorno durante el evento de arrastre; 69 pruebas HTTP de regresión del ERP; 90 comprobaciones HTTP específicas de Potreros (conteos, traslados, permisos, tareas, agua, campañas, stock concurrente y adjuntos); 14 controles estáticos y análisis de seguridad de la migración. También se verificaron en navegador el arrastre, deshacer/rehacer, recuperación del borrador después de recargar, ficha, separación de especies, alta de una tarea ficticia, importación KML y visualización a 390 px.
 
 ## Próximas mejoras
 

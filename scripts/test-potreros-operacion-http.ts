@@ -140,7 +140,7 @@ async function main() {
   const attached = await admin.json("/api/administracion/documentos", 201, "POST", photo)
   const document = attached.data ?? attached
   const downloaded = await admin.request(`/api/documentos/${document.id}/archivo`)
-  ok(downloaded.status === 200 && Buffer.from(await downloaded.arrayBuffer()).equals(png), "Foto enlazada conserva el archivo y puede descargarse")
+  ok(downloaded.status === 200 && Buffer.from(await downloaded.arrayBuffer()).equals(new Uint8Array(png)), "Foto enlazada conserva el archivo y puede descargarse")
   const withPhoto = await admin.json(detail, 200)
   ok(withPhoto.documentos.some((d: any) => d.id === document.id), "Foto aparece en la ficha correcta")
   const workerPhoto = await worker.json(detail, 200)

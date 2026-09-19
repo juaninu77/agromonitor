@@ -5,12 +5,17 @@ import { kinks } from "@turf/kinks"
 const position = z.tuple([z.number().finite().min(-180).max(180), z.number().finite().min(-85).max(85)])
 const shape = z.discriminatedUnion("type", [
   z.object({ type: z.literal("Point"), coordinates: position }).strict(),
+  z.object({ type: z.literal("LineString"), coordinates: z.array(position).min(2).max(500) }).strict(),
   z.object({ type: z.literal("Polygon"), coordinates: z.array(z.array(position).min(4).max(501)).length(1) }).strict(),
 ])
 export type Geometry = z.infer<typeof shape>
 export type Position = [number, number]
 export const geometrySchema = shape.superRefine((value, ctx) => {
   if (value.type === "Point") return
+  if (value.type === "LineString") {
+    if (new Set(value.coordinates.map(p => p.join(","))).size < 2) ctx.addIssue({ code: "custom", message: "El camino necesita dos puntos distintos" })
+    return
+  }
   const ring = value.coordinates[0], vertices = ring.slice(0, -1)
   const same = (a: Position, b: Position) => a[0] === b[0] && a[1] === b[1]
   if (!same(ring[0], ring[ring.length - 1])) {
@@ -27,11 +32,12 @@ export function polygonFrom(vertices: Position[]): Geometry | null {
   return vertices.length >= 3 ? { type: "Polygon", coordinates: [[...vertices, vertices[0]]] } : null
 }
 export const SECTOR_TYPES = [
-  ["potrero", "Potrero", "#25845a"], ["cultivo", "Cultivo", "#c18a17"],
+  ["potrero", "Potrero", "#25845a"], ["cultivo", "Parcela agrícola", "#c18a17"],
   ["galpon", "Galpón / depósito", "#7957b6"], ["aguada", "Aguada / tanque", "#1683bd"],
   ["corral", "Corral", "#bb6d23"], ["manga", "Manga", "#4665a8"],
   ["feedlot", "Feedlot", "#b25d2d"], ["embarcadero", "Embarcadero", "#856345"],
   ["enfermeria", "Enfermería", "#bc4b60"], ["casa", "Casa / puesto", "#6455a0"],
+  ["camino", "Camino", "#d97706"], ["tranquera", "Tranquera", "#e11d48"], ["limite", "Límite del campo", "#475569"],
   ["otro", "Otro sector", "#64748b"],
 ] as const
 export const sectorLabel = (type: string) => SECTOR_TYPES.find(t => t[0] === type)?.[1] ?? type

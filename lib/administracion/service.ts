@@ -124,6 +124,7 @@ export async function guardar(request: NextRequest, ctx: AuthContext, update = f
     }
     const value = documentoSchema.parse(raw)
     const linkWhere = { establecimientoId: campo }
+    if (value.sectorId && !await tx.sector.findFirst({ where: { id: value.sectorId, ...linkWhere, activo: true } })) throw new RequestError("El lugar no pertenece a este campo", 400)
     if (value.activoId && !await tx.activoPatrimonial.findFirst({ where: { ...linkWhere, id: value.activoId } })) throw new RequestError("Bien no disponible en este campo")
     if (value.comprobanteId && !await tx.comprobante.findFirst({ where: { ...linkWhere, id: value.comprobanteId } })) throw new RequestError("Comprobante no disponible en este campo")
     if (value.tramiteId && !await tx.tramite.findFirst({ where: { ...linkWhere, id: value.tramiteId } })) throw new RequestError("Trámite no disponible en este campo")

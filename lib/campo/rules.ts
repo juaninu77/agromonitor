@@ -22,7 +22,7 @@ export const servicioSchema = z.object({ ...base, equipoId:uuid, version:z.numbe
 export const cultivoSchema = z.object({ ...base, sectorId:uuid, forrajeId:uuid, desde:fechaSchema,
   superficieHa:z.coerce.number().positive().max(1000000), densidadSiembraKgHa:z.coerce.number().positive().max(10000).optional(), notas:z.string().trim().max(2000).default("") }).strict()
 export const cierreCultivoSchema = z.object({ ...base, cultivoId:uuid, version:z.number().int().positive(), hasta:fechaSchema }).strict()
-export const reservaSchema = z.object({ ...base, forrajeId:uuid, cultivoId:z.union([uuid,z.literal("")]).nullish().transform(v=>v||null), nombre:text,
+export const reservaSchema = z.object({ ...base, depositoId:z.string().uuid().nullable().optional(), forrajeId:uuid, cultivoId:z.union([uuid,z.literal("")]).nullish().transform(v=>v||null), nombre:text,
   unidad:z.enum(["fardos","rollos","kg"]), ubicacion:text, minimo:nonNegative }).strict()
 export const movimientoSchema = z.object({ ...base, reservaId:uuid, clave:uuid, tipo:z.enum(["entrada","salida"]), cantidad:nonNegative.refine(v=>Number(v)>0,"La cantidad debe ser mayor a cero"),
   fecha:fechaSchema, motivo:z.string().trim().min(1).max(2000) }).strict().refine(v=>v.fecha<=today(),{message:"Un movimiento realizado no puede tener fecha futura",path:["fecha"]})

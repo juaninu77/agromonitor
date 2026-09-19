@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from "react"
 import * as L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import type { MapDraft, MapSector, MapFocus } from "@/lib/mapa/types"
-import { polygonFrom, sectorColor, type Position } from "@/lib/mapa/geometry"
+import { sectorColor, type Position } from "@/lib/mapa/geometry"
+import { sectorState } from "@/lib/mapa/sector-state"
+import { bindVertexDrag } from "@/lib/mapa/live-edit"
 
 interface Props {
   sectors: MapSector[]; selected: string | null; draft: MapDraft | null; focus: MapFocus | null;
-  satellite: boolean; fitKey: number; onSelect: (id: string) => void; onVertices: (vertices: Position[]) => void;
+  satellite: boolean; colorByState?: boolean; expanded?: boolean; fitKey: number; onSelect: (id: string) => void; onVertices: (vertices: Position[]) => void;
 }
 export default function FieldMap(props: Props) {
   const host = useRef<HTMLDivElement>(null), map = useRef<L.Map | null>(null)
@@ -51,7 +53,7 @@ export default function FieldMap(props: Props) {
     const bounds = L.latLngBounds([])
     for (const sector of props.sectors) {
       if (!sector.geometria || props.draft?.id === sector.id) continue
-      const color = sectorColor(sector.tipo)
+      const color = props.colorByState ? sectorState(sector).color : sectorColor(sector.tipo)
       const shape = L.geoJSON(sector.geometria, {
         interactive: !props.draft,
         style: { color, weight: sector.id === props.selected ? 4 : 2, fillOpacity: sector.id === props.selected ? 0.4 : 0.2 },
@@ -62,20 +64,21 @@ export default function FieldMap(props: Props) {
       shape.on("click", () => { if (!latest.current.draft) latest.current.onSelect(sector.id) })
       bounds.extend(shape.getBounds())
     }
+    if (!fitted.current && props.draft?.vertices.length) { const draftBounds = L.latLngBounds(props.draft.vertices.map(([lon, lat]) => [lat, lon])); m.fitBounds(draftBounds, { padding: [40,40], maxZoom: 17 }); fitted.current = true }
     if (!fitted.current && bounds.isValid()) { m.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 }); fitted.current = true }
     const draft = props.draft
     if (!draft) return
     const vertices = draft.vertices, points: L.LatLngTuple[] = vertices.map(([lon, lat]) => [lat, lon])
-    if (draft.kind === "Polygon" && vertices.length >= 3) L.geoJSON(polygonFrom(vertices)!, { interactive: false, style: { color: "#f59e0b", dashArray: draft.drawing ? "6 6" : undefined, weight: 3, fillOpacity: 0.2 } }).addTo(group)
-    else if (points.length > 1) L.polyline(points, { color: "#f59e0b", interactive: false }).addTo(group)
+    const outline = draft.kind === "Polygon" && vertices.length >= 3
+      ? L.polygon(points, { interactive: false, color: "#f59e0b", dashArray: draft.drawing ? "6 6" : undefined, weight: 3, fillOpacity: 0.2 }).addTo(group)
+      : points.length > 1 ? L.polyline(points, { color: "#f59e0b", interactive: false }).addTo(group) : null
     points.forEach((point, index) => {
       const marker = L.marker(point, { draggable: true, keyboard: true, title: `Vértice ${index + 1}`, icon: L.divIcon({ className: "map-vertex", html: `<span>${index + 1}</span>`, iconSize: [26, 26], iconAnchor: [13, 13] }) }).addTo(group)
-      marker.on("dragend", () => {
-        const value = marker.getLatLng().wrap(), current = latest.current.draft
-        if (current) latest.current.onVertices(current.vertices.map((p, i) => i === index ? [value.lng, value.lat] : p))
-      })
+      bindVertexDrag(marker, index, vertices,
+        next => outline?.setLatLngs(next.map(([lon, lat]) => [lat, lon])),
+        next => { if (latest.current.draft) latest.current.onVertices(next) })
     })
-  }, [props.sectors, props.draft, props.selected])
+  }, [props.sectors, props.draft, props.selected, props.colorByState])
   useEffect(() => {
     const selected = props.sectors.find(s => s.id === props.selected)
     if (selected?.geometria) map.current?.fitBounds(L.geoJSON(selected.geometria).getBounds(), { padding: [45, 45], maxZoom: 17 })
@@ -90,7 +93,7 @@ export default function FieldMap(props: Props) {
     if (bounds.isValid()) map.current?.fitBounds(bounds, { padding: [25, 25], maxZoom: 16 })
   }, [props.fitKey])
   return <div className="relative isolate overflow-hidden rounded-xl border bg-muted">
-    <div ref={host} role="region" aria-label="Mapa del campo. Usá los controles para dibujar áreas o marcar instalaciones." className="h-[440px] w-full sm:h-[min(68vh,600px)] [&_.leaflet-container]:font-sans" />
+    <div ref={host} role="region" aria-label="Mapa del campo. Usá los controles para dibujar áreas o marcar instalaciones." className={`${props.expanded ? "h-[calc(100dvh-180px)]" : "h-[460px] sm:h-[min(70vh,650px)]"} w-full [&_.leaflet-container]:font-sans`} />
     {tilesFailed && <p role="status" className="absolute bottom-8 left-3 right-3 z-[500] rounded-md bg-background/95 p-2 text-xs shadow">Algunas imágenes no cargaron. Probá otra vista o acercamiento. Tus sectores siguen guardados.</p>}
   </div>
 }

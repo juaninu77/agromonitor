@@ -1,3 +1,5 @@
+import { mapBody, mapResult, MapError } from "@/lib/mapa/api"
+import { moveAnimals } from "@/lib/mapa/move"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
@@ -69,62 +71,12 @@ export const GET = withAuth(async (request, ctx) => {
   }
 })
 
-export const POST = withAuth(async (request, ctx) => {
-  try {
-    const body = await request.json()
-
-    if (!body.loteId || !body.sectorId) {
-      return NextResponse.json(
-        { error: "Se requieren loteId y sectorId" },
-        { status: 400 }
-      )
-    }
-
-    const [lote, sector] = await Promise.all([
-      loteDelTenant(body.loteId, ctx.establecimientoIds),
-      sectorDelTenant(body.sectorId, ctx.establecimientoIds),
-    ])
-
-    if (!lote) {
-      return NextResponse.json(
-        { error: "Lote no encontrado" },
-        { status: 404 }
-      )
-    }
-
-    if (!sector) {
-      return NextResponse.json(
-        { error: "Sector no encontrado" },
-        { status: 404 }
-      )
-    }
-
-    const pastoreo = await prisma.evtPastoreo.create({
-      data: {
-        ingreso: body.ingreso ? new Date(body.ingreso) : new Date(),
-        egreso: body.egreso ? new Date(body.egreso) : null,
-        animalesPromedio: body.animalesPromedio
-          ? parseInt(body.animalesPromedio)
-          : null,
-        observ: body.observ || null,
-        loteId: body.loteId,
-        sectorId: body.sectorId,
-      },
-      include: {
-        lote: { select: { id: true, nombre: true } },
-        sector: { select: { id: true, nombre: true } },
-      },
-    })
-
-    return NextResponse.json(
-      { success: true, data: pastoreo },
-      { status: 201 }
-    )
-  } catch (error) {
-    console.error("Error al crear pastoreo:", error)
-    return NextResponse.json(
-      { success: false, error: "Error interno del servidor" },
-      { status: 500 }
-    )
+export const POST = withAuth(async (request, ctx) => mapResult(async () => {
+  const raw = await mapBody(request)
+  if (raw.egreso || raw.fecha || raw.ingreso) {
+    const date = new Date(raw.fecha ?? raw.ingreso)
+    if (raw.egreso || !Number.isFinite(date.getTime()) || Math.abs(date.getTime() - Date.now()) > 300000) throw new MapError("Registrá movimientos actuales; los cambios históricos requieren revisar las ubicaciones")
   }
-})
+  const data = await moveAnimals({ ...raw, destinoSectorId: raw.destinoSectorId ?? raw.sectorId, ...(raw.animalId ? { animalIds: [raw.animalId] } : {}) }, ctx)
+  return NextResponse.json({ success: true, data }, { status: 201 })
+}))

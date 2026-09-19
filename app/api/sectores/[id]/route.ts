@@ -16,7 +16,7 @@ export const PATCH = withAuth(async (request, ctx) => mapResult(async () => {
     const row = await tx.sector.update({ where: { id, version }, data: {
       ...data, ...(geometria !== undefined ? { geometria: geometria === null ? Prisma.DbNull : geometria } : {}), version: { increment: 1 },
     } })
-    await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[current.establecimientoId], tabla: "sectores", rowPk: id, accion: "UPDATE" } })
+    await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[current.establecimientoId], tabla: "sectores", rowPk: id, accion: "UPDATE", detalle: { versionAnterior: current.version, versionNueva: row.version, geometriaAnterior: current.geometria, geometriaNueva: row.geometria } } })
     return row
   })
   return NextResponse.json({ success: true, data: result })

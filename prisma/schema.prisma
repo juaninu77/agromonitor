@@ -237,6 +237,10 @@ model Establecimiento {
 
 // Sector unificado: potrero, corral, manga, feedlot
 model Sector {
+  registros SectorRegistro[]
+  documentos DocumentoArchivo[]
+  stockMovimientos MovimientoStock[]
+  reservas ReservaForraje[]
   geometria    Json?    // GeoJSON WGS84: Point o Polygon; no altera la superficie declarada.
   version      Int      @default(1)
   id           String   @id @default(uuid()) @db.Uuid
@@ -273,6 +277,7 @@ model Sector {
   movimientosDestino EvtMovimiento[] @relation("MovimientoDestino")
 
   @@unique([establecimientoId, nombre])
+  @@unique([id, establecimientoId])
   @@index([tipo])
   @@index([activo])
   @@map("sectores")
@@ -1158,6 +1163,9 @@ model Notificacion {
 // ============================================
 
 model MovimientoStock {
+  sectorId String? @map("sector_id") @db.Uuid
+  sector Sector? @relation(fields: [sectorId], references: [id], onDelete: Restrict)
+  clave String? @unique @db.Uuid
   id        String   @id @default(uuid()) @db.Uuid
   tipo      String // 'entrada' | 'salida' | 'ajuste'
   cantidad  Float
@@ -1319,6 +1327,8 @@ model Tramite {
 }
 
 model DocumentoArchivo {
+  sectorId String? @map("sector_id") @db.Uuid
+  sector Sector? @relation(fields: [sectorId, establecimientoId], references: [id, establecimientoId], onDelete: Restrict, onUpdate: NoAction)
   id                String             @id @default(uuid()) @db.Uuid
   establecimientoId String             @map("establecimiento_id") @db.Uuid
   establecimiento   Establecimiento    @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
@@ -1394,6 +1404,8 @@ model MantenimientoFlota {
 }
 
 model ReservaForraje {
+  depositoId String? @map("deposito_id") @db.Uuid
+  deposito Sector? @relation(fields: [depositoId], references: [id], onDelete: Restrict)
   id                String              @id @default(uuid()) @db.Uuid
   establecimientoId String              @map("establecimiento_id") @db.Uuid
   establecimiento   Establecimiento     @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
@@ -1426,4 +1438,21 @@ model MovimientoForraje {
 
   @@index([reservaId, fecha])
   @@map("movimientos_forraje")
+}
+
+model SectorRegistro {
+  id String @id @default(uuid()) @db.Uuid
+  clave String @unique @db.Uuid
+  sectorId String @map("sector_id") @db.Uuid
+  sector Sector @relation(fields: [sectorId], references: [id], onDelete: Restrict)
+  tipo String
+  detalle String
+  estado String
+  fecha DateTime @default(now())
+  resueltoAt DateTime? @map("resuelto_at")
+  version Int @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([sectorId, fecha])
+  @@map("sector_registros")
 }

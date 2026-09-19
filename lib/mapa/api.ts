@@ -29,6 +29,7 @@ export async function mapResult(fn: () => Promise<Response>) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues[0]?.message ?? "Datos inválidos" }, { status: 400 })
     if (error instanceof SyntaxError || error instanceof TypeError) return NextResponse.json({ error: "Solicitud inválida" }, { status: 400 })
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === "P2034") return NextResponse.json({ error: "Otro usuario cambió los datos. Actualizá y reintentá." }, { status: 409 })
       if (error.code === "P2002") return NextResponse.json({ error: "Ya existe un sector con ese nombre en este campo" }, { status: 409 })
       if (error.code === "P2025") return NextResponse.json({ error: "Otro usuario modificó el sector. Actualizá antes de guardar." }, { status: 409 })
     }

@@ -20,10 +20,13 @@ export const GET = withAuth(async(request,ctx)=>handle(async()=>{
   const modulo=modules.parse(ctx.params.modulo), id=campo(ctx,z.string().uuid().parse(request.nextUrl.searchParams.get("establecimientoId")))
   const page=z.coerce.number().int().min(1).max(100000).parse(request.nextUrl.searchParams.get("page")??1)
   const q=(request.nextUrl.searchParams.get("q")??"").slice(0,180)
+  const sectorParam=request.nextUrl.searchParams.get("sectorId")
+  const sectorId=sectorParam?z.string().uuid().parse(sectorParam):undefined
   const pagination={take:25,skip:(page-1)*25}
   if(modulo==="catalogos")return NextResponse.json({
     forrajes:await prisma.forraje.findMany({orderBy:{nombre:"asc"},select:{id:true,nombre:true}}),
     sectores:await prisma.sector.findMany({where:{establecimientoId:id,activo:true},orderBy:{nombre:"asc"},select:{id:true,nombre:true,superficieHa:true}}),
+    depositos:await prisma.sector.findMany({where:{establecimientoId:id,activo:true,tipo:"galpon"},select:{id:true,nombre:true}}),
     puedeEditar:ctx.establecimientoIdsConRol(["admin","encargado"]).includes(id),
   })
   if(modulo==="flota"){
@@ -32,12 +35,12 @@ export const GET = withAuth(async(request,ctx)=>handle(async()=>{
     return NextResponse.json({data:rows.map(e=>({...e,estadoServicio:rules.estadoServicio({lectura:e.lectura.toString(),unidad:e.unidad,proximoServicioFecha:e.proximoServicioFecha?.toISOString(),proximoServicioLectura:e.proximoServicioLectura?.toString()})})),total,page})
   }
   if(modulo==="cultivos"){
-    const where={sector:{establecimientoId:id},...(q?{forraje:{nombre:{contains:q,mode:"insensitive" as const}}}:{})}
+    const where={sector:{establecimientoId:id},...(sectorId?{sectorId}:{}),...(q?{forraje:{nombre:{contains:q,mode:"insensitive" as const}}}:{})}
     const [data,total]=await Promise.all([prisma.sectorForraje.findMany({where,include:{sector:{select:{nombre:true}},forraje:{select:{nombre:true}}},...pagination,orderBy:{desde:"desc"}}),prisma.sectorForraje.count({where})])
     return NextResponse.json({data,total,page})
   }
   if(modulo==="reservas"){
-    const where={establecimientoId:id,...(q?{nombre:{contains:q,mode:"insensitive" as const}}:{})}
+    const where={establecimientoId:id,...(sectorId?{depositoId:sectorId}:{}),...(q?{nombre:{contains:q,mode:"insensitive" as const}}:{})}
     const [data,total]=await Promise.all([prisma.reservaForraje.findMany({where,include:{forraje:{select:{nombre:true}},movimientos:{take:10,orderBy:{createdAt:"desc"}}},...pagination,orderBy:{nombre:"asc"}}),prisma.reservaForraje.count({where})])
     return NextResponse.json({data,total,page})
   }
@@ -74,8 +77,12 @@ export const POST=withAuth(async(request,ctx)=>handle(async()=>{
       const v=rules.cultivoSchema.parse(raw)
       const sector=await tx.sector.findFirst({where:{id:v.sectorId,establecimientoId:id,activo:true}})
       if(!sector)throw new InputError("Sector no encontrado en este campo",404)
+      if(!["potrero","cultivo"].includes(sector.tipo))throw new InputError("La siembra se registra en una parcela")
       if(sector.superficieHa&&v.superficieHa>sector.superficieHa)throw new InputError("La superficie supera la del sector")
       if(!await tx.forraje.findUnique({where:{id:v.forrajeId}}))throw new InputError("Forraje no encontrado",404)
+      await tx.$queryRaw`SELECT id FROM sectores WHERE id = ${v.sectorId}::uuid FOR UPDATE`
+      const concurrent=await tx.sectorForraje.aggregate({where:{sectorId:v.sectorId,OR:[{hasta:null},{hasta:{gt:iso(v.desde)!}}]},_sum:{superficieHa:true}})
+      if(sector.superficieHa && (concurrent._sum.superficieHa??0)+v.superficieHa>sector.superficieHa)throw new InputError("Las campañas que se superponen exceden las hectáreas declaradas. Cerrá la campaña anterior o revisá la superficie")
       const row=await tx.sectorForraje.create({data:{sectorId:v.sectorId,forrajeId:v.forrajeId,desde:iso(v.desde)!,superficieHa:v.superficieHa,densidadSiembraKgHa:v.densidadSiembraKgHa,notas:v.notas}})
       await audit(tx,ctx,id,row.id,"sector_forrajes");return row
     }
@@ -92,7 +99,9 @@ export const POST=withAuth(async(request,ctx)=>handle(async()=>{
       const v=rules.reservaSchema.parse(raw)
       if(!await tx.forraje.findUnique({where:{id:v.forrajeId}}))throw new InputError("Forraje no encontrado",404)
       if(v.cultivoId&&!await tx.sectorForraje.findFirst({where:{id:v.cultivoId,forrajeId:v.forrajeId,sector:{establecimientoId:id}}}))throw new InputError("Cultivo de origen incompatible con el campo o forraje")
-      const row=await tx.reservaForraje.create({data:v});await audit(tx,ctx,id,row.id,"reservas_forraje");return row
+      const depositoId=raw.depositoId?z.string().uuid().parse(raw.depositoId):null
+      if(depositoId&&!await tx.sector.findFirst({where:{id:depositoId,establecimientoId:id,tipo:"galpon",activo:true}}))throw new InputError("Depósito no encontrado en este campo")
+      const row=await tx.reservaForraje.create({data:{...v,depositoId}});await audit(tx,ctx,id,row.id,"reservas_forraje");return row
     }
     if(modulo==="movimientos"){
       const v=rules.movimientoSchema.parse(raw)

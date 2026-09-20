@@ -1,6 +1,12 @@
 "use client"
+import type { MapSector } from "@/lib/mapa/types"
+import { isParcel, livestockTypes, sectorState, waterLabel } from "@/lib/mapa/sector-state"
 
 import { useState, useMemo } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import MapWorkspace from "@/components/mapa/map-workspace"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { SECTOR_TYPES } from "@/lib/mapa/geometry"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useTenant } from "@/lib/context/tenant-context"
 import { toast } from "sonner"
@@ -59,7 +65,8 @@ import {
 
 // ─── Tipos ───────────────────────────────────────────────
 
-interface Sector {
+interface Sector extends MapSector {
+  version: number
   id: string
   nombre: string
   tipo: string
@@ -99,15 +106,7 @@ interface LoteSimple {
 
 // ─── Constantes ──────────────────────────────────────────
 
-const TIPO_SECTOR_OPTIONS = [
-  { value: "potrero", label: "Potrero" },
-  { value: "corral", label: "Corral" },
-  { value: "manga", label: "Manga" },
-  { value: "feedlot", label: "Feedlot" },
-  { value: "embarcadero", label: "Embarcadero" },
-  { value: "enfermeria", label: "Enfermería" },
-  { value: "otro", label: "Otro" },
-]
+const TIPO_SECTOR_OPTIONS = SECTOR_TYPES.map(([value, label]) => ({ value, label }))
 
 const USO_OPTIONS = [
   { value: "pastoreo", label: "Pastoreo" },
@@ -152,10 +151,20 @@ async function fetchLotes(estId: string): Promise<LoteSimple[]> {
 // ─── Página principal ────────────────────────────────────
 
 export default function PotrerosPage() {
+  const { establecimientoActivo } = useTenant()
+  return <PotrerosWorkspace key={establecimientoActivo?.id ?? "sin-campo"} />
+}
+function PotrerosWorkspace() {
+  const router = useRouter()
+  const params = useSearchParams()
+  const view = params.get("vista") === "lista" ? "lista" : "mapa"
+  const setView = (value: string) => router.replace(`/potreros?vista=${value}`, { scroll: false })
   const { establecimientoActivo, isLoading: tenantLoading } = useTenant()
   const queryClient = useQueryClient()
   const estId = establecimientoActivo?.id ?? ""
 
+  const { data: permissions } = useQuery<{ puedeEditar: boolean }>({ queryKey: ["campo-catalogos", estId], enabled: !!estId && view === "lista", queryFn: async () => { const r = await fetch(`/api/campo/catalogos?establecimientoId=${estId}`); if (!r.ok) throw Error("No se pudieron cargar los permisos"); return r.json() } })
+  const canEdit = permissions?.puedeEditar ?? false
   const [showSectorDialog, setShowSectorDialog] = useState(false)
   const [editingSector, setEditingSector] = useState<Sector | null>(null)
   const [showMedicionDialog, setShowMedicionDialog] = useState(false)
@@ -172,37 +181,38 @@ export default function PotrerosPage() {
   } = useQuery({
     queryKey: ["sectores", estId],
     queryFn: () => fetchSectores(estId),
-    enabled: !!estId,
+    enabled: !!estId && view === "lista",
   })
 
   const { data: pastoreos = [] } = useQuery({
     queryKey: ["pastoreos-activos", estId],
     queryFn: () => fetchPastoreos(estId),
-    enabled: !!estId,
+    enabled: !!estId && view === "lista",
   })
 
   const { data: lotes = [] } = useQuery({
     queryKey: ["lotes", estId],
     queryFn: () => fetchLotes(estId),
-    enabled: !!estId,
+    enabled: !!estId && view === "lista",
   })
 
   // ─── Mutations ──────────────
 
   const crearSectorMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
-      const res = await fetch("/api/sectores", {
-        method: "POST",
+      const res = await fetch(editingSector ? `/api/sectores/${editingSector.id}` : "/api/sectores", {
+        method: editingSector ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, establecimientoId: estId }),
+        body: JSON.stringify({ ...data, establecimientoId: estId, ...(editingSector ? { version: editingSector.version } : {}) }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || "Error al crear sector")
       return json.data
     },
     onSuccess: () => {
-      toast.success("Sector creado correctamente")
+      toast.success(editingSector ? "Sector actualizado" : "Sector creado correctamente")
       queryClient.invalidateQueries({ queryKey: ["sectores", estId] })
+      queryClient.invalidateQueries({ queryKey: ["mapa", estId] })
       setShowSectorDialog(false)
       setEditingSector(null)
     },
@@ -248,9 +258,11 @@ export default function PotrerosPage() {
       return json.data
     },
     onSuccess: () => {
-      toast.success("Lote asignado al sector")
+      toast.success("Grupo ubicado en el sector; historial actualizado")
       queryClient.invalidateQueries({ queryKey: ["sectores", estId] })
       queryClient.invalidateQueries({ queryKey: ["pastoreos-activos", estId] })
+      queryClient.invalidateQueries({ queryKey: ["mapa", estId] })
+      queryClient.invalidateQueries({ queryKey: ["ganado-lista"] })
       setShowAsignarDialog(false)
       setAsignarSectorId(null)
     },
@@ -271,11 +283,11 @@ export default function PotrerosPage() {
 
     return {
       totalSectores: sectores.length,
-      superficieTotal: sectores.reduce(
+      superficieTotal: sectores.filter(s => isParcel(s.tipo)).reduce(
         (acc, s) => acc + (s.superficieHa || 0),
         0
       ),
-      ocupados: sectores.filter((s) => s.pastoreoActivo).length,
+      ocupados: sectores.filter(s => isParcel(s.tipo) && s.bovinos + s.ovinos > 0).length,
       medicionesMes: medicionesEsteMes,
     }
   }, [sectores])
@@ -339,23 +351,15 @@ export default function PotrerosPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* ── Encabezado ── */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="flex items-center gap-3 text-2xl font-bold tracking-tight md:text-3xl">
-            <MapPin className="h-7 w-7 text-primary md:h-8 md:w-8" />
-            Potreros y Sectores
-          </h1>
-          <p className="mt-1 text-muted-foreground">
-            Gestión de sectores, mediciones de pasto y asignación de lotes
-          </p>
+    <div className="space-y-3">
+      <Tabs value={view} onValueChange={setView} className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="flex items-center gap-2 !text-xl"><MapPin className="h-5 w-5 text-primary"/>Potreros</h1>
+          <TabsList aria-label="Vista de potreros"><TabsTrigger value="mapa">Mapa</TabsTrigger><TabsTrigger value="lista">Listado</TabsTrigger></TabsList>
+          {view === "lista" && <Button onClick={openNewSector} disabled={!canEdit}><Plus className="mr-2 h-4 w-4"/>Nuevo sector</Button>}
         </div>
-        <Button onClick={openNewSector}>
-          <Plus className="mr-2 h-4 w-4" /> Nuevo sector
-        </Button>
-      </div>
-
+        <TabsContent value="mapa" className="!mt-3"><MapWorkspace fieldId={estId} onList={() => setView("lista")} /></TabsContent>
+        <TabsContent value="lista" className="space-y-6">
       {/* ── KPI cards ── */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <KpiCard
@@ -364,17 +368,17 @@ export default function PotrerosPage() {
           icon={<LayoutGrid className="h-4 w-4 text-muted-foreground" />}
         />
         <KpiCard
-          title="Superficie total"
+          title="Ha declaradas de parcelas"
           value={`${kpis.superficieTotal.toLocaleString("es-AR", { maximumFractionDigits: 1 })} ha`}
           icon={<TrendingUp className="h-4 w-4 text-amber-600" />}
         />
         <KpiCard
-          title="Potreros ocupados"
+          title="Parcelas con ganado"
           value={kpis.ocupados}
           icon={<Leaf className="h-4 w-4 text-green-600" />}
         />
         <KpiCard
-          title="Mediciones (mes)"
+          title="Parcelas medidas este mes"
           value={kpis.medicionesMes}
           icon={<Ruler className="h-4 w-4 text-primary" />}
         />
@@ -386,7 +390,7 @@ export default function PotrerosPage() {
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
             <Fence className="h-12 w-12" />
             <p className="text-lg">No hay sectores registrados.</p>
-            <Button onClick={openNewSector}>
+            <Button onClick={openNewSector} disabled={!canEdit}>
               <Plus className="mr-2 h-4 w-4" /> Crear el primero
             </Button>
           </CardContent>
@@ -400,11 +404,15 @@ export default function PotrerosPage() {
               onMedir={() => openMedicion(sector.id)}
               onAsignar={() => openAsignarLote(sector.id)}
               onEditar={() => openEditSector(sector)}
+              canEdit={canEdit}
+              onVer={() => router.replace(`/potreros?vista=mapa&sector=${sector.id}`, { scroll: false })}
             />
           ))}
         </div>
       )}
 
+        </TabsContent>
+      </Tabs>
       {/* ── Dialog: Crear / Editar sector ── */}
       <SectorFormDialog
         open={showSectorDialog}
@@ -429,7 +437,7 @@ export default function PotrerosPage() {
         onSubmit={(data) => medicionMutation.mutate(data)}
       />
 
-      {/* ── Dialog: Asignar lote ── */}
+      {/* ── Dialog: Ingresar grupo ── */}
       <AsignarLoteDialog
         open={showAsignarDialog}
         onOpenChange={(open) => {
@@ -471,161 +479,17 @@ function KpiCard({
 
 // ─── Sector Card ─────────────────────────────────────────
 
-function SectorCard({
-  sector,
-  onMedir,
-  onAsignar,
-  onEditar,
-}: {
-  sector: Sector
-  onMedir: () => void
-  onAsignar: () => void
-  onEditar: () => void
-}) {
-  return (
-    <Card className="flex flex-col transition-shadow hover:shadow-md">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <CardTitle className="truncate text-lg">{sector.nombre}</CardTitle>
-            {sector.descripcion && (
-              <CardDescription className="mt-0.5 line-clamp-2">
-                {sector.descripcion}
-              </CardDescription>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Badge
-              className={
-                TIPO_BADGE_COLORS[sector.tipo] ?? TIPO_BADGE_COLORS.otro
-              }
-            >
-              {TIPO_SECTOR_OPTIONS.find((o) => o.value === sector.tipo)?.label ??
-                sector.tipo}
-            </Badge>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8">
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={onMedir}>
-                  <Ruler className="mr-2 h-4 w-4" /> Medir pasto
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onAsignar}>
-                  <Leaf className="mr-2 h-4 w-4" /> Asignar lote
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onEditar}>
-                  <Pencil className="mr-2 h-4 w-4" /> Editar
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled>
-                  <Eye className="mr-2 h-4 w-4" /> Ver detalle
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      </CardHeader>
-
-      <CardContent className="flex flex-1 flex-col gap-3">
-        {/* Datos principales */}
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-          {sector.superficieHa != null && (
-            <div>
-              <span className="text-muted-foreground">Superficie:</span>{" "}
-              <span className="font-medium">{sector.superficieHa} ha</span>
-            </div>
-          )}
-          {sector.capacidad != null && (
-            <div>
-              <span className="text-muted-foreground">Capacidad:</span>{" "}
-              <span className="font-medium">{sector.capacidad} cab.</span>
-            </div>
-          )}
-          {sector.uso && (
-            <div>
-              <span className="text-muted-foreground">Uso:</span>{" "}
-              <span className="font-medium capitalize">
-                {USO_OPTIONS.find((o) => o.value === sector.uso)?.label ??
-                  sector.uso}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Iconos de servicios */}
-        <div className="flex flex-wrap items-center gap-3">
-          {sector.tieneAgua && (
-            <span className="flex items-center gap-1 text-xs text-primary">
-              <Droplets className="h-4 w-4" /> Agua
-            </span>
-          )}
-          {sector.tieneSombra && (
-            <span className="flex items-center gap-1 text-xs text-green-600">
-              <TreePine className="h-4 w-4" /> Sombra
-            </span>
-          )}
-          {sector.tieneBalanza && (
-            <span className="flex items-center gap-1 text-xs text-amber-600">
-              <Scale className="h-4 w-4" /> Balanza
-            </span>
-          )}
-          {!sector.tieneAgua && !sector.tieneSombra && !sector.tieneBalanza && (
-            <span className="text-xs text-muted-foreground italic">
-              Sin servicios
-            </span>
-          )}
-        </div>
-
-        {/* Pastoreo activo */}
-        {sector.pastoreoActivo && (
-          <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm dark:border-green-800 dark:bg-green-950">
-            <div className="flex items-center gap-1.5 font-medium text-green-800 dark:text-green-200">
-              <Leaf className="h-3.5 w-3.5" /> Pastoreo activo
-            </div>
-            <p className="mt-0.5 text-green-700 dark:text-green-300">
-              Lote: {sector.pastoreoActivo.lote.nombre}
-            </p>
-          </div>
-        )}
-
-        {/* Última medición */}
-        {sector.ultimaMedicion && (
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Clock className="h-3 w-3" />
-            <span>
-              Medición:{" "}
-              {new Date(sector.ultimaMedicion.fecha).toLocaleDateString(
-                "es-AR"
-              )}
-              {sector.ultimaMedicion.alturaPastoCm != null &&
-                ` · ${sector.ultimaMedicion.alturaPastoCm} cm`}
-              {sector.ultimaMedicion.coberturaPct != null &&
-                ` · ${sector.ultimaMedicion.coberturaPct}% cob.`}
-              {sector.ultimaMedicion.msKgHa != null &&
-                ` · ${sector.ultimaMedicion.msKgHa} kg MS/ha`}
-            </span>
-          </div>
-        )}
-
-        {/* Botones de acción rápida (abajo) */}
-        <div className="mt-auto flex flex-wrap gap-2 pt-2">
-          <Button variant="outline" size="sm" onClick={onMedir}>
-            <Ruler className="mr-1.5 h-3.5 w-3.5" /> Medir pasto
-          </Button>
-          {!sector.pastoreoActivo && (
-            <Button variant="outline" size="sm" onClick={onAsignar}>
-              <Leaf className="mr-1.5 h-3.5 w-3.5" /> Asignar lote
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  )
+function SectorCard({ sector, onMedir, onAsignar, onEditar, onVer, canEdit }: { sector: Sector; onMedir: () => void; onAsignar: () => void; onEditar: () => void; onVer: () => void; canEdit: boolean }) {
+  return <Card className="flex flex-col"><CardHeader className="pb-3"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><CardTitle className="text-lg">{sector.nombre}</CardTitle><CardDescription>{TIPO_SECTOR_OPTIONS.find(t => t.value === sector.tipo)?.label}</CardDescription></div><Button size="icon" variant="ghost" aria-label={`Editar datos de ${sector.nombre}`} onClick={onEditar} disabled={!canEdit}><Pencil className="h-4 w-4"/></Button></div></CardHeader><CardContent className="space-y-3">
+    <p className="text-sm font-medium" style={{color:sectorState(sector).color}}>{sectorState(sector).label}</p>
+    {livestockTypes.has(sector.tipo) && <p className="text-sm">{sector.bovinos} bovinos · {sector.ovinos} ovinos</p>}
+    {sector.superficieHa != null && <p className="text-sm">{sector.superficieHa} ha declaradas</p>}
+    <p className="text-xs text-muted-foreground">{waterLabel(sector.agua)}{sector.agua ? ` · ${new Date(sector.agua.fecha).toLocaleDateString("es-AR")}` : ""}</p>
+    {sector.pendientes > 0 && <p className="text-sm text-amber-700">{sector.pendientes} tareas pendientes</p>}
+    {sector.ultimaMedicion && <p className="text-xs text-muted-foreground">Última medición: {sector.ultimaMedicion.fecha.slice(0,10)} · {sector.ultimaMedicion.alturaPastoCm ?? "—"} cm</p>}
+    <div className="flex flex-wrap gap-2 border-t pt-3"><Button size="sm" variant="outline" onClick={onVer}>Ver en mapa</Button>{isParcel(sector.tipo) && <Button size="sm" variant="outline" onClick={onMedir} disabled={!canEdit}>Medir pasto</Button>}{livestockTypes.has(sector.tipo) && <Button size="sm" onClick={onAsignar} disabled={!canEdit}>Ingresar grupo</Button>}</div>
+  </CardContent></Card>
 }
-
-// ─── Dialog: Crear / Editar sector ───────────────────────
 
 function SectorFormDialog({
   open,
@@ -908,7 +772,7 @@ function MedicionDialog({
   )
 }
 
-// ─── Dialog: Asignar lote ────────────────────────────────
+// ─── Dialog: Ingresar grupo ────────────────────────────────
 
 function AsignarLoteDialog({
   open,
@@ -943,18 +807,18 @@ function AsignarLoteDialog({
     >
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Asignar lote al sector</DialogTitle>
+          <DialogTitle>Ingresar grupo de animales</DialogTitle>
           <DialogDescription>
-            Seleccioná un lote para iniciar el pastoreo en este sector.
+            Confirma el ingreso de todos los animales activos del grupo. Actualiza su ubicación y, en parcelas, inicia el pastoreo.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label>Lote *</Label>
+            <Label>Grupo de animales *</Label>
             {lotes.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No hay lotes disponibles en este establecimiento.
+                No hay grupos de animales disponibles en este campo.
               </p>
             ) : (
               <Select
@@ -962,7 +826,7 @@ function AsignarLoteDialog({
                 onValueChange={setSelectedLoteId}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar lote..." />
+                  <SelectValue placeholder="Seleccionar grupo..." />
                 </SelectTrigger>
                 <SelectContent>
                   {lotes.map((l) => (
@@ -988,7 +852,7 @@ function AsignarLoteDialog({
               disabled={saving || !selectedLoteId || lotes.length === 0}
             >
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Asignar lote
+              Ingresar grupo
             </Button>
           </DialogFooter>
         </form>

@@ -245,3 +245,5 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+.map-vertex span { display:flex; width:26px; height:26px; align-items:center; justify-content:center; background:#fff; color:#713f12; border:2px solid #d97706; border-radius:50%; font:600 11px system-ui; box-shadow:0 1px 4px #0005; }
+.leaflet-container { font-family:inherit; }

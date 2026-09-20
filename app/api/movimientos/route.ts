@@ -1,3 +1,5 @@
+import { mapBody, mapResult, MapError } from "@/lib/mapa/api"
+import { moveAnimals } from "@/lib/mapa/move"
 import { NextResponse } from "next/server"
 import { animalDelTenant, loteDelTenant, scopeEventoAnimalOLote } from "@/lib/api/tenant"
 import { withAuth } from "@/lib/api/with-auth"
@@ -86,80 +88,12 @@ export const GET = withAuth(async (request, ctx) => {
   }
 })
 
-export const POST = withAuth(async (request, ctx) => {
-  try {
-    const body = await request.json()
-
-    if (!body.destinoSectorId) {
-      return NextResponse.json(
-        { error: "Se requiere sector destino" },
-        { status: 400 }
-      )
-    }
-
-    if (!body.animalId && !body.loteId) {
-      return NextResponse.json(
-        { error: "Se requiere animal o lote" },
-        { status: 400 }
-      )
-    }
-
-    if (body.animalId) {
-      const animal = await animalDelTenant(body.animalId, ctx.establecimientoIds)
-      if (!animal) {
-        return NextResponse.json(
-          { error: "Animal no encontrado" },
-          { status: 404 }
-        )
-      }
-    }
-
-    if (body.loteId) {
-      const lote = await loteDelTenant(body.loteId, ctx.establecimientoIds)
-      if (!lote) {
-        return NextResponse.json(
-          { error: "Lote no encontrado" },
-          { status: 404 }
-        )
-      }
-    }
-
-    const movimiento = await prisma.evtMovimiento.create({
-      data: {
-        fecha: body.fecha ? new Date(body.fecha) : new Date(),
-        motivo: body.motivo || null,
-        observ: body.observ || null,
-        animalId: body.animalId || null,
-        loteId: body.loteId || null,
-        cantidadAnimales: body.cantidadAnimales
-          ? parseInt(body.cantidadAnimales)
-          : null,
-        origenSectorId: body.origenSectorId || null,
-        destinoSectorId: body.destinoSectorId,
-      },
-      include: {
-        animal: {
-          select: {
-            id: true,
-            caravanaVisual: true,
-            otroId: true,
-          },
-        },
-        lote: { select: { id: true, nombre: true } },
-        origenSector: { select: { id: true, nombre: true } },
-        destinoSector: { select: { id: true, nombre: true } },
-      },
-    })
-
-    return NextResponse.json(
-      { success: true, data: movimiento },
-      { status: 201 }
-    )
-  } catch (error) {
-    console.error("Error al crear movimiento:", error)
-    return NextResponse.json(
-      { success: false, error: "Error interno del servidor" },
-      { status: 500 }
-    )
+export const POST = withAuth(async (request, ctx) => mapResult(async () => {
+  const raw = await mapBody(request)
+  if (raw.egreso || raw.fecha || raw.ingreso) {
+    const date = new Date(raw.fecha ?? raw.ingreso)
+    if (raw.egreso || !Number.isFinite(date.getTime()) || Math.abs(date.getTime() - Date.now()) > 300000) throw new MapError("Registrá movimientos actuales; los cambios históricos requieren revisar las ubicaciones")
   }
-})
+  const data = await moveAnimals({ ...raw, destinoSectorId: raw.destinoSectorId ?? raw.sectorId, ...(raw.animalId ? { animalIds: [raw.animalId] } : {}) }, ctx)
+  return NextResponse.json({ success: true, data }, { status: 201 })
+}))

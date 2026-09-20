@@ -44,9 +44,9 @@ export const tramiteSchema = z.object({ ...base, tipo: z.enum(tipos.tramites), e
   fecha: fechaSchema, vencimiento: fechaOpcional,
 }).strict().refine(v => !v.vencimiento || v.vencimiento >= v.fecha, { message: "El vencimiento no puede ser anterior a la fecha", path: ["vencimiento"] })
 const vinculo = z.union([z.string().uuid(), z.literal("")]).nullish().transform(v => v || null)
-export const documentoSchema = z.object({ ...base, tipo: z.enum(tipos.documentos), estado: z.enum(estados.documentos),
+export const documentoSchema = z.object({ sectorId: z.string().uuid().nullable().optional(), ...base, tipo: z.enum(tipos.documentos), estado: z.enum(estados.documentos),
   fecha: fechaOpcional, vencimiento: fechaOpcional, activoId: vinculo, comprobanteId: vinculo, tramiteId: vinculo, animalId: vinculo,
-}).strict().refine(v => [v.activoId, v.comprobanteId, v.tramiteId, v.animalId].filter(Boolean).length <= 1,
+}).strict().refine(v => [v.activoId, v.comprobanteId, v.tramiteId, v.animalId, v.sectorId].filter(Boolean).length <= 1,
   "Elegí un único registro vinculado").refine(v => !v.fecha || !v.vencimiento || v.vencimiento >= v.fecha,
   { message: "El vencimiento no puede ser anterior a la fecha", path: ["vencimiento"] })
 

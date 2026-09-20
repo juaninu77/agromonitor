@@ -8,6 +8,12 @@ const withPWA = withPWAInit({
   skipWaiting: true,
   runtimeCaching: [
     {
+      // Respect imagery-provider caching terms; no offline tile prefetch or Workbox storage.
+      urlPattern: ({ url }) => url.hostname === "tile.openstreetmap.org" || url.hostname.endsWith(".arcgisonline.com"),
+      handler: "NetworkOnly",
+      method: "GET",
+    },
+    {
       // Workbox does not honor Cache-Control as an authorization boundary.
       // Never serve authenticated API/admin responses from another login's cache.
       urlPattern: ({ url }) => url.pathname.startsWith("/api/") || url.pathname === "/administracion" || url.pathname === "/finanzas",

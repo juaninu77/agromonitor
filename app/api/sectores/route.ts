@@ -1,134 +1,32 @@
+import { fieldSectors } from "@/lib/mapa/sector-data"
 import { NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
+import { z } from "zod"
+import { mapBody, mapField, mapResult } from "@/lib/mapa/api"
+import { sectorSchema } from "@/lib/mapa/geometry"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
 import {
   scopeEstablecimiento,
-  resolverEstablecimientoDestino,
 } from "@/lib/api/tenant"
 
-export const GET = withAuth(async (request, ctx) => {
-  try {
-    const searchParams = request.nextUrl.searchParams
-    const establecimientoId = searchParams.get("establecimientoId")
+export const GET = withAuth(async (request, ctx) => mapResult(async () => {
+  const id = request.nextUrl.searchParams.get("establecimientoId")
+  if (id) mapField(ctx, z.string().uuid().parse(id))
+  const rows = await fieldSectors(id ? [id] : ctx.establecimientoIds)
+  return NextResponse.json({ success: true, data: rows.map(s => ({ ...s, pastoreoActivo: s.pastoreosIngreso[0] ?? null })) })
+}))
 
-    if (establecimientoId && !ctx.establecimientoIds.includes(establecimientoId)) {
-      return NextResponse.json(
-        { error: "No tienes acceso a ese establecimiento" },
-        { status: 403 }
-      )
-    }
-
-    const sectores = await prisma.sector.findMany({
-      where: {
-        ...(establecimientoId
-          ? { establecimientoId }
-          : scopeEstablecimiento(ctx.establecimientoIds)),
-        activo: true,
-      },
-      include: {
-        _count: {
-          select: {
-            movimientosOrigen: true,
-            movimientosDestino: true,
-          },
-        },
-        pastoreosIngreso: {
-          where: { egreso: null },
-          include: { lote: true },
-          take: 1,
-        },
-        mediciones: {
-          orderBy: { fecha: "desc" },
-          take: 1,
-        },
-      },
-      orderBy: { nombre: "asc" },
-    })
-
-    const data = sectores.map((s) => ({
-      id: s.id,
-      nombre: s.nombre,
-      tipo: s.tipo,
-      superficieHa: s.superficieHa,
-      uso: s.uso,
-      capacidad: s.capacidad,
-      tieneAgua: s.tieneAgua,
-      tieneSombra: s.tieneSombra,
-      tieneBalanza: s.tieneBalanza,
-      descripcion: s.descripcion,
-      activo: s.activo,
-      movimientosRecientes:
-        s._count.movimientosOrigen + s._count.movimientosDestino,
-      pastoreoActivo: s.pastoreosIngreso[0] ?? null,
-      ultimaMedicion: s.mediciones[0] ?? null,
-    }))
-
-    return NextResponse.json({ success: true, data })
-  } catch (error) {
-    console.error("Error al obtener sectores:", error)
-    return NextResponse.json(
-      { success: false, error: "Error interno del servidor" },
-      { status: 500 }
-    )
-  }
-})
-
-export const POST = withAuth(async (request, ctx) => {
-  try {
-    const body = await request.json()
-
-    if (!body.nombre || !body.tipo) {
-      return NextResponse.json(
-        { error: "Se requieren nombre y tipo" },
-        { status: 400 }
-      )
-    }
-
-    const establecimientoId = resolverEstablecimientoDestino(
-      body.establecimientoId,
-      ctx.establecimientoIds
-    )
-
-    if (!establecimientoId) {
-      if (body.establecimientoId) {
-        return NextResponse.json(
-          { error: "No tienes acceso a ese establecimiento" },
-          { status: 403 }
-        )
-      }
-      return NextResponse.json(
-        { error: "Se requiere establecimientoId" },
-        { status: 400 }
-      )
-    }
-
-    const sector = await prisma.sector.create({
-      data: {
-        nombre: body.nombre,
-        tipo: body.tipo,
-        superficieHa: body.superficieHa ? parseFloat(body.superficieHa) : null,
-        uso: body.uso || null,
-        capacidad: body.capacidad ? parseInt(body.capacidad) : null,
-        tieneAgua: body.tieneAgua ?? false,
-        tieneSombra: body.tieneSombra ?? false,
-        tieneBalanza: body.tieneBalanza ?? false,
-        descripcion: body.descripcion || null,
-        establecimientoId,
-      },
-    })
-
-    return NextResponse.json({ success: true, data: sector }, { status: 201 })
-  } catch (error: any) {
-    if (error?.code === "P2002") {
-      return NextResponse.json(
-        { error: "Ya existe un sector con ese nombre en este establecimiento" },
-        { status: 409 }
-      )
-    }
-    console.error("Error al crear sector:", error)
-    return NextResponse.json(
-      { success: false, error: "Error interno del servidor" },
-      { status: 500 }
-    )
-  }
-})
+export const POST = withAuth(async (request, ctx) => mapResult(async () => {
+  const raw = await mapBody(request)
+  const establecimientoId = mapField(ctx, z.string().uuid().parse(raw.establecimientoId), true)
+  const { geometria, ...data } = sectorSchema.parse(raw)
+  const sector = await prisma.$transaction(async tx => {
+    const row = await tx.sector.create({ data: { ...data, establecimientoId,
+      ...(geometria !== undefined ? { geometria: geometria === null ? Prisma.DbNull : geometria } : {}),
+    } })
+    await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[establecimientoId], tabla: "sectores", rowPk: row.id, accion: "INSERT" } })
+    return row
+  })
+  return NextResponse.json({ success: true, data: sector }, { status: 201 })
+}))

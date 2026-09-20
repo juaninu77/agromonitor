@@ -57,12 +57,13 @@
   max-width: 500px;
 }
 .field-workspace[data-panel="true"] .map-drawing-controls { right: 460px; }
-.field-workspace .leaflet-control-zoom { margin-top: 132px; }
-.field-workspace .leaflet-bar { border: 1px solid hsl(var(--border)); box-shadow: 0 3px 14px rgb(0 0 0 / 16%); border-radius: 12px; overflow: hidden; }
-.field-workspace .leaflet-bar a { width: 40px; height: 40px; line-height: 40px; background: hsl(var(--card)); color: hsl(var(--card-foreground)); }
-.field-workspace .leaflet-bar a:hover { background: hsl(var(--muted)); }
-.field-workspace .leaflet-bar a.leaflet-disabled { color: hsl(var(--muted-foreground)); }
-.field-workspace .leaflet-control-attribution { max-width: calc(100vw - 110px); font-size: 9px; }
+/* Leaflet loads its CSS dynamically; this scope must outrank its touch rules. */
+.field-workspace .leaflet-container .leaflet-control-zoom { margin-top: 132px; }
+.field-workspace .leaflet-container .leaflet-bar { border: 1px solid hsl(var(--border)); box-shadow: 0 3px 14px rgb(0 0 0 / 16%); border-radius: 12px; overflow: hidden; }
+.field-workspace .leaflet-container .leaflet-bar a { width: 40px; height: 40px; line-height: 40px; background: hsl(var(--card)); color: hsl(var(--card-foreground)); }
+.field-workspace .leaflet-container .leaflet-bar a:hover { background: hsl(var(--muted)); }
+.field-workspace .leaflet-container .leaflet-bar a.leaflet-disabled { color: hsl(var(--muted-foreground)); }
+.field-workspace .leaflet-container .leaflet-control-attribution { max-width: calc(100vw - 110px); font-size: 9px; }
 @media (max-width: 767px) {
   .field-workspace { height: calc(100dvh - 200px); min-height: 420px; }
   .map-topbar, .field-workspace[data-panel="true"] .map-topbar { right: 64px; }

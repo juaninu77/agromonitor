@@ -1,0 +1,73 @@
+.field-workspace {
+  position: relative;
+  isolation: isolate;
+  height: calc(100dvh - 212px);
+  min-height: 380px;
+}
+.field-workspace[data-expanded="true"] {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  height: 100dvh;
+  min-height: 0;
+  background: hsl(var(--background));
+}
+.map-floating {
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border-radius: 12px;
+  box-shadow: 0 3px 14px rgb(0 0 0 / 16%);
+}
+.map-topbar {
+  position: absolute;
+  inset: 12px 64px auto 12px;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  pointer-events: none;
+}
+.map-topbar > * { pointer-events: auto; }
+.map-floating-panel {
+  position: absolute;
+  z-index: 20;
+  inset: 12px 64px 40px auto;
+  width: 380px;
+  max-width: calc(100% - 88px);
+  overflow: hidden;
+}
+.field-workspace[data-panel="true"] .map-topbar { right: 460px; }
+.map-location-panel {
+  position: absolute;
+  z-index: 30;
+  top: 108px;
+  left: 12px;
+  width: min(420px, calc(100% - 76px));
+  max-height: calc(100% - 150px);
+  overflow-y: auto;
+}
+.map-drawing-controls {
+  position: absolute;
+  z-index: 20;
+  bottom: 48px;
+  left: 12px;
+  right: 76px;
+  max-width: 500px;
+}
+.field-workspace[data-panel="true"] .map-drawing-controls { right: 460px; }
+/* Leaflet loads its CSS dynamically; this scope must outrank its touch rules. */
+.field-workspace .leaflet-container .leaflet-control-zoom { margin-top: 132px; }
+.field-workspace .leaflet-container .leaflet-bar { border: 1px solid hsl(var(--border)); box-shadow: 0 3px 14px rgb(0 0 0 / 16%); border-radius: 12px; overflow: hidden; }
+.field-workspace .leaflet-container .leaflet-bar a { width: 40px; height: 40px; line-height: 40px; background: hsl(var(--card)); color: hsl(var(--card-foreground)); }
+.field-workspace .leaflet-container .leaflet-bar a:hover { background: hsl(var(--muted)); }
+.field-workspace .leaflet-container .leaflet-bar a.leaflet-disabled { color: hsl(var(--muted-foreground)); }
+.field-workspace .leaflet-container .leaflet-control-attribution { max-width: calc(100vw - 110px); font-size: 9px; }
+@media (max-width: 767px) {
+  .field-workspace { height: calc(100dvh - 200px); min-height: 420px; }
+  .map-topbar, .field-workspace[data-panel="true"] .map-topbar { right: 64px; }
+  .map-floating-panel { inset: auto 8px 32px 8px; width: auto; max-width: none; height: min(56dvh, calc(100% - 164px)); }
+  .field-workspace[data-panel="true"] .map-drawing-controls { bottom: calc(min(56dvh, 100% - 164px) + 42px); right: 64px; }
+  .field-workspace[data-panel="true"] .map-bottom-summary { display: none; }
+}

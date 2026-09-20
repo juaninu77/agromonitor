@@ -15,7 +15,7 @@ La edición actualiza el contorno durante el arrastre de cada vértice. Deshacer
 
 ## Mapa y conectividad
 
-El panel se puede ocultar y el mapa ampliar. El encabezado compacto y el panel con desplazamiento propio aprovechan la altura disponible. Tipo de lugar, estado y búsqueda se combinan: por ejemplo Potrero + Con tareas pendientes. Limpiar filtros muestra nuevamente todos los lugares. Una parcela con ganado y cultivo aparece en ambos filtros de uso. Los conteos del listado y del mapa usan la misma consulta de ubicaciones actuales.
+El mapa ahora abre ampliado, con controles y fichas flotantes. Lugares abre el panel; Volver al ERP recupera la navegación general. Ver la actualización en [Mapa, Inventario y Forrajes](MAPA_INVENTARIO_FORRAJES_2026-09-19.md). El encabezado compacto y el panel con desplazamiento propio aprovechan la altura disponible. Tipo de lugar, estado y búsqueda se combinan: por ejemplo Potrero + Con tareas pendientes. Limpiar filtros muestra nuevamente todos los lugares. Una parcela con ganado y cultivo aparece en ambos filtros de uso. Los conteos del listado y del mapa usan la misma consulta de ubicaciones actuales.
 
 Las acciones se adaptan al lugar: Mover animales y Registrar actividad para un potrero, Entrada/salida de stock para un galpón. Los formularios se abren al elegir una acción y se cierran al guardar o cancelar. Mientras hay una operación abierta, se evita cambiar de lugar por un clic accidental en el mapa. Editar límites sigue accesible en el encabezado de la ficha; no modifica la información de los animales.
 
@@ -27,7 +27,7 @@ La superficie del dibujo es aproximada. La suma de hectáreas declaradas de parc
 
 ## Despliegue
 
-Migración nueva: `20260919210000_potreros_operacion`. Agrega registros por lugar, vínculos de documentos, depósitos y movimientos de stock, y tipos cartográficos. No elimina datos existentes. Aplicada primero en la rama aislada `codex-mapa-campo`. La base principal y el merge siguen sujetos a la autorización pendiente de la entrega anterior.
+Migración nueva: `20260919210000_potreros_operacion`. Agrega registros por lugar, vínculos de documentos, depósitos y movimientos de stock, y tipos cartográficos. No elimina datos existentes. Aplicada primero en la rama aislada `codex-mapa-campo`. Las tres migraciones de mapa se aplicaron posteriormente en la base principal y el PR #8 fue integrado; se verificó la conservación del contenido histórico de las 54 tablas existentes.
 
 ## Referencia técnica
 

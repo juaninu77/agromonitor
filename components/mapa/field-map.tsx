@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type RefObject } from "react"
 import * as L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import type { MapDraft, MapSector, MapFocus } from "@/lib/mapa/types"
@@ -11,16 +11,31 @@ import { bindVertexDrag } from "@/lib/mapa/live-edit"
 interface Props {
   sectors: MapSector[]; selected: string | null; draft: MapDraft | null; focus: MapFocus | null;
   satellite: boolean; colorByState?: boolean; fitKey: number; onSelect: (id: string) => void; onVertices: (vertices: Position[]) => void;
+  panelRef?: RefObject<HTMLElement | null>;
 }
 export default function FieldMap(props: Props) {
   const host = useRef<HTMLDivElement>(null), map = useRef<L.Map | null>(null)
   const layer = useRef<L.LayerGroup | null>(null), latest = useRef(props), fitted = useRef(false)
   latest.current = props
   const [tilesFailed, setTilesFailed] = useState(false)
+  function fitVisibleArea(bounds: L.LatLngBounds, maxZoom: number) {
+    const m = map.current, box = host.current?.getBoundingClientRect()
+    if (!m || !box) return
+    const panel = latest.current.panelRef?.current?.getBoundingClientRect()
+    const sidePanel = panel && panel.top < box.top + 24
+    const right = panel && sidePanel ? Math.max(0, box.right - panel.left) : 0
+    const bottom = panel && !sidePanel ? Math.max(0, box.bottom - panel.top) : 0
+    m.fitBounds(bounds, {
+      paddingTopLeft: [30, 110],
+      paddingBottomRight: [Math.min(right + 60, box.width - 150), Math.min(bottom + 35, box.height - 230)],
+      maxZoom,
+    })
+  }
   useEffect(() => {
     if (!host.current) return
-    const m = L.map(host.current, { center: [-42, -67], zoom: 5, minZoom: 3, maxZoom: 20, doubleClickZoom: false })
+    const m = L.map(host.current, { center: [-42, -67], zoom: 5, minZoom: 3, maxZoom: 20, doubleClickZoom: false, zoomControl: false })
     map.current = m; layer.current = L.layerGroup().addTo(m)
+    L.control.zoom({ position: "topleft", zoomInTitle: "Acercar mapa", zoomOutTitle: "Alejar mapa" }).addTo(m)
     L.control.scale({ imperial: false }).addTo(m)
     m.on("click", (event: L.LeafletMouseEvent) => {
       const { draft, onVertices } = latest.current
@@ -64,8 +79,8 @@ export default function FieldMap(props: Props) {
       shape.on("click", () => { if (!latest.current.draft) latest.current.onSelect(sector.id) })
       bounds.extend(shape.getBounds())
     }
-    if (!fitted.current && props.draft?.vertices.length) { const draftBounds = L.latLngBounds(props.draft.vertices.map(([lon, lat]) => [lat, lon])); m.fitBounds(draftBounds, { padding: [40,40], maxZoom: 17 }); fitted.current = true }
-    if (!fitted.current && bounds.isValid()) { m.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 }); fitted.current = true }
+    if (!fitted.current && props.draft?.vertices.length) { const draftBounds = L.latLngBounds(props.draft.vertices.map(([lon, lat]) => [lat, lon])); fitVisibleArea(draftBounds, 17); fitted.current = true }
+    if (!fitted.current && bounds.isValid()) { fitVisibleArea(bounds, 16); fitted.current = true }
     const draft = props.draft
     if (!draft) return
     const vertices = draft.vertices, points: L.LatLngTuple[] = vertices.map(([lon, lat]) => [lat, lon])
@@ -81,7 +96,7 @@ export default function FieldMap(props: Props) {
   }, [props.sectors, props.draft, props.selected, props.colorByState])
   useEffect(() => {
     const selected = props.sectors.find(s => s.id === props.selected)
-    if (selected?.geometria) map.current?.fitBounds(L.geoJSON(selected.geometria).getBounds(), { padding: [45, 45], maxZoom: 17 })
+    if (selected?.geometria) fitVisibleArea(L.geoJSON(selected.geometria).getBounds(), 17)
     // Selection changes center the map; background refreshes must not move a drawing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.selected])
@@ -90,7 +105,7 @@ export default function FieldMap(props: Props) {
     if (!props.fitKey) return
     const bounds = L.latLngBounds([])
     for (const sector of latest.current.sectors) if (sector.geometria) bounds.extend(L.geoJSON(sector.geometria).getBounds())
-    if (bounds.isValid()) map.current?.fitBounds(bounds, { padding: [25, 25], maxZoom: 16 })
+    if (bounds.isValid()) fitVisibleArea(bounds, 16)
   }, [props.fitKey])
   // Leaflet adds classes to its host; keep that className stable when resizing.
   return <div className="relative isolate h-full min-h-0 overflow-hidden rounded-xl border bg-muted">

@@ -2,7 +2,7 @@ name: Validación del ERP
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, codex/preview]
   pull_request:
     branches: [main, develop]
 

@@ -17,6 +17,9 @@ function isValidUUID(id: string | unknown): boolean {
   return UUID_REGEX.test(id)
 }
 
+/** Pantallas de autenticación (públicas; un usuario logueado se redirige al inicio) */
+const AUTH_PAGES = ['/login', '/register', '/forgot-password', '/reset-password']
+
 export const authConfig = {
   pages: {
     signIn: '/login',
@@ -27,22 +30,22 @@ export const authConfig = {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user
       const isApiRoute = nextUrl.pathname.startsWith('/api/')
-      const isAuthRoute = nextUrl.pathname.startsWith('/api/auth')
+      const isAuthApiRoute = nextUrl.pathname.startsWith('/api/auth')
+      const isAuthPage = AUTH_PAGES.some((page) => nextUrl.pathname.startsWith(page))
 
-      const isProtectedRoute = !nextUrl.pathname.startsWith('/login') &&
-                               !nextUrl.pathname.startsWith('/register') &&
-                               !nextUrl.pathname.startsWith('/forgot-password') &&
-                               !nextUrl.pathname.startsWith('/reset-password') &&
-                               !isAuthRoute
-
-      if (isProtectedRoute && !isLoggedIn) {
+      if (!isAuthPage && !isAuthApiRoute && !isLoggedIn) {
         if (isApiRoute) {
           return Response.json({ error: "No autenticado" }, { status: 401 })
         }
-        return Response.redirect(new URL('/login', nextUrl))
+        // Recordar a dónde quería ir el usuario para volver después del login
+        const loginUrl = new URL('/login', nextUrl)
+        if (nextUrl.pathname !== '/') {
+          loginUrl.searchParams.set('callbackUrl', `${nextUrl.pathname}${nextUrl.search}`)
+        }
+        return Response.redirect(loginUrl)
       }
 
-      if (isLoggedIn && (nextUrl.pathname === '/login' || nextUrl.pathname === '/register' || nextUrl.pathname === '/forgot-password' || nextUrl.pathname === '/reset-password')) {
+      if (isLoggedIn && isAuthPage) {
         return Response.redirect(new URL('/', nextUrl))
       }
 

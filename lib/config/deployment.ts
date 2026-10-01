@@ -22,10 +22,12 @@ export function inspectDeploymentEnvironment(env: Variables): EnvironmentIssue[]
   const add = (variable: string, message: string, level: EnvironmentIssue["level"] = "error") =>
     issues.push({ variable, message, level })
   const connections = new Map<string, URL>()
+  // La integración Neon ↔ Vercel expone la conexión directa como DATABASE_URL_UNPOOLED
+  const valores: Variables = { DATABASE_URL: env.DATABASE_URL, DIRECT_URL: env.DIRECT_URL ?? env.DATABASE_URL_UNPOOLED }
   for (const key of ["DATABASE_URL", "DIRECT_URL"]) {
-    if (!env[key]) { add(key, "No configurada"); continue }
+    if (!valores[key]) { add(key, key === "DIRECT_URL" ? "No configurada (también se admite DATABASE_URL_UNPOOLED)" : "No configurada"); continue }
     try {
-      const url = new URL(env[key])
+      const url = new URL(valores[key])
       if (!["postgres:", "postgresql:"].includes(url.protocol) || !url.hostname || url.pathname.length <= 1) {
         add(key, "Debe ser una conexión PostgreSQL con host y base de datos")
         continue

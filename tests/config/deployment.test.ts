@@ -35,3 +35,9 @@ describe("configuración de preview", () => {
   it("acepta el nombre histórico del secreto", () => { expect(errors({ ...env, AUTH_SECRET: undefined, NEXTAUTH_SECRET: "legacy-secret" })).toEqual([]) })
   it("rechaza URLs mal formadas", () => { expect(errors({ ...env, DATABASE_URL: "invalid" })).toHaveLength(1) })
 })
+
+describe("integración Neon ↔ Vercel", () => {
+  it("acepta DATABASE_URL_UNPOOLED en lugar de DIRECT_URL", () => {
+    expect(errors({ ...env, DIRECT_URL: undefined, DATABASE_URL_UNPOOLED: env.DIRECT_URL })).toEqual([])
+  })
+})

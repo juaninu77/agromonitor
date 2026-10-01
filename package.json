@@ -23,6 +23,8 @@
     "dev": "next dev",
     "dev:test": "cross-env NODE_ENV=test next dev",
     "build": "prisma generate && next build",
+    "vercel-build": "prisma generate && node scripts/vercel-migrate.mjs && next build",
+    "db:migrate:vercel": "node scripts/vercel-migrate.mjs",
     "build:prod": "cross-env NODE_ENV=production next build",
     "start": "next start",
     "start:prod": "cross-env NODE_ENV=production next start",

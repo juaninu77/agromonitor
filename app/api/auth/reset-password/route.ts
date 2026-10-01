@@ -1,24 +1,20 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
+import { resetPasswordApiSchema } from "@/lib/validations/auth-schema"
 
 export async function POST(request: Request) {
   try {
-    const { token, email, password } = await request.json()
+    const parsed = resetPasswordApiSchema.safeParse(await request.json().catch(() => null))
 
-    if (!token || !email || !password) {
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Token, email y nueva contrasena son requeridos" },
+        { error: parsed.error.issues[0]?.message ?? "Datos invalidos" },
         { status: 400 }
       )
     }
 
-    if (password.length < 6) {
-      return NextResponse.json(
-        { error: "La contrasena debe tener al menos 6 caracteres" },
-        { status: 400 }
-      )
-    }
+    const { token, email, password } = parsed.data
 
     // Buscar el token de verificacion
     const verificationToken = await prisma.verificationToken.findFirst({
@@ -46,8 +42,8 @@ export async function POST(request: Request) {
       )
     }
 
-    const user = await prisma.usuario.findUnique({
-      where: { email },
+    const user = await prisma.usuario.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
     })
 
     if (!user) {

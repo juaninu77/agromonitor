@@ -1,89 +1,86 @@
 import { NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
+import { registerApiSchema } from '@/lib/validations/auth-schema'
+
+const ERROR_EMAIL_DUPLICADO = 'Ya existe una cuenta con este email. Iniciá sesión o recuperá tu contraseña.'
+
+function slugOrganizacion(nombre: string, apellido: string): string {
+  const base = `${nombre}-${apellido}`
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50)
+
+  return `${base || 'organizacion'}-${Date.now().toString(36)}`
+}
 
 /**
  * API Route para registro de nuevos usuarios
  * POST /api/auth/register
+ *
+ * Crea en una transacción: usuario + organización + membresía (propietario)
+ * + establecimiento inicial. El usuario completa los datos en el onboarding.
  */
 export async function POST(request: Request) {
+  let body: unknown
   try {
-    const body = await request.json()
-    const { email, password, nombre, apellido, telefono } = body
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Solicitud inválida' }, { status: 400 })
+  }
 
-    // Validaciones básicas
-    if (!email || !password || !nombre || !apellido) {
-      return NextResponse.json(
-        { error: 'Todos los campos son requeridos' },
-        { status: 400 }
-      )
-    }
+  const parsed = registerApiSchema.safeParse(body)
+  if (!parsed.success) {
+    const fieldErrors = parsed.error.flatten().fieldErrors
+    const primerError = Object.values(fieldErrors).flat()[0]
+    return NextResponse.json(
+      { error: primerError ?? 'Datos inválidos', fieldErrors },
+      { status: 400 }
+    )
+  }
 
-    // Validar formato de email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email)) {
-      return NextResponse.json(
-        { error: 'El formato del email no es válido' },
-        { status: 400 }
-      )
-    }
+  const { email, password, nombre, apellido, telefono } = parsed.data
 
-    // Validar longitud de contraseña
-    if (password.length < 6) {
-      return NextResponse.json(
-        { error: 'La contraseña debe tener al menos 6 caracteres' },
-        { status: 400 }
-      )
-    }
-
-    // Verificar si el email ya está registrado
-    const existingUser = await prisma.usuario.findUnique({
-      where: { email },
+  try {
+    // Sin distinguir mayúsculas: hay cuentas anteriores a la normalización del email
+    const existingUser = await prisma.usuario.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+      select: { id: true },
     })
 
     if (existingUser) {
       return NextResponse.json(
-        { error: 'Ya existe una cuenta con este email' },
+        { error: ERROR_EMAIL_DUPLICADO, fieldErrors: { email: [ERROR_EMAIL_DUPLICADO] } },
         { status: 409 }
       )
     }
 
-    // Encriptar la contraseña
     const passwordHash = await bcrypt.hash(password, 12)
 
-    // Generar slug único para la organización
-    const baseSlug = `${nombre.toLowerCase()}-${apellido.toLowerCase()}`
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-    
-    const slug = `${baseSlug}-${Date.now().toString(36)}`
-
-    // Crear usuario, organización, membresía y campo en una transacción
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Crear el usuario
+    const user = await prisma.$transaction(async (tx) => {
       const user = await tx.usuario.create({
         data: {
           email,
           passwordHash,
           nombre,
           apellido,
-          telefono: telefono || null,
+          telefono: telefono ?? null,
           rol: 'usuario',
           esActivo: true,
         },
       })
 
-      // 2. Crear organización por defecto
       const organizacion = await tx.organizacion.create({
         data: {
           nombre: `Organización ${apellido}`,
-          slug,
+          slug: slugOrganizacion(nombre, apellido),
         },
       })
 
-      // 3. Crear membresía como propietario
       await tx.membresia.create({
         data: {
           usuarioId: user.id,
@@ -92,7 +89,6 @@ export async function POST(request: Request) {
         },
       })
 
-      // 4. Crear establecimiento de ejemplo
       await tx.establecimiento.create({
         data: {
           nombre: 'Establecimiento Principal',
@@ -102,31 +98,44 @@ export async function POST(request: Request) {
         },
       })
 
-      return {
-        id: user.id,
-        email: user.email,
-        nombre: user.nombre,
-        apellido: user.apellido,
-        rol: user.rol,
-        createdAt: user.createdAt,
-      }
+      return user
     })
 
     return NextResponse.json(
-      { 
+      {
         message: 'Usuario creado exitosamente',
-        user: result,
-        necesitaConfiguracion: true // Indica que debe completar el onboarding
+        user: {
+          id: user.id,
+          email: user.email,
+          nombre: user.nombre,
+          apellido: user.apellido,
+        },
+        necesitaConfiguracion: true, // Debe completar el onboarding
       },
       { status: 201 }
     )
-
   } catch (error) {
-    console.error('Error en registro:', error)
+    // Carrera entre dos registros simultáneos con el mismo email
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return NextResponse.json(
+        { error: ERROR_EMAIL_DUPLICADO, fieldErrors: { email: [ERROR_EMAIL_DUPLICADO] } },
+        { status: 409 }
+      )
+    }
+
+    console.error('[register] Error creando la cuenta:', error)
+
+    const esErrorDeBase =
+      error instanceof Prisma.PrismaClientInitializationError ||
+      (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2021')
+
     return NextResponse.json(
-      { error: 'Error al crear la cuenta' },
-      { status: 500 }
+      {
+        error: esErrorDeBase
+          ? 'El servicio no está disponible en este momento. Intentá de nuevo más tarde.'
+          : 'No pudimos crear la cuenta. Intentá de nuevo.',
+      },
+      { status: esErrorDeBase ? 503 : 500 }
     )
   }
 }
-

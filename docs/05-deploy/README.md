@@ -6,6 +6,7 @@ Documentación sobre despliegue en producción.
 
 | Documento | Descripción |
 |-----------|-------------|
+| [AMBIENTES_VERCEL_NEON.md](./AMBIENTES_VERCEL_NEON.md) | ⭐ Ambientes separados (prod / preview / dev) y migraciones automáticas en el build |
 | [GUIA_VERCEL_NEON_PASO_A_PASO.md](./GUIA_VERCEL_NEON_PASO_A_PASO.md) | Deploy completo |
 
 ## 🏗️ Stack de Producción
@@ -26,8 +27,9 @@ Documentación sobre despliegue en producción.
 ## ⚡ Comandos
 
 ```bash
-pnpm build          # Build de producción
-pnpm db:migrate:deploy  # Aplicar migraciones
+pnpm build              # Build de producción
+pnpm vercel-build       # Lo que corre Vercel: generate + migraciones del ambiente + build
+pnpm db:migrate:deploy  # Aplicar migraciones a mano (.env.production)
 ```
 
 ---

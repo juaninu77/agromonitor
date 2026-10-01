@@ -1,73 +1,93 @@
 'use client'
 
-import { useState } from 'react'
-import { signIn } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
+import { signIn } from 'next-auth/react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Loader2, Sprout, AlertCircle } from 'lucide-react'
+import { AuthHeader } from '@/components/auth/auth-header'
+import { FieldError } from '@/components/auth/field-error'
+import { PasswordInput } from '@/components/auth/password-input'
+import {
+  callbackUrlSeguro,
+  loginSchema,
+  mensajeErrorLogin,
+  type LoginInput,
+} from '@/lib/validations/auth-schema'
+
+const INPUT_CLASS =
+  'bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus-visible:ring-emerald-500 aria-[invalid=true]:border-red-400'
 
 /**
- * Página de inicio de sesión
- * Permite a los usuarios autenticarse con email y contraseña
+ * Formulario de inicio de sesión con email y contraseña.
+ * Tras autenticar vuelve a la ruta pedida originalmente (`callbackUrl`).
  */
-export default function LoginPage() {
-  const router = useRouter()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+function LoginForm() {
+  const searchParams = useSearchParams()
+  const callbackUrl = callbackUrlSeguro(searchParams.get('callbackUrl'))
+  const emailInicial = searchParams.get('email') ?? ''
+  const recienRegistrado = searchParams.get('registrado') === '1'
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const [error, setError] = useState('')
+
+  const {
+    register,
+    handleSubmit,
+    setFocus,
+    formState: { errors, isSubmitting, isSubmitSuccessful },
+  } = useForm<LoginInput>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: emailInicial, password: '' },
+  })
+
+  // Deshabilitado también después de un login exitoso, mientras navega
+  const bloqueado = isSubmitting || (isSubmitSuccessful && !error)
+
+  const onSubmit = async (data: LoginInput) => {
     setError('')
-    setLoading(true)
 
     try {
       const result = await signIn('credentials', {
-        email,
-        password,
+        email: data.email,
+        password: data.password,
         redirect: false,
       })
 
-      if (result?.error) {
-        setError('Email o contraseña incorrectos')
-      } else {
-        router.push('/')
-        router.refresh()
+      if (!result || result.error) {
+        setError(mensajeErrorLogin(result?.error, result?.code))
+        setFocus('password')
+        return
       }
+
+      // Navegación completa para que el layout lea la sesión nueva
+      window.location.assign(callbackUrl)
     } catch {
-      setError('Error al iniciar sesión')
-    } finally {
-      setLoading(false)
+      setError(mensajeErrorLogin('Configuration'))
     }
   }
 
   return (
     <Card className="border-0 shadow-2xl bg-white/95 backdrop-blur">
-      <CardHeader className="space-y-1 text-center pb-2">
-        {/* Logo */}
-        <div className="flex justify-center mb-4">
-          <div className="p-3 rounded-full bg-emerald-100">
-            <Sprout className="h-10 w-10 text-emerald-600" />
-          </div>
-        </div>
-        <CardTitle className="text-2xl font-bold text-gray-900">
-          AgroMonitor ERP
-        </CardTitle>
-        <CardDescription className="text-gray-600">
-          Ingresa tus credenciales para acceder
-        </CardDescription>
-      </CardHeader>
+      <AuthHeader title="AgroMonitor ERP" description="Ingresá tus credenciales para acceder" />
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <CardContent className="space-y-4">
+          {recienRegistrado && !error && (
+            <Alert className="bg-emerald-50 border-emerald-200 text-emerald-800">
+              <CheckCircle2 className="h-4 w-4 !text-emerald-600" />
+              <AlertDescription>Tu cuenta fue creada. Iniciá sesión para continuar.</AlertDescription>
+            </Alert>
+          )}
+
           {error && (
-            <Alert variant="destructive" className="bg-red-50 border-red-200">
+            <Alert variant="destructive" className="bg-red-50 border-red-200" role="alert">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>{error}</AlertDescription>
             </Alert>
@@ -80,13 +100,20 @@ export default function LoginPage() {
             <Input
               id="email"
               type="email"
+              inputMode="email"
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              autoFocus={!emailInicial}
               placeholder="tu@email.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              disabled={loading}
-              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500"
+              disabled={bloqueado}
+              aria-invalid={!!errors.email}
+              aria-describedby={errors.email ? 'email-error' : undefined}
+              className={INPUT_CLASS}
+              {...register('email')}
             />
+            <FieldError id="email-error" message={errors.email?.message} />
           </div>
 
           <div className="space-y-2">
@@ -101,16 +128,19 @@ export default function LoginPage() {
                 ¿Olvidaste tu contraseña?
               </Link>
             </div>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
+              autoComplete="current-password"
+              autoFocus={!!emailInicial}
               placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              disabled={loading}
-              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500"
+              avisarBloqMayus
+              disabled={bloqueado}
+              aria-invalid={!!errors.password}
+              aria-describedby={errors.password ? 'password-error' : undefined}
+              className={INPUT_CLASS}
+              {...register('password')}
             />
+            <FieldError id="password-error" message={errors.password?.message} />
           </div>
         </CardContent>
 
@@ -118,25 +148,25 @@ export default function LoginPage() {
           <Button
             type="submit"
             className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5"
-            disabled={loading}
+            disabled={bloqueado}
           >
-            {loading ? (
+            {bloqueado ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Ingresando...
               </>
             ) : (
-              'Iniciar Sesión'
+              'Iniciar sesión'
             )}
           </Button>
 
           <p className="text-center text-sm text-gray-600">
-            ¿No tienes cuenta?{' '}
-            <Link 
-              href="/register" 
+            ¿No tenés cuenta?{' '}
+            <Link
+              href="/register"
               className="font-medium text-emerald-600 hover:text-emerald-700 hover:underline"
             >
-              Registrate aquí
+              Registrate
             </Link>
           </p>
         </CardFooter>
@@ -145,3 +175,18 @@ export default function LoginPage() {
   )
 }
 
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <Card className="border-0 shadow-2xl bg-white/95 backdrop-blur">
+          <CardContent className="pt-8 pb-8 flex justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+          </CardContent>
+        </Card>
+      }
+    >
+      <LoginForm />
+    </Suspense>
+  )
+}

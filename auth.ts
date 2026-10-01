@@ -1,8 +1,25 @@
-import NextAuth from 'next-auth'
+import NextAuth, { CredentialsSignin } from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
+import { AUTH_ERROR_CODES, loginSchema } from '@/lib/validations/auth-schema'
 import { authConfig } from './auth.config'
+
+class CredencialesInvalidasError extends CredentialsSignin {
+  code = AUTH_ERROR_CODES.CREDENCIALES_INVALIDAS
+}
+
+class CuentaInactivaError extends CredentialsSignin {
+  code = AUTH_ERROR_CODES.CUENTA_INACTIVA
+}
+
+class ServicioNoDisponibleError extends CredentialsSignin {
+  code = AUTH_ERROR_CODES.SERVICIO_NO_DISPONIBLE
+}
+
+// Hash descartable: si el email no existe igual se ejecuta bcrypt.compare,
+// así el tiempo de respuesta no revela qué emails están registrados.
+const HASH_FICTICIO = '$2b$12$AqSDQvjIkG37t4v3i8rRTuvOZQVnk4MXYpWPd4GzFP/UQS6tVgpBq'
 
 /**
  * Configuración completa de NextAuth.js v5
@@ -18,66 +35,38 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: 'Contraseña', type: 'password' },
       },
       async authorize(credentials) {
-        console.log('🔐 Intentando autenticar...')
-        
-        // Validar que se proporcionaron las credenciales
-        if (!credentials?.email || !credentials?.password) {
-          console.log('❌ Credenciales vacías')
-          return null
+        const parsed = loginSchema.safeParse(credentials)
+        if (!parsed.success) throw new CredencialesInvalidasError()
+
+        const { email, password } = parsed.data
+
+        let user
+        try {
+          // Búsqueda sin distinguir mayúsculas: hay cuentas creadas antes de
+          // que el registro normalizara el email a minúsculas.
+          user = await prisma.usuario.findFirst({
+            where: { email: { equals: email, mode: 'insensitive' } },
+          })
+        } catch (error) {
+          console.error('[auth] Error consultando usuario:', error)
+          throw new ServicioNoDisponibleError()
         }
 
-        const email = credentials.email as string
-        const password = credentials.password as string
-        console.log('📧 Email recibido:', email)
+        const passwordMatch = await bcrypt.compare(password, user?.passwordHash ?? HASH_FICTICIO)
 
-        try {
-          // Buscar usuario por email
-          const user = await prisma.usuario.findUnique({
-            where: { email },
-          })
-          console.log('👤 Usuario encontrado:', user ? 'Sí' : 'No')
+        if (!user || !user.passwordHash || !passwordMatch) {
+          throw new CredencialesInvalidasError()
+        }
 
-          // Si no existe el usuario
-          if (!user) {
-            console.log('❌ Usuario no encontrado:', email)
-            return null
-          }
+        // Solo se informa "inactiva" a quien conoce la contraseña
+        if (!user.esActivo) throw new CuentaInactivaError()
 
-          console.log('📝 Usuario data:', { id: user.id, email: user.email, esActivo: user.esActivo })
-
-          // Verificar si el usuario está activo
-          if (!user.esActivo) {
-            console.log('❌ Usuario inactivo:', email)
-            return null
-          }
-
-          if (!user.passwordHash) {
-            console.log('❌ Usuario sin contraseña configurada:', email)
-            return null
-          }
-
-          console.log('🔑 Comparando contraseña...')
-          const passwordMatch = await bcrypt.compare(password, user.passwordHash)
-          console.log('🔑 Contraseña coincide:', passwordMatch)
-
-          if (!passwordMatch) {
-            console.log('❌ Contraseña incorrecta para:', email)
-            return null
-          }
-
-          console.log('✅ Autenticación exitosa para:', email)
-
-          // Retornar el usuario (sin la contraseña)
-          return {
-            id: user.id,
-            email: user.email,
-            nombre: user.nombre,
-            apellido: user.apellido,
-            rol: user.rol,
-          }
-        } catch (error) {
-          console.error('❌ Error en autenticación:', error)
-          return null
+        return {
+          id: user.id,
+          email: user.email,
+          nombre: user.nombre,
+          apellido: user.apellido,
+          rol: user.rol,
         }
       },
     }),

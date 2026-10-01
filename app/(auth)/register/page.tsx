@@ -1,159 +1,121 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { signIn } from 'next-auth/react'
 import Link from 'next/link'
+import { signIn } from 'next-auth/react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Loader2, Sprout, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { AuthHeader } from '@/components/auth/auth-header'
+import { FieldError } from '@/components/auth/field-error'
+import { PasswordInput } from '@/components/auth/password-input'
+import { PasswordRequirements } from '@/components/auth/password-requirements'
+import { registerFormSchema, type RegisterFormInput } from '@/lib/validations/auth-schema'
+
+const INPUT_CLASS =
+  'bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus-visible:ring-emerald-500 aria-[invalid=true]:border-red-400'
+
+type CampoRegistro = keyof RegisterFormInput
 
 /**
- * Página de registro de nuevos usuarios
- * Permite crear una cuenta en el sistema
+ * Página de registro de nuevos usuarios.
+ * Crea la cuenta, inicia sesión automáticamente y lleva al onboarding.
  */
 export default function RegisterPage() {
-  const router = useRouter()
-  const [formData, setFormData] = useState({
-    nombre: '',
-    apellido: '',
-    email: '',
-    telefono: '',
-    password: '',
-    confirmPassword: '',
-  })
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [necesitaConfiguracion, setNecesitaConfiguracion] = useState(false)
+  const [creada, setCreada] = useState(false)
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    })
-  }
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setError: setFieldError,
+    formState: { errors, isSubmitting },
+  } = useForm<RegisterFormInput>({
+    resolver: zodResolver(registerFormSchema),
+    mode: 'onTouched',
+    defaultValues: {
+      nombre: '',
+      apellido: '',
+      email: '',
+      telefono: '',
+      password: '',
+      confirmPassword: '',
+    },
+  })
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const password = watch('password') ?? ''
+  const bloqueado = isSubmitting || creada
+
+  const onSubmit = async ({ confirmPassword: _confirm, ...data }: RegisterFormInput) => {
     setError('')
-    setLoading(true)
 
-    // Validar que las contraseñas coincidan
-    if (formData.password !== formData.confirmPassword) {
-      setError('Las contraseñas no coinciden')
-      setLoading(false)
-      return
-    }
-
-    // Validar longitud de contraseña
-    if (formData.password.length < 6) {
-      setError('La contraseña debe tener al menos 6 caracteres')
-      setLoading(false)
-      return
-    }
-
+    let response: Response
+    let body: { error?: string; fieldErrors?: Partial<Record<CampoRegistro, string[]>> }
     try {
-      const response = await fetch('/api/auth/register', {
+      response = await fetch('/api/auth/register', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          nombre: formData.nombre,
-          apellido: formData.apellido,
-          email: formData.email,
-          telefono: formData.telefono,
-          password: formData.password,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
       })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Error al crear la cuenta')
-      }
-
-      setSuccess(true)
-      setNecesitaConfiguracion(data.necesitaConfiguracion || false)
-      
-      // Hacer login automático y redirigir al onboarding
-      try {
-        const result = await signIn('credentials', {
-          email: formData.email,
-          password: formData.password,
-          redirect: false,
-        })
-
-        if (result?.ok) {
-          // Redirigir al onboarding después de 1 segundo
-          setTimeout(() => {
-            router.push('/configuracion/onboarding')
-          }, 1000)
-        } else {
-          // Si falla el login, redirigir al login normal
-          setTimeout(() => {
-            router.push('/login')
-          }, 2000)
-        }
-      } catch (err) {
-        // Si hay error en el login, redirigir al login normal
-        setTimeout(() => {
-          router.push('/login')
-        }, 2000)
-      }
-
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al crear la cuenta')
-    } finally {
-      setLoading(false)
+      body = await response.json().catch(() => ({}))
+    } catch {
+      setError('No pudimos conectar con el servidor. Revisá tu conexión e intentá de nuevo.')
+      return
     }
+
+    if (!response.ok) {
+      // Errores por campo devueltos por el servidor (ej. email duplicado)
+      let marcoCampo = false
+      for (const [campo, mensajes] of Object.entries(body.fieldErrors ?? {})) {
+        if (mensajes?.[0]) {
+          setFieldError(campo as CampoRegistro, { message: mensajes[0] }, { shouldFocus: !marcoCampo })
+          marcoCampo = true
+        }
+      }
+      if (!marcoCampo) setError(body.error || 'No pudimos crear la cuenta. Intentá de nuevo.')
+      return
+    }
+
+    setCreada(true)
+
+    // Login automático; si falla, al login con el email precargado
+    const email = data.email.trim().toLowerCase()
+    try {
+      const result = await signIn('credentials', {
+        email,
+        password: data.password,
+        redirect: false,
+      })
+      if (result?.ok && !result.error) {
+        window.location.assign('/configuracion/onboarding')
+        return
+      }
+    } catch {
+      // se maneja abajo
+    }
+    window.location.assign(`/login?registrado=1&email=${encodeURIComponent(email)}`)
   }
 
-  if (success) {
+  if (creada) {
     return (
       <Card className="border-0 shadow-2xl bg-white/95 backdrop-blur">
         <CardContent className="pt-8 pb-8">
-          <div className="text-center space-y-4">
+          <div className="text-center space-y-4" role="status">
             <div className="flex justify-center">
               <div className="p-3 rounded-full bg-emerald-100">
                 <CheckCircle2 className="h-10 w-10 text-emerald-600" />
               </div>
             </div>
-            <h2 className="text-xl font-semibold text-gray-900">
-              ¡Cuenta creada exitosamente!
-            </h2>
-
-            <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-4 text-left space-y-2">
-              <p className="text-sm font-semibold text-emerald-800">
-                Guarda tus credenciales:
-              </p>
-              <div className="space-y-1">
-                <p className="text-sm text-gray-700">
-                  <span className="font-medium">Email:</span>{" "}
-                  <span className="font-mono bg-white px-1.5 py-0.5 rounded border text-gray-900">
-                    {formData.email}
-                  </span>
-                </p>
-                <p className="text-sm text-gray-700">
-                  <span className="font-medium">Contrasena:</span>{" "}
-                  <span className="font-mono bg-white px-1.5 py-0.5 rounded border text-gray-900">
-                    {"•".repeat(formData.password.length)}
-                  </span>
-                </p>
-              </div>
-              <p className="text-xs text-emerald-700 mt-2">
-                Si olvidas tu contrasena, podes restablecerla desde el inicio de sesion.
-              </p>
-            </div>
-
-            <p className="text-gray-600 text-sm">
-              {necesitaConfiguracion 
-                ? 'Redirigiendo a la configuracion inicial...'
-                : 'Redirigiendo al inicio de sesion...'}
+            <h2 className="text-xl font-semibold text-gray-900">¡Cuenta creada!</h2>
+            <p className="text-gray-600 text-sm flex items-center justify-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Preparando tu espacio de trabajo...
             </p>
           </div>
         </CardContent>
@@ -161,65 +123,43 @@ export default function RegisterPage() {
     )
   }
 
+  const campo = (name: CampoRegistro) => ({
+    id: name,
+    disabled: bloqueado,
+    'aria-invalid': !!errors[name],
+    'aria-describedby': errors[name] ? `${name}-error` : undefined,
+    className: INPUT_CLASS,
+    ...register(name),
+  })
+
   return (
     <Card className="border-0 shadow-2xl bg-white/95 backdrop-blur">
-      <CardHeader className="space-y-1 text-center pb-2">
-        {/* Logo */}
-        <div className="flex justify-center mb-4">
-          <div className="p-3 rounded-full bg-emerald-100">
-            <Sprout className="h-10 w-10 text-emerald-600" />
-          </div>
-        </div>
-        <CardTitle className="text-2xl font-bold text-gray-900">
-          Crear Cuenta
-        </CardTitle>
-        <CardDescription className="text-gray-600">
-          Registrate para comenzar a usar AgroMonitor
-        </CardDescription>
-      </CardHeader>
+      <AuthHeader title="Crear cuenta" description="Registrate para comenzar a usar AgroMonitor" />
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <CardContent className="space-y-4">
           {error && (
-            <Alert variant="destructive" className="bg-red-50 border-red-200">
+            <Alert variant="destructive" className="bg-red-50 border-red-200" role="alert">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="nombre" className="text-gray-700">
                 Nombre
               </Label>
-              <Input
-                id="nombre"
-                name="nombre"
-                type="text"
-                placeholder="Juan"
-                value={formData.nombre}
-                onChange={handleChange}
-                required
-                disabled={loading}
-                className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
-              />
+              <Input type="text" autoComplete="given-name" autoFocus placeholder="Juan" {...campo('nombre')} />
+              <FieldError id="nombre-error" message={errors.nombre?.message} />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="apellido" className="text-gray-700">
                 Apellido
               </Label>
-              <Input
-                id="apellido"
-                name="apellido"
-                type="text"
-                placeholder="Pérez"
-                value={formData.apellido}
-                onChange={handleChange}
-                required
-                disabled={loading}
-                className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
-              />
+              <Input type="text" autoComplete="family-name" placeholder="Pérez" {...campo('apellido')} />
+              <FieldError id="apellido-error" message={errors.apellido?.message} />
             </div>
           </div>
 
@@ -228,69 +168,49 @@ export default function RegisterPage() {
               Email
             </Label>
             <Input
-              id="email"
-              name="email"
               type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               placeholder="tu@email.com"
-              value={formData.email}
-              onChange={handleChange}
-              required
-              disabled={loading}
-              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
+              {...campo('email')}
             />
+            <FieldError id="email-error" message={errors.email?.message} />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="telefono" className="text-gray-700">
               Teléfono <span className="text-gray-400">(opcional)</span>
             </Label>
-            <Input
-              id="telefono"
-              name="telefono"
-              type="tel"
-              placeholder="+54 11 1234-5678"
-              value={formData.telefono}
-              onChange={handleChange}
-              disabled={loading}
-              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
-            />
+            <Input type="tel" inputMode="tel" autoComplete="tel" placeholder="+54 11 1234-5678" {...campo('telefono')} />
+            <FieldError id="telefono-error" message={errors.telefono?.message} />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="password" className="text-gray-700">
               Contraseña
             </Label>
-            <Input
-              id="password"
-              name="password"
-              type="password"
+            <PasswordInput
+              autoComplete="new-password"
               placeholder="••••••••"
-              value={formData.password}
-              onChange={handleChange}
-              required
-              disabled={loading}
-              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
+              avisarBloqMayus
+              {...campo('password')}
+              aria-describedby={['password-requisitos', errors.password ? 'password-error' : null]
+                .filter(Boolean)
+                .join(' ')}
             />
-            <p className="text-xs text-gray-500">
-              Mínimo 6 caracteres
-            </p>
+            <PasswordRequirements id="password-requisitos" password={password} />
+            <FieldError id="password-error" message={errors.password?.message} />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="confirmPassword" className="text-gray-700">
-              Confirmar Contraseña
+              Confirmar contraseña
             </Label>
-            <Input
-              id="confirmPassword"
-              name="confirmPassword"
-              type="password"
-              placeholder="••••••••"
-              value={formData.confirmPassword}
-              onChange={handleChange}
-              required
-              disabled={loading}
-              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
-            />
+            <PasswordInput autoComplete="new-password" placeholder="••••••••" {...campo('confirmPassword')} />
+            <FieldError id="confirmPassword-error" message={errors.confirmPassword?.message} />
           </div>
         </CardContent>
 
@@ -298,25 +218,22 @@ export default function RegisterPage() {
           <Button
             type="submit"
             className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5"
-            disabled={loading}
+            disabled={bloqueado}
           >
-            {loading ? (
+            {isSubmitting ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Creando cuenta...
               </>
             ) : (
-              'Crear Cuenta'
+              'Crear cuenta'
             )}
           </Button>
 
           <p className="text-center text-sm text-gray-600">
-            ¿Ya tienes cuenta?{' '}
-            <Link 
-              href="/login" 
-              className="font-medium text-emerald-600 hover:text-emerald-700 hover:underline"
-            >
-              Inicia sesión aquí
+            ¿Ya tenés cuenta?{' '}
+            <Link href="/login" className="font-medium text-emerald-600 hover:text-emerald-700 hover:underline">
+              Iniciá sesión
             </Link>
           </p>
         </CardFooter>
@@ -324,4 +241,3 @@ export default function RegisterPage() {
     </Card>
   )
 }
-

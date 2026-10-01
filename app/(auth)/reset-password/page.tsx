@@ -4,7 +4,6 @@ import { useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Card,
@@ -22,6 +21,9 @@ import {
   KeyRound,
   ArrowLeft,
 } from "lucide-react"
+import { PasswordInput } from "@/components/auth/password-input"
+import { PasswordRequirements } from "@/components/auth/password-requirements"
+import { resetPasswordFormSchema } from "@/lib/validations/auth-schema"
 
 function ResetPasswordForm() {
   const router = useRouter()
@@ -66,13 +68,9 @@ function ResetPasswordForm() {
     e.preventDefault()
     setError("")
 
-    if (password !== confirmPassword) {
-      setError("Las contrasenas no coinciden")
-      return
-    }
-
-    if (password.length < 6) {
-      setError("La contrasena debe tener al menos 6 caracteres")
+    const parsed = resetPasswordFormSchema.safeParse({ password, confirmPassword })
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? "Contraseña inválida")
       return
     }
 
@@ -157,32 +155,35 @@ function ResetPasswordForm() {
             <Label htmlFor="password" className="text-gray-700">
               Nueva contrasena
             </Label>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
+              autoComplete="new-password"
+              autoFocus
+              avisarBloqMayus
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
               disabled={loading}
-              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500"
+              aria-describedby="password-requisitos"
+              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus-visible:ring-emerald-500"
             />
-            <p className="text-xs text-gray-500">Minimo 6 caracteres</p>
+            <PasswordRequirements id="password-requisitos" password={password} />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="confirmPassword" className="text-gray-700">
               Confirmar contrasena
             </Label>
-            <Input
+            <PasswordInput
               id="confirmPassword"
-              type="password"
+              autoComplete="new-password"
               placeholder="••••••••"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
               disabled={loading}
-              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500"
+              className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 focus-visible:ring-emerald-500"
             />
           </div>
         </CardContent>

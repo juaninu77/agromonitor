@@ -501,7 +501,7 @@ model Animal {
 
   // === IDENTIFICACIÓN ===
   cuig           String? @unique // SENASA
-  caravanaVisual String? @unique @map("caravana_visual")
+  caravanaVisual String? @map("caravana_visual") // única por establecimiento (ver @@unique)
   caravanaRfid   String? @unique @map("caravana_rfid")
   otroId         String? @map("otro_id") // Numeración interna, marca, etc.
 
@@ -591,6 +591,8 @@ model Animal {
   @@index([razaId])
   @@index([categoriaId])
   @@index([proveedorId])
+  @@index([establecimientoId, estadoVital])
+  @@unique([establecimientoId, caravanaVisual])
   @@map("animales")
 }
 

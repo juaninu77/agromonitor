@@ -1,14 +1,10 @@
 import { ganadoPaginacionSchema } from "@/lib/ganado/query"
 import { NextResponse } from "next/server"
 import { withAuth } from "@/lib/api/with-auth"
-import {
-  scopeEstablecimiento,
-  loteDelTenant,
-  sectorDelTenant,
-  resolverEstablecimientoDestino,
-} from "@/lib/api/tenant"
+import { scopeEstablecimiento, resolverEstablecimientoDestino } from "@/lib/api/tenant"
+import { logAudit } from "@/lib/api/audit-log"
 import { prisma } from "@/lib/prisma"
-import { validarRazaYCategoriaParaEspecie } from "@/lib/ganado/validate-especie"
+import { ejecutarAltas, mapearErrorPrisma, prepararAltas } from "@/lib/ganado/alta"
 
 // ============================================
 // GET /api/ganado/bovinos
@@ -329,7 +325,10 @@ export const GET = withAuth(async (request, ctx) => {
 
 export const POST = withAuth(async (request, ctx) => {
   try {
-    const body = await request.json()
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Cuerpo de la petición inválido" }, { status: 400 })
+    }
 
     // Resolver establecimiento destino (scoping multi-tenant)
     const establecimientoDestino = resolverEstablecimientoDestino(
@@ -337,177 +336,54 @@ export const POST = withAuth(async (request, ctx) => {
       ctx.establecimientoIds
     )
     if (!establecimientoDestino) {
-      if (body.establecimientoId) {
-        return NextResponse.json(
-          { error: "No tienes acceso a este establecimiento" },
-          { status: 403 }
-        )
-      }
       return NextResponse.json(
-        { error: "Se requiere establecimientoId para crear el animal" },
-        { status: 400 }
+        body.establecimientoId
+          ? { error: "No tienes acceso a este establecimiento" }
+          : { error: "Se requiere establecimientoId para crear el animal" },
+        { status: body.establecimientoId ? 403 : 400 }
       )
     }
 
     // Organización dueña del establecimiento destino (para scopear el catálogo)
-    const organizacionDestino =
-      ctx.organizacionDeEstablecimiento[establecimientoDestino]
-    const organizacionIdsScope = organizacionDestino
-      ? [organizacionDestino]
-      : ctx.organizacionIds
+    const organizacionDestino = ctx.organizacionDeEstablecimiento[establecimientoDestino]
+    const organizacionIds = organizacionDestino ? [organizacionDestino] : ctx.organizacionIds
 
-    let especieId: string | undefined = body.especieId
-    if (!especieId) {
-      const especieBovina = await prisma.especie.findFirst({
-        where: { nombre: "bovino", organizacionId: { in: organizacionIdsScope } },
-      })
-      if (!especieBovina) {
-        return NextResponse.json(
-          { error: "No hay especie bovina en catálogo; indicá especieId o ejecutá el seed." },
-          { status: 400 }
-        )
-      }
-      especieId = especieBovina.id
-    } else {
-      const esp = await prisma.especie.findFirst({
-        where: { id: especieId, organizacionId: { in: organizacionIdsScope } },
-      })
-      if (!esp) {
-        return NextResponse.json({ error: "Especie no válida" }, { status: 400 })
-      }
-    }
-
-    // Validar raza
-    if (!body.razaId) {
+    // Misma validación que el alta masiva: esquema zod, catálogo del tenant
+    // (incluidos los globales), coherencia especie/raza/categoría/sexo,
+    // lote y sector del establecimiento, duplicados de identificación.
+    const { resultados, preparadas } = await prepararAltas([{ ...body, fila: 1 }], {
+      establecimientoId: establecimientoDestino,
+      organizacionIds,
+    })
+    const resultado = resultados[0]
+    if (!resultado.ok) {
+      const esDuplicado = resultado.errores.some((e) => /ya existe|ya está registrad/i.test(e))
       return NextResponse.json(
-        { error: "Se requiere la raza" },
-        { status: 400 }
+        { success: false, error: resultado.errores[0], errores: resultado.errores },
+        { status: esDuplicado ? 409 : 400 }
       )
     }
 
-    // Validar categoría
-    if (!body.categoriaId) {
-      return NextResponse.json(
-        { error: "Se requiere la categoría" },
-        { status: 400 }
-      )
-    }
-
-    const comboErr = await validarRazaYCategoriaParaEspecie(
-      especieId,
-      body.razaId,
-      body.categoriaId,
-      organizacionIdsScope
-    )
-    if (comboErr) {
-      return NextResponse.json({ error: comboErr }, { status: 400 })
-    }
-
-    // Validar lote (si se proporciona) ANTES de crear el animal
-    if (body.loteId) {
-      const lote = await loteDelTenant(body.loteId, ctx.establecimientoIds)
-
-      if (!lote) {
-        return NextResponse.json(
-          { error: "Lote no encontrado" },
-          { status: 404 }
-        )
-      }
-
-      if (lote.establecimientoId !== establecimientoDestino) { return NextResponse.json({ error: "El lote no pertenece al establecimiento del animal" }, { status: 400 }) }
-
-      if (lote.especieId !== especieId) {
-        return NextResponse.json(
-          { error: "El lote seleccionado no corresponde a la especie del animal" },
-          { status: 400 }
-        )
-      }
-    }
-
-    // Validar sector (si se proporciona) ANTES de crear el animal
-    if (body.sectorId) {
-      const sector = await sectorDelTenant(body.sectorId, ctx.establecimientoIds)
-      if (!sector || sector.establecimientoId !== establecimientoDestino) {
-        return NextResponse.json(
-          { error: "Sector no encontrado" },
-          { status: 404 }
-        )
-      }
-    }
-
-    // Alta atómica: un fallo en peso o historial revierte también el animal.
-    const animal = await prisma.$transaction(async (tx) => {
-      // Crear animal
-      const animal = await tx.animal.create({
-        data: {
-          especieId,
-          razaId: body.razaId,
-          categoriaId: body.categoriaId,
-          establecimientoId: establecimientoDestino,
-          sexo: body.sexo || 'M',
-          cuig: body.cuig,
-          caravanaVisual: body.caravanaVisual,
-          caravanaRfid: body.caravanaRfid,
-          otroId: body.otroId,
-          fechaNacimiento: body.fechaNacimiento ? new Date(body.fechaNacimiento) : null,
-          origen: body.origen || 'cria_propia',
-          colorManto: body.colorManto,
-          estadoCastracion: body.estadoCastracion,
-          denticion: body.denticion,
-          esCabana: body.esCabana || false,
-          registroCabana: body.registroCabana,
-          notas: body.notas,
-        },
-        include: {
-          especie: true,
-          raza: true,
-          categoria: true,
-        },
-      })
-
-      // Si se proporciona peso inicial, crear evento de pesada
-      if (body.pesoInicial) {
-        await tx.evtPesada.create({
-          data: {
-            animalId: animal.id,
-            fecha: new Date(),
-            pesoKg: body.pesoInicial,
-            cc: body.ccInicial,
-          }
-        })
-      }
-
-      // Si se proporciona lote (ya validado), asignar al lote
-      if (body.loteId) {
-        await tx.animalLoteHist.create({
-          data: {
-            animalId: animal.id,
-            loteId: body.loteId,
-            desde: new Date(),
-          }
-        })
-      }
-
-      // Si se proporciona sector/ubicación (ya validado), asignar ubicación
-      if (body.sectorId) {
-        await tx.ubicacionHist.create({
-          data: {
-            animalId: animal.id,
-            sectorId: body.sectorId,
-            desde: new Date(),
-          }
-        })
-      }
-
-      return animal
+    await ejecutarAltas(preparadas)
+    const animal = await prisma.animal.findUnique({
+      where: { id: resultado.animalId },
+      include: { especie: true, raza: true, categoria: true },
     })
 
-    return NextResponse.json({
-      success: true,
-      data: animal,
-    }, { status: 201 })
+    await logAudit({
+      userId: ctx.userId,
+      tabla: "animales",
+      rowPk: resultado.animalId!,
+      accion: "INSERT",
+      organizacionId: organizacionDestino,
+      detalle: { identificacion: resultado.identificacion, establecimientoId: establecimientoDestino },
+    })
+
+    return NextResponse.json({ success: true, data: animal }, { status: 201 })
   } catch (error) {
-    console.error("Error al crear bovino:", error)
+    const conocido = mapearErrorPrisma(error)
+    if (conocido) return NextResponse.json({ success: false, error: conocido.error }, { status: conocido.status })
+    console.error("Error al crear animal:", error)
     return NextResponse.json(
       { success: false, error: "Error interno del servidor" },
       { status: 500 }

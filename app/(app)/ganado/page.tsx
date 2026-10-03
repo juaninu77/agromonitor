@@ -61,6 +61,7 @@ import { RegisterDialog } from "./components/register-dialog"
 import { AnimalDialog } from "./components/animal-dialog"
 import { QuickWeighForm } from "./components/quick-weigh-form"
 import { QuickHealthForm } from "./components/quick-health-form"
+import { esCatalogoVisible } from "@/lib/utils"
 
 type CatalogItem = {
   id: string
@@ -161,7 +162,7 @@ function GanadoWorkspace({
         especie === "todos" || item.especie?.nombre.toLowerCase() === especie
       return {
         categorias: (cat.data as CatalogItem[]).filter(
-          (item) => item.organizacionId === organizacionId && matching(item),
+          (item) => esCatalogoVisible(item, organizacionId) && matching(item),
         ),
         lotes: (lot as CatalogItem[]).filter(matching),
       }

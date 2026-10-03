@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
-import { scopeOrganizacion } from "@/lib/api/tenant"
+import { scopeCatalogo } from "@/lib/api/tenant"
 import { decimalToNumber } from "@/lib/api/serialize"
 
 export const GET = withAuth(async (request, ctx) => {
@@ -11,7 +11,7 @@ export const GET = withAuth(async (request, ctx) => {
     const busqueda = searchParams.get("busqueda")
 
     const where: Record<string, unknown> = {
-      ...scopeOrganizacion(ctx.organizacionIds),
+      ...scopeCatalogo(ctx.organizacionIds),
     }
 
     if (tipo) {
@@ -19,10 +19,14 @@ export const GET = withAuth(async (request, ctx) => {
     }
 
     if (busqueda) {
-      where.OR = [
-        { nombre: { contains: busqueda, mode: "insensitive" } },
-        { principioActivo: { contains: busqueda, mode: "insensitive" } },
-        { laboratorio: { contains: busqueda, mode: "insensitive" } },
+      where.AND = [
+        {
+          OR: [
+            { nombre: { contains: busqueda, mode: "insensitive" } },
+            { principioActivo: { contains: busqueda, mode: "insensitive" } },
+            { laboratorio: { contains: busqueda, mode: "insensitive" } },
+          ],
+        },
       ]
     }
 

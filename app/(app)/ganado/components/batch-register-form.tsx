@@ -26,6 +26,7 @@ import {
   Heart
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { esCatalogoVisible } from "@/lib/utils"
 import { toast } from "sonner"
 
 interface Raza {
@@ -81,7 +82,7 @@ export function BatchRegisterForm({ onClose, onBusyChange, onSuccess }: BatchReg
     const controller = new AbortController()
     fetch("/api/especies", { signal: controller.signal }).then(r => r.json()).then(result => {
       if (!result.success) throw new Error("No se pudieron cargar las especies")
-      const list = result.data.filter((e: { nombre: string; organizacionId: string }) => e.organizacionId === organizacionId && (especie === "todos" || e.nombre.toLowerCase() === especie))
+      const list = result.data.filter((e: { nombre: string; organizacionId: string }) => esCatalogoVisible(e, organizacionId) && (especie === "todos" || e.nombre.toLowerCase() === especie))
       setEspecies(list)
       setEspecieId(list.length === 1 ? list[0].id : "")
     }).catch(() => { if (!controller.signal.aborted) setCatalogError("No se pudieron cargar las especies. Cerrá y volvé a abrir el registro.") }).finally(() => { if (!controller.signal.aborted) setLoading(false) })

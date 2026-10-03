@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
-import { scopeOrganizacion } from "@/lib/api/tenant"
+import { scopeCatalogo } from "@/lib/api/tenant"
 
 export const GET = withAuth(async (request, ctx) => {
   try {
@@ -9,7 +9,7 @@ export const GET = withAuth(async (request, ctx) => {
     const especieNombre = request.nextUrl.searchParams.get("especie")
 
     const where: Record<string, unknown> = {
-      ...scopeOrganizacion(ctx.organizacionIds),
+      ...scopeCatalogo(ctx.organizacionIds),
     }
 
     if (especieIdParam) {
@@ -18,7 +18,7 @@ export const GET = withAuth(async (request, ctx) => {
       const especie = await prisma.especie.findFirst({
         where: {
           nombre: especieNombre.toLowerCase(),
-          ...scopeOrganizacion(ctx.organizacionIds),
+          ...scopeCatalogo(ctx.organizacionIds),
         },
       })
       if (especie) where.especieId = especie.id

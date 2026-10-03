@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
-import { scopeOrganizacion } from "@/lib/api/tenant"
+import { scopeCatalogo } from "@/lib/api/tenant"
 
 export const GET = withAuth(async (request, ctx) => {
   try {
     const especies = await prisma.especie.findMany({
-      where: scopeOrganizacion(ctx.organizacionIds),
+      where: scopeCatalogo(ctx.organizacionIds),
       include: {
         _count: { select: { razas: true, categorias: true, animales: true } },
       },

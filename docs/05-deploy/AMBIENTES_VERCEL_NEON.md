@@ -4,6 +4,34 @@
 > la base de producción, y qué configurar en cada lugar. Todo se hace desde
 > las webs de Vercel y Neon; no hace falta terminal.
 
+## Estado actual (octubre 2026)
+
+La base vive en el proyecto Neon **`icy-firefly-40648824`**, dentro de la
+organización Neon administrada por Vercel del team **Inus** (Vercel → Inus →
+Storage). Se migró desde el proyecto personal `sparkling-morning-18269506`
+copiando esquema + datos (56 tablas, conteos verificados tabla por tabla); ese
+proyecto viejo quedó **solo como respaldo** y no lo usa ningún ambiente.
+
+| Ambiente Vercel | Rama Neon | Endpoint (host directo) |
+|---|---|---|
+| Production | `main` | `ep-odd-sea-b7v6f4t4.c-13.us-east-1.aws.neon.tech` |
+| Preview | `develop` | `ep-rapid-resonance-b7bdf4nu.c-13.us-east-1.aws.neon.tech` |
+| Development | `dev` | `ep-soft-wave-b7fj4mzy.c-13.us-east-1.aws.neon.tech` |
+
+El host *pooled* es el mismo con el sufijo `-pooler` (va en `DATABASE_URL`; el
+directo va en `DIRECT_URL`). Las ramas `develop` y `dev` se crearon desde `main`
+después de la copia, así que arrancan con los mismos datos que producción.
+
+Tras la copia se eliminaron los datos de demostración (organización "Estancia
+La Esperanza" y su usuario demo, con animales, eventos, lotes, sectores y
+sesiones) en las tres ramas. Quedan solo las cuentas reales y los **catálogos
+base globales** (`organizacion_id = NULL`: especies, razas, categorías,
+productos sanitarios y forrajes), visibles para todas las organizaciones. Las
+variables `POSTGRES_*` / `PG*` / `DATABASE_URL_UNPOOLED` que dejó la
+integración anterior apuntan a la base vieja y deben borrarse en Vercel; al
+conectar la base nueva desde Storage → *Connect Project*, hacerlo **solo para
+Production** para no pisar las variables de Preview y Development.
+
 ## Cómo funciona
 
 | Ambiente Vercel | Rama Git | Base de datos (rama Neon) | URL |

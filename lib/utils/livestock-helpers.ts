@@ -52,3 +52,15 @@ export const getCategoryColor = (category: string): string => {
   }
 }
 
+
+/**
+ * Equivalente cliente de `scopeCatalogo` (lib/api/tenant.ts): un ítem de
+ * catálogo (especie, raza, categoría, producto) es visible si es global
+ * (`organizacionId` nulo) o pertenece a la organización activa.
+ */
+export function esCatalogoVisible(
+  item: { organizacionId?: string | null },
+  organizacionId?: string | null,
+): boolean {
+  return item.organizacionId == null || item.organizacionId === organizacionId
+}

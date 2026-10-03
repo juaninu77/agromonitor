@@ -15,6 +15,16 @@ export function scopeOrganizacion(organizacionIds: string[]) {
 }
 
 /**
+ * Filtro para catálogos (Especie, Raza, Categoria, Producto): además de los
+ * registros de las organizaciones del usuario incluye los **globales**
+ * (`organizacionId = null`), que son listas de referencia compartidas por
+ * todos los tenants. Nunca usar para datos operativos (Cliente, Proveedor...).
+ */
+export function scopeCatalogo(organizacionIds: string[]) {
+  return { OR: [{ organizacionId: { in: organizacionIds } }, { organizacionId: null }] }
+}
+
+/**
  * Filtro para tablas de eventos que referencian animalId O loteId
  * (EvtPesada, EvtSanidad, EvtMovimiento, EvtAlimentacion, EvtPastoreo).
  */

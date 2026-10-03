@@ -29,6 +29,7 @@ import { useEffect, useState, useCallback, useRef } from "react"
 import { useTenant } from "@/lib/context/tenant-context"
 import { VisualIdGuide } from "./visual-id-guide"
 import { cn } from "@/lib/utils"
+import { esCatalogoVisible } from "@/lib/utils"
 
 interface AnimalFormProps {
   onSubmit: (data: AnimalFormData) => Promise<void>
@@ -156,7 +157,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
         const res = await fetch("/api/especies")
         const data = await res.json()
         if (!data.success || cancelled) return
-        const list = data.data.filter((e: { organizacionId: string; nombre: string; id: string }) => initialData?.especieId ? e.id === initialData.especieId : e.organizacionId === organizacionId && (especie === "todos" || e.nombre.toLowerCase() === especie)) as EspecieOpt[]
+        const list = data.data.filter((e: { organizacionId: string; nombre: string; id: string }) => initialData?.especieId ? e.id === initialData.especieId : esCatalogoVisible(e, organizacionId) && (especie === "todos" || e.nombre.toLowerCase() === especie)) as EspecieOpt[]
         setEspecies(list)
         if (list.length === 0) {
           setLoadingOptions(false)

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { decimalToNumber } from "@/lib/api/serialize"
 import { withAuth } from "@/lib/api/with-auth"
-import { scopeOrganizacion } from "@/lib/api/tenant"
+import { scopeCatalogo } from "@/lib/api/tenant"
 
 export const GET = withAuth(async (request, ctx) => {
   try {
@@ -11,7 +11,7 @@ export const GET = withAuth(async (request, ctx) => {
     const producto = await prisma.producto.findFirst({
       where: {
         id: productoId,
-        ...scopeOrganizacion(ctx.organizacionIds),
+        ...scopeCatalogo(ctx.organizacionIds),
       },
     })
 
@@ -50,7 +50,7 @@ export const POST = withAuth(async (request, ctx) => {
     const producto = await prisma.producto.findFirst({
       where: {
         id: productoId,
-        ...scopeOrganizacion(ctx.organizacionIds),
+        ...scopeCatalogo(ctx.organizacionIds),
       },
     })
 

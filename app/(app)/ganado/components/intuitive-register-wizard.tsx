@@ -37,6 +37,7 @@ import {
   ClipboardList,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { esCatalogoVisible } from "@/lib/utils"
 import { toast } from "sonner"
 import {
   Tooltip,
@@ -348,7 +349,7 @@ export function IntuitiveRegisterWizard({
         if (!espJson.success || cancelled) return
         const list = espJson.data.filter(
           (e: { organizacionId: string; nombre: string }) =>
-            e.organizacionId === organizacionId &&
+            esCatalogoVisible(e, organizacionId) &&
             (especie === "todos" || e.nombre.toLowerCase() === especie),
         ) as EspecieOpt[]
         setEspecies(list)

@@ -108,6 +108,14 @@ export function duplicadosEnLote(
   return resultado
 }
 
+/** Toma los identificadores tal cual vinieron (para filas que no pasaron el esquema). */
+export function identificacionCruda(cruda: unknown): Partial<Pick<AnimalAlta, "caravanaVisual" | "caravanaRfid" | "cuig" | "otroId">> {
+  if (!cruda || typeof cruda !== "object") return {}
+  const c = cruda as Record<string, unknown>
+  const texto = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : typeof v === "number" ? String(v) : undefined)
+  return { caravanaVisual: texto(c.caravanaVisual), caravanaRfid: texto(c.caravanaRfid), cuig: texto(c.cuig), otroId: texto(c.otroId) }
+}
+
 /** Texto corto para identificar la fila en mensajes y vistas previas. */
 export function identificacionDe(fila: Partial<Pick<AnimalAlta, "caravanaVisual" | "caravanaRfid" | "cuig" | "otroId">>): string {
   return fila.caravanaVisual ?? fila.caravanaRfid ?? fila.cuig ?? fila.otroId ?? "(sin identificación)"
@@ -172,11 +180,11 @@ export async function prepararAltas(
   const ahora = new Date()
 
   // 1. Esquema por fila
-  const parseadas: Array<{ fila: number; data?: FilaAltaMasiva; errores: string[] }> = filasCrudas.map((cruda, idx) => {
+  const parseadas: Array<{ fila: number; data?: FilaAltaMasiva; errores: string[]; cruda: unknown }> = filasCrudas.map((cruda, idx) => {
     const r = filaAltaMasivaSchema.safeParse(cruda)
     const fila = (cruda as { fila?: number } | null)?.fila ?? idx + 1
-    if (!r.success) return { fila, errores: erroresZod(r.error) }
-    return { fila: r.data.fila ?? fila, data: r.data, errores: [] }
+    if (!r.success) return { fila, errores: erroresZod(r.error), cruda }
+    return { fila: r.data.fila ?? fila, data: r.data, errores: [], cruda }
   })
 
   // 2. Al menos una identificación (misma regla que el alta individual)
@@ -213,7 +221,8 @@ export async function prepararAltas(
   const resultados: ResultadoFila[] = parseadas.map((p) => {
     const errores = [...p.errores]
     const d = p.data
-    const identificacion = identificacionDe(d ?? {})
+    // Si la fila no pasó el esquema, igual mostramos lo que el usuario escribió
+    const identificacion = identificacionDe(d ?? identificacionCruda(p.cruda))
     if (!d) return { fila: p.fila, ok: false, errores, identificacion }
 
     if (d.caravanaVisual && setCaravana.has(d.caravanaVisual)) {

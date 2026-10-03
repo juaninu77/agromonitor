@@ -49,13 +49,15 @@ export const POST = withAuth(async (req, ctx) => {
     const nombreProducto =
       validatedData.producto?.trim() || "Evento sin producto informado"
     const esId = z.string().uuid().safeParse(nombreProducto).success
+    // El producto puede ser de la organización o del catálogo global
     const productoExistente = await prisma.producto.findFirst({
       where: {
-        organizacionId,
+        OR: [{ organizacionId }, { organizacionId: null }],
         ...(esId
           ? { id: nombreProducto }
           : { nombre: { equals: nombreProducto, mode: "insensitive" } }),
       },
+      orderBy: { organizacionId: { sort: "desc", nulls: "last" } },
     })
     if (esId && !productoExistente)
       return NextResponse.json(

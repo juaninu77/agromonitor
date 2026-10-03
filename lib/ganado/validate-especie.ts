@@ -2,13 +2,14 @@
 // La raza y la categoría de un animal deben pertenecer a su misma especie.
 
 import { prisma } from "@/lib/prisma"
+import { scopeCatalogo } from "@/lib/api/tenant"
 
 /**
  * Devuelve un mensaje de error si la raza o la categoría no corresponden
  * a la especie indicada, o null si la combinación es válida.
  *
  * Si se pasa `organizacionIds`, además se exige que la raza y la categoría
- * pertenezcan a alguna de esas organizaciones (scoping multi-tenant). Si no
+ * pertenezcan a alguna de esas organizaciones o sean globales (scoping multi-tenant). Si no
  * se pasa, el comportamiento es el histórico (sin filtro por organización).
  */
 export async function validarRazaYCategoriaParaEspecie(
@@ -17,9 +18,8 @@ export async function validarRazaYCategoriaParaEspecie(
   categoriaId?: string | null,
   organizacionIds?: string[]
 ): Promise<string | null> {
-  const scopeOrg = organizacionIds
-    ? { organizacionId: { in: organizacionIds } }
-    : {}
+  // Catálogo de la organización + catálogos globales (organizacionId null)
+  const scopeOrg = organizacionIds ? scopeCatalogo(organizacionIds) : {}
 
   if (razaId) {
     const raza = await prisma.raza.findFirst({

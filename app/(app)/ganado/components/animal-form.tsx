@@ -51,6 +51,7 @@ interface Raza {
 interface Categoria {
   id: string
   nombre: string
+  sexo?: string | null
 }
 
 interface Lote {
@@ -124,9 +125,10 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
       if (categoriasRes.ok) {
         const categoriasData = await categoriasRes.json()
         setCategorias(
-          (categoriasData.data || []).map((c: { id: string; nombre: string }) => ({
+          (categoriasData.data || []).map((c: { id: string; nombre: string; sexo?: string | null }) => ({
             id: c.id,
             nombre: c.nombre,
+            sexo: c.sexo ?? null,
           }))
         )
       } else {
@@ -156,7 +158,11 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
       try {
         const res = await fetch("/api/especies")
         const data = await res.json()
-        if (!data.success || cancelled) return
+        if (cancelled) return
+        if (!data.success) {
+          setLoadingOptions(false)
+          return
+        }
         const list = data.data.filter((e: { organizacionId: string; nombre: string; id: string }) => initialData?.especieId ? e.id === initialData.especieId : esCatalogoVisible(e, organizacionId) && (especie === "todos" || e.nombre.toLowerCase() === especie)) as EspecieOpt[]
         setEspecies(list)
         if (list.length === 0) {
@@ -417,7 +423,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
                     <SelectValue placeholder={loadingOptions ? "Cargando..." : "Seleccionar categoría"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {categorias.map((categoria) => (
+                    {categorias.filter((c) => c.sexo == null || c.sexo === selectedSexo).map((categoria) => (
                       <SelectItem key={categoria.id} value={categoria.id}>
                         {categoria.nombre}
                       </SelectItem>

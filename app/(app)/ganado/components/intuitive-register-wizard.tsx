@@ -1,212 +1,192 @@
 "use client"
 
-import { useGanadoScope } from "@/components/ganado/ganado-scope"
-
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { Textarea } from "@/components/ui/textarea"
 import {
-  Loader2,
-  Tag,
-  CheckCircle2,
-  Circle,
-  ArrowRight,
+  AlertCircle,
   ArrowLeft,
-  Sparkles,
-  Scale,
-  Calendar,
-  Beef,
+  ArrowRight,
   Baby,
+  Beef,
+  Calendar,
+  CheckCircle2,
+  ClipboardList,
   Crown,
   Heart,
   Info,
-  RotateCcw,
+  Loader2,
+  MapPin,
+  RefreshCw,
   Repeat,
-  X,
-  ChevronRight,
-  Zap,
+  RotateCcw,
+  Scale,
+  Sparkles,
+  Tag,
   Target,
-  ClipboardList,
+  X,
+  Zap,
 } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { esCatalogoVisible } from "@/lib/utils"
 import { toast } from "sonner"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Progress } from "@/components/ui/progress"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { cn } from "@/lib/utils"
+import { isValidEID } from "@/lib/hardware/eid"
+import { CC_MAX, CC_MIN, PESO_MAX_KG } from "@/lib/validations/animal-schema"
+import { useCatalogosAlta, type CategoriaOpt, type RazaOpt } from "./alta-masiva/use-catalogos-alta"
 
-// Schema de validación
-const registerSchema = z.object({
-  especieId: z.string().min(1, "Seleccioná el tipo de animal"),
-  caravanaVisual: z.string().min(1, "La caravana es obligatoria"),
-  razaId: z.string().min(1, "Selecciona una raza"),
-  categoriaId: z.string().min(1, "Selecciona una categoría"),
-  sexo: z.enum(["M", "F"]),
-  fechaNacimiento: z.string().optional(),
-  pesoInicial: z.number().optional(),
-  origen: z.enum(["cria_propia", "compra", "otro"]).default("cria_propia"),
-  notas: z.string().optional(),
-})
+// ============================================================
+// Esquema del formulario (cliente). El servidor vuelve a validar todo.
+// ============================================================
+
+const hoyISO = () => new Date().toISOString().slice(0, 10)
+
+const numeroOpcional = z.preprocess(
+  (v) => (v === "" || v === null || v === undefined || (typeof v === "number" && Number.isNaN(v)) ? undefined : v),
+  z.number({ invalid_type_error: "Ingresá un número" }).optional(),
+)
+
+const registerSchema = z
+  .object({
+    especieId: z.string().min(1, "Seleccioná el tipo de animal"),
+    caravanaVisual: z.string().trim().max(30, "Máximo 30 caracteres").optional(),
+    caravanaRfid: z
+      .string()
+      .trim()
+      .optional()
+      .refine((v) => !v || isValidEID(v), "El RFID debe tener 15 o 16 dígitos"),
+    razaId: z.string().min(1, "Seleccioná una raza"),
+    categoriaId: z.string().min(1, "Seleccioná una categoría"),
+    sexo: z.enum(["M", "F"]),
+    fechaNacimiento: z
+      .string()
+      .optional()
+      .refine((v) => !v || v <= hoyISO(), "La fecha de nacimiento no puede ser futura"),
+    pesoInicial: numeroOpcional.refine((v) => v === undefined || (v > 0 && v <= PESO_MAX_KG), `El peso debe ser mayor a 0 y hasta ${PESO_MAX_KG} kg`),
+    ccInicial: numeroOpcional.refine((v) => v === undefined || (v >= CC_MIN && v <= CC_MAX), `La condición corporal va de ${CC_MIN} a ${CC_MAX}`),
+    origen: z.enum(["cria_propia", "compra", "otro"]).default("cria_propia"),
+    loteId: z.string().optional(),
+    sectorId: z.string().optional(),
+    notas: z.string().max(2000, "Máximo 2000 caracteres").optional(),
+  })
+  .superRefine((d, ctx) => {
+    if (!d.caravanaVisual && !d.caravanaRfid) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["caravanaVisual"], message: "Indicá la caravana visual o el RFID" })
+    }
+  })
 
 type RegisterData = z.infer<typeof registerSchema>
 
-interface EspecieOpt {
-  id: string
-  nombre: string
-}
-
-interface Raza {
-  id: string
-  nombre: string
-}
-
-interface Categoria {
-  id: string
-  nombre: string
-  sexo?: string | null
-  edadMinMeses?: number | null
-  edadMaxMeses?: number | null
-}
-
 interface IntuitiveRegisterWizardProps {
-  onSubmit: (data: RegisterData) => Promise<void>
+  onSubmit: (data: RegisterData) => Promise<unknown>
   onClose: () => void
   isSubmitting: boolean
+  onDirtyChange?: (dirty: boolean) => void
 }
 
-// Componente de selección visual para categorías
+// ============================================================
+// Subcomponentes
+// ============================================================
+
+function ErrorCampo({ mensaje, id }: { mensaje?: string; id?: string }) {
+  if (!mensaje) return null
+  return (
+    <p id={id} role="alert" className="flex items-center gap-1 text-sm font-medium text-red-600">
+      <X className="h-4 w-4" aria-hidden />
+      {mensaje}
+    </p>
+  )
+}
+
+/** Edad en meses completos a partir de una fecha yyyy-mm-dd; null si no hay fecha o es futura. */
+export function edadEnMeses(fechaNacimiento?: string, hoy = new Date()): number | null {
+  if (!fechaNacimiento) return null
+  const nac = new Date(fechaNacimiento + "T00:00:00")
+  if (Number.isNaN(nac.getTime()) || nac > hoy) return null
+  let meses = (hoy.getFullYear() - nac.getFullYear()) * 12 + (hoy.getMonth() - nac.getMonth())
+  if (hoy.getDate() < nac.getDate()) meses -= 1
+  return Math.max(0, meses)
+}
+
+function iconoCategoria(nombre: string) {
+  const n = nombre.toLowerCase()
+  if (n.includes("terner")) return Baby
+  if (n.includes("toro")) return Crown
+  if (n.includes("vaca")) return Heart
+  if (n.includes("novill") || n.includes("vaquillona")) return Target
+  if (/cordero|cordera|oveja|carnero|borreg/.test(n)) return Heart
+  if (/potrill|potranc|caballo|yegua|semental/.test(n)) return Zap
+  return Beef
+}
+
 function CategorySelector({
   categorias,
-  selectedSexo,
-  selectedCategoria,
+  seleccionada,
   onSelect,
   fechaNacimiento,
+  sexo,
 }: {
-  categorias: Categoria[]
-  selectedSexo: "M" | "F"
-  selectedCategoria: string
+  categorias: CategoriaOpt[]
+  seleccionada: string
   onSelect: (id: string) => void
   fechaNacimiento?: string
+  sexo: "M" | "F"
 }) {
-  // Calcular edad en meses si hay fecha de nacimiento
-  const edadMeses = fechaNacimiento
-    ? (() => {
-        const nacimiento = new Date(fechaNacimiento)
-        const hoy = new Date()
-        return (
-          (hoy.getFullYear() - nacimiento.getFullYear()) * 12 +
-          (hoy.getMonth() - nacimiento.getMonth())
-        )
-      })()
-    : null
+  const edad = edadEnMeses(fechaNacimiento)
+  const sugerida =
+    edad !== null
+      ? categorias.find((c) => (c.edadMinMeses == null || edad >= c.edadMinMeses) && (c.edadMaxMeses == null || edad <= c.edadMaxMeses))
+      : undefined
 
-  // Filtrar y ordenar categorías por sexo
-  const categoriasFiltradas = categorias.filter((cat) => {
-    if (cat.sexo == null) return true
-    return cat.sexo === selectedSexo
-  })
-
-  // Sugerir categoría basada en edad
-  const categoriaSugerida =
-    edadMeses !== null
-      ? categoriasFiltradas.find((cat) => {
-          const min = cat.edadMinMeses
-          const max = cat.edadMaxMeses
-          if (min != null && edadMeses < min) return false
-          if (max != null && edadMeses > max) return false
-          return true
-        })
-      : null
-
-  const getCategoryIcon = (nombre: string) => {
-    const lower = nombre.toLowerCase()
-    if (lower.includes("ternero") || lower.includes("ternera")) return Baby
-    if (lower.includes("toro")) return Crown
-    if (lower.includes("vaca")) return Heart
-    if (lower.includes("novillo") || lower.includes("vaquillona")) return Target
-    if (
-      lower.includes("cordero") ||
-      lower.includes("cordera") ||
-      lower.includes("oveja") ||
-      lower.includes("carnero") ||
-      lower.includes("borrego")
+  if (!categorias.length) {
+    return (
+      <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/20" role="alert">
+        No hay categorías de {sexo === "M" ? "machos" : "hembras"} para esta especie.{" "}
+        <a className="underline" href="/configuracion/catalogo">Agregalas en Configuración → Catálogo</a>.
+      </p>
     )
-      return Heart
-    if (
-      lower.includes("potrill") ||
-      lower.includes("potranc") ||
-      lower.includes("caballo") ||
-      lower.includes("yegua") ||
-      lower.includes("semiental") ||
-      lower.includes("semental")
-    )
-      return Zap
-    return Beef
-  }
-
-  const getCategoryColor = (
-    nombre: string,
-    isSelected: boolean,
-    isSuggested: boolean,
-  ) => {
-    if (isSelected)
-      return "border-blue-600 bg-primary/10 text-blue-700 shadow-lg shadow-blue-100"
-    if (isSuggested)
-      return "border-emerald-400 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-200"
-    return "border-slate-200 hover:border-slate-300 text-slate-600 hover:bg-slate-50"
   }
 
   return (
     <div className="space-y-3">
-      {edadMeses !== null && categoriaSugerida && (
-        <div className="flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-200 rounded-lg">
-          <Sparkles className="h-4 w-4 text-emerald-600" />
+      {sugerida && (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2 dark:bg-emerald-950/20">
+          <Sparkles className="h-4 w-4 text-emerald-600" aria-hidden />
           <span className="text-sm text-emerald-700">
-            Sugerencia: <strong>{categoriaSugerida.nombre}</strong> basada en la
-            edad ({edadMeses} meses)
+            Sugerencia: <strong className="capitalize">{sugerida.nombre}</strong> según la edad ({edad} {edad === 1 ? "mes" : "meses"})
           </span>
         </div>
       )}
-
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {categoriasFiltradas.map((cat) => {
-          const Icon = getCategoryIcon(cat.nombre)
-          const isSelected = selectedCategoria === cat.id
-          const isSuggested = categoriaSugerida?.id === cat.id && !isSelected
-
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3" role="radiogroup" aria-label="Categoría">
+        {categorias.map((c) => {
+          const Icon = iconoCategoria(c.nombre)
+          const activa = seleccionada === c.id
+          const esSugerida = sugerida?.id === c.id && !activa
           return (
             <button
-              key={cat.id}
+              key={c.id}
               type="button"
-              onClick={() => onSelect(cat.id)}
+              role="radio"
+              aria-checked={activa}
+              onClick={() => onSelect(c.id)}
               className={cn(
-                "flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 transition-all duration-200",
-                getCategoryColor(cat.nombre, isSelected, isSuggested),
+                "relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 p-4 transition-all",
+                activa && "border-primary bg-primary/10 text-primary shadow-md",
+                esSugerida && "border-emerald-400 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-200 dark:bg-emerald-950/20",
+                !activa && !esSugerida && "border-border text-muted-foreground hover:border-slate-300",
               )}
             >
-              <Icon className="h-8 w-8" />
-              <span className="text-sm font-semibold text-center">
-                {cat.nombre}
-              </span>
-              {isSelected && (
-                <CheckCircle2 className="h-4 w-4 text-primary absolute top-2 right-2" />
-              )}
-              {isSuggested && !isSelected && (
-                <Badge className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[10px]">
-                  Sugerida
-                </Badge>
-              )}
+              <Icon className="h-8 w-8" aria-hidden />
+              <span className="text-center text-sm font-semibold capitalize">{c.nombre}</span>
+              {activa && <CheckCircle2 className="absolute right-2 top-2 h-4 w-4" aria-hidden />}
+              {esSugerida && <Badge className="absolute -right-2 -top-2 bg-emerald-500 text-[10px] text-white">Sugerida</Badge>}
             </button>
           )
         })}
@@ -215,74 +195,46 @@ function CategorySelector({
   )
 }
 
-// Componente de selección de raza
-function RazaSelector({
-  razas,
-  selectedRaza,
-  onSelect,
-}: {
-  razas: Raza[]
-  selectedRaza: string
-  onSelect: (id: string) => void
-}) {
+function RazaSelector({ razas, seleccionada, onSelect }: { razas: RazaOpt[]; seleccionada: string; onSelect: (id: string) => void }) {
   const [search, setSearch] = useState("")
-  const filtered = razas.filter((r) =>
-    r.nombre.toLowerCase().includes(search.toLowerCase()),
-  )
+  const filtradas = razas.filter((r) => r.nombre.toLowerCase().includes(search.toLowerCase()))
+  if (!razas.length) {
+    return (
+      <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/20" role="alert">
+        No hay razas para esta especie. <a className="underline" href="/configuracion/catalogo">Agregalas en Configuración → Catálogo</a>.
+      </p>
+    )
+  }
   return (
     <div className="space-y-3">
-      {razas.length > 6 && (
-        <Input
-          aria-label="Buscar raza"
-          placeholder="Buscar raza…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      )}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {filtered.map((raza) => (
-          <Button
-            type="button"
-            key={raza.id}
-            variant={selectedRaza === raza.id ? "default" : "outline"}
-            aria-pressed={selectedRaza === raza.id}
-            onClick={() => onSelect(raza.id)}
-          >
-            {raza.nombre}
+      {razas.length > 6 && <Input aria-label="Buscar raza" placeholder="Buscar raza…" value={search} onChange={(e) => setSearch(e.target.value)} />}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Raza">
+        {filtradas.map((r) => (
+          <Button type="button" key={r.id} role="radio" variant={seleccionada === r.id ? "default" : "outline"} aria-checked={seleccionada === r.id} onClick={() => onSelect(r.id)}>
+            <span className="truncate">{r.nombre}</span>
           </Button>
         ))}
       </div>
-      {!filtered.length && (
-        <p className="text-sm text-muted-foreground">
-          No hay razas para esta selección.
-        </p>
-      )}
+      {!filtradas.length && <p className="text-sm text-muted-foreground">Ninguna raza coincide con “{search}”.</p>}
     </div>
   )
 }
 
-export function IntuitiveRegisterWizard({
-  onSubmit,
-  onClose,
-  isSubmitting,
-}: IntuitiveRegisterWizardProps) {
-  const { especie, organizacionId } = useGanadoScope()
+// ============================================================
+// Asistente
+// ============================================================
+
+export function IntuitiveRegisterWizard({ onSubmit, onClose, isSubmitting, onDirtyChange }: IntuitiveRegisterWizardProps) {
+  const cat = useCatalogosAlta()
   const [step, setStep] = useState(1)
-  const [especies, setEspecies] = useState<EspecieOpt[]>([])
-  const [razas, setRazas] = useState<Raza[]>([])
-  const [categorias, setCategorias] = useState<Categoria[]>([])
-  const [loadingEspecies, setLoadingEspecies] = useState(true)
-  const [catalogosLoading, setCatalogosLoading] = useState(false)
   const [registeredCount, setRegisteredCount] = useState(0)
   const [continueRegistering, setContinueRegistering] = useState(true)
-  const prevEspecieRef = useRef<string | null>(null)
-
   const totalSteps = 3
 
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isDirty },
     setValue,
     watch,
     reset,
@@ -290,271 +242,198 @@ export function IntuitiveRegisterWizard({
   } = useForm<RegisterData>({
     resolver: zodResolver(registerSchema),
     mode: "onChange",
-    defaultValues: {
-      sexo: "M",
-      origen: "cria_propia",
-      especieId: "",
-    },
+    defaultValues: { sexo: "M", origen: "cria_propia", especieId: "", caravanaVisual: "", caravanaRfid: "", razaId: "", categoriaId: "", notas: "" },
   })
 
-  const selectedSexo = watch("sexo")
-  const selectedRaza = watch("razaId")
-  const selectedCategoria = watch("categoriaId")
+  const especieId = watch("especieId")
+  const sexo = watch("sexo")
+  const razaId = watch("razaId")
+  const categoriaId = watch("categoriaId")
   const fechaNacimiento = watch("fechaNacimiento")
-  const especieIdWatch = watch("especieId")
-
-  const cargarCatalogos = useCallback(
-    async (especieUuid: string, signal: AbortSignal) => {
-      const [razasData, categoriasData] = await Promise.all([
-        fetch(`/api/razas?especieId=${encodeURIComponent(especieUuid)}`, {
-          signal,
-        }).then((r) => r.json()),
-        fetch(`/api/categorias?especieId=${encodeURIComponent(especieUuid)}`, {
-          signal,
-        }).then((r) => r.json()),
-      ])
-      if (razasData.success) {
-        setRazas(
-          (razasData.data || []).map((r: { id: string; nombre: string }) => ({
-            id: r.id,
-            nombre: r.nombre,
-          })),
-        )
-      } else {
-        setRazas([])
-      }
-      if (categoriasData.success) {
-        setCategorias(
-          (categoriasData.data || []).map((c: Categoria) => ({
-            id: c.id,
-            nombre: c.nombre,
-            sexo: c.sexo,
-            edadMinMeses: c.edadMinMeses,
-            edadMaxMeses: c.edadMaxMeses,
-          })),
-        )
-      } else {
-        setCategorias([])
-      }
-    },
-    [],
-  )
+  const caravanaVisual = watch("caravanaVisual")
+  const caravanaRfid = watch("caravanaRfid")
+  const origen = watch("origen")
+  const loteId = watch("loteId")
+  const sectorId = watch("sectorId")
 
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const espRes = await fetch("/api/especies")
-        const espJson = await espRes.json()
-        if (!espJson.success || cancelled) return
-        const list = espJson.data.filter(
-          (e: { organizacionId: string; nombre: string }) =>
-            esCatalogoVisible(e, organizacionId) &&
-            (especie === "todos" || e.nombre.toLowerCase() === especie),
-        ) as EspecieOpt[]
-        setEspecies(list)
-        const bov = list.find((e) => e.nombre === "bovino")
-        const initialId = bov?.id ?? list[0]?.id
-        if (initialId) {
-          setValue("especieId", initialId)
-        }
-      } catch {
-        if (!cancelled)
-          toast.error(
-            "No se pudieron cargar las especies. Cerrá y volvé a abrir el registro.",
-          )
-      } finally {
-        if (!cancelled) setLoadingEspecies(false)
-      }
-    })()
-    return () => {
-      cancelled = true
+    onDirtyChange?.(isDirty && Boolean(caravanaVisual || caravanaRfid))
+  }, [isDirty, caravanaVisual, caravanaRfid, onDirtyChange])
+
+  // Especie inicial cuando llega el catálogo
+  useEffect(() => {
+    if (!especieId && cat.especies.length) {
+      const def = cat.especieDefault()
+      if (def) setValue("especieId", def.id)
     }
-  }, [setValue, especie, organizacionId])
+  }, [cat.especies, especieId, setValue, cat])
 
+  // Cambiar de especie limpia raza, categoría y lote
+  const prevEspecie = useRef<string | null>(null)
   useEffect(() => {
-    if (especies.length === 0 || !especieIdWatch) return
-    const nombre = especies.find((e) => e.id === especieIdWatch)?.nombre
-    if (!nombre) return
-
-    if (
-      prevEspecieRef.current !== null &&
-      prevEspecieRef.current !== especieIdWatch
-    ) {
+    if (prevEspecie.current && prevEspecie.current !== especieId) {
       setValue("razaId", "")
       setValue("categoriaId", "")
+      setValue("loteId", undefined)
     }
-    prevEspecieRef.current = especieIdWatch
+    prevEspecie.current = especieId || null
+  }, [especieId, setValue])
 
-    let cancelled = false
-    const controller = new AbortController()
-    ;(async () => {
-      setCatalogosLoading(true)
-      try {
-        await cargarCatalogos(especieIdWatch, controller.signal)
-      } catch (error) {
-        if (!controller.signal.aborted)
-          toast.error("No se pudieron cargar las razas y categorías")
-      } finally {
-        if (!cancelled) setCatalogosLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-      controller.abort()
-    }
-  }, [especieIdWatch, especies, cargarCatalogos, setValue])
+  const razas = useMemo(() => (especieId ? cat.razasDe(especieId) : []), [cat, especieId])
+  const categorias = useMemo(() => (especieId ? cat.categoriasDe(especieId, sexo) : []), [cat, especieId, sexo])
+  const lotes = useMemo(() => (especieId ? cat.lotesDe(especieId) : []), [cat, especieId])
+
+  // Si la categoría elegida dejó de ser válida para el sexo, se limpia
+  useEffect(() => {
+    if (categoriaId && !categorias.some((c) => c.id === categoriaId)) setValue("categoriaId", "")
+  }, [categorias, categoriaId, setValue])
 
   const nextStep = async () => {
-    let fieldsToValidate: (keyof RegisterData)[] = []
-
-    if (step === 1) fieldsToValidate = ["especieId", "caravanaVisual", "sexo"]
-    if (step === 2) fieldsToValidate = ["razaId", "categoriaId"]
-
-    const isStepValid = await trigger(fieldsToValidate)
-    if (isStepValid) setStep((s) => Math.min(s + 1, totalSteps))
+    const campos: (keyof RegisterData)[] = step === 1 ? ["especieId", "caravanaVisual", "caravanaRfid", "sexo", "fechaNacimiento"] : ["razaId", "categoriaId"]
+    if (await trigger(campos)) setStep((s) => Math.min(s + 1, totalSteps))
   }
-
   const prevStep = () => setStep((s) => Math.max(s - 1, 1))
 
+  const reiniciar = (mantener?: Partial<RegisterData>) => {
+    reset({
+      especieId: mantener?.especieId ?? especieId,
+      sexo: mantener?.sexo ?? "M",
+      razaId: mantener?.razaId ?? "",
+      categoriaId: "",
+      origen: mantener?.origen ?? "cria_propia",
+      loteId: mantener?.loteId,
+      sectorId: mantener?.sectorId,
+      caravanaVisual: "",
+      caravanaRfid: "",
+      fechaNacimiento: "",
+      pesoInicial: undefined,
+      ccInicial: undefined,
+      notas: "",
+    })
+    setStep(1)
+  }
+
   const handleFormSubmit = async (data: RegisterData) => {
+    if (step !== totalSteps) return
     try {
-      await onSubmit(data)
-      setRegisteredCount((prev) => prev + 1)
-
+      await onSubmit({ ...data, loteId: data.loteId || undefined, sectorId: data.sectorId || undefined })
+      const total = registeredCount + 1
+      setRegisteredCount(total)
+      const etiqueta = data.caravanaVisual || data.caravanaRfid
       if (continueRegistering) {
-        reset({
-          especieId: data.especieId,
-          sexo: data.sexo,
-          razaId: data.razaId,
-          origen: data.origen,
-          categoriaId: "",
-          caravanaVisual: "",
-          fechaNacimiento: "",
-          pesoInicial: undefined,
-          notas: "",
-        })
-        setStep(1)
-
-        toast.success("¡Animal registrado!", {
-          description: `#${data.caravanaVisual} agregado. Total: ${registeredCount + 1} animales`,
-        })
+        reiniciar({ especieId: data.especieId, sexo: data.sexo, razaId: data.razaId, origen: data.origen, loteId: data.loteId, sectorId: data.sectorId })
+        toast.success("Animal registrado", { description: `${etiqueta} agregado. Total: ${total} ${total === 1 ? "animal" : "animales"}` })
       } else {
+        toast.success("Animal registrado", { description: `${etiqueta} agregado.` })
         onClose()
       }
     } catch {
-      // El error ya se maneja en el componente padre
+      // El error ya se mostró en el diálogo padre
     }
   }
 
-  const progressPercent = (step / totalSteps) * 100
+  const labelEspecie = (nombre: string) => nombre.charAt(0).toUpperCase() + nombre.slice(1)
 
-  const labelEspecie = (nombre: string) => {
-    const n = nombre.toLowerCase()
-    if (n === "bovino") return "Bovino"
-    if (n === "ovino") return "Ovino"
-    if (n === "equino") return "Equino"
-    if (n === "caprino") return "Caprino"
-    return nombre.charAt(0).toUpperCase() + nombre.slice(1)
-  }
-
-  if (loadingEspecies) {
+  // ---------- Estados de carga / vacío ----------
+  if (cat.cargando) {
     return (
-      <div className="flex items-center justify-center py-16">
+      <div className="flex items-center justify-center py-16" role="status">
         <div className="text-center">
-          <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
-          <p className="mt-3 text-slate-500">Preparando formulario...</p>
+          <Loader2 className="mx-auto h-10 w-10 animate-spin text-primary" />
+          <p className="mt-3 text-muted-foreground">Preparando formulario…</p>
         </div>
       </div>
     )
   }
+  if (cat.error) {
+    return (
+      <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-center" role="alert">
+        <AlertCircle className="mx-auto h-8 w-8 text-destructive" />
+        <p className="mt-2 font-medium">{cat.error}</p>
+        <Button variant="outline" className="mt-4" onClick={cat.reintentar}>
+          <RefreshCw className="mr-2 h-4 w-4" /> Reintentar
+        </Button>
+      </div>
+    )
+  }
+  if (!cat.especies.length) {
+    return (
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-center dark:bg-amber-950/20" role="alert">
+        <Info className="mx-auto h-8 w-8 text-amber-600" />
+        <p className="mt-2 font-semibold">No hay especies en el catálogo</p>
+        <p className="mt-1 text-sm text-muted-foreground">Para registrar animales primero hay que dar de alta al menos una especie con sus razas y categorías.</p>
+        <Button asChild className="mt-4">
+          <a href="/configuracion/catalogo">Ir a Configuración → Catálogo</a>
+        </Button>
+      </div>
+    )
+  }
+
+  const progress = (step / totalSteps) * 100
 
   return (
     <div className="space-y-6">
       {/* Header con progreso */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 rounded-xl">
-              <Zap className="h-6 w-6 text-primary" />
+            <div className="rounded-xl bg-primary/10 p-2">
+              <Zap className="h-6 w-6 text-primary" aria-hidden />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-800">
-                Registro de Animal
-              </h2>
-              <p className="text-sm text-slate-500">
-                Paso {step} de {totalSteps}
-              </p>
+              <h2 className="text-xl font-bold">Registro individual</h2>
+              <p className="text-sm text-muted-foreground">Paso {step} de {totalSteps}</p>
             </div>
           </div>
-
           {registeredCount > 0 && (
-            <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">
-              <CheckCircle2 className="h-3 w-3 mr-1" />
+            <Badge className="border-emerald-200 bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
+              <CheckCircle2 className="mr-1 h-3 w-3" />
               {registeredCount} registrado{registeredCount > 1 ? "s" : ""}
             </Badge>
           )}
         </div>
-
-        {/* Barra de progreso */}
-        <div className="relative">
-          <Progress value={progressPercent} className="h-2" />
-          <div className="flex justify-between mt-2">
+        <div>
+          <Progress value={progress} className="h-2" aria-label={`Paso ${step} de ${totalSteps}`} />
+          <div className="mt-2 flex justify-between">
             {["Identificación", "Clasificación", "Detalles"].map((label, i) => (
-              <div
-                key={label}
-                className={cn(
-                  "text-xs font-medium transition-colors",
-                  i + 1 <= step ? "text-primary" : "text-slate-400",
-                )}
-              >
+              <span key={label} className={cn("text-xs font-medium", i + 1 <= step ? "text-primary" : "text-muted-foreground")}>
                 {label}
-              </div>
+              </span>
             ))}
           </div>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6">
-        {/* PASO 1: Identificación básica */}
+      <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6" noValidate>
+        {/* PASO 1 */}
         {step === 1 && (
-          <Card className="border-2 border-slate-100 shadow-sm">
-            <CardContent className="pt-6 space-y-6">
-              <div className="flex items-start gap-3 p-4 bg-primary/10 border border-blue-100 rounded-xl">
-                <Info className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+          <Card className="border-2">
+            <CardContent className="space-y-6 pt-6">
+              <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+                <Info className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden />
                 <div>
-                  <p className="text-sm font-semibold text-blue-900">
-                    Identificación del animal
-                  </p>
-                  <p className="text-xs text-blue-700">
-                    Indicá la caravana y el sexo. La especie corresponde a la
-                    vista elegida.
-                  </p>
+                  <p className="text-sm font-semibold">Identificación del animal</p>
+                  <p className="text-xs text-muted-foreground">Caravana visual o RFID (al menos una), sexo y, si la conocés, la fecha de nacimiento.</p>
                 </div>
               </div>
 
-              {/* Especie */}
-              <div className="space-y-3">
-                <Label className="text-base font-bold text-slate-700">
-                  Tipo de animal
-                </Label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {especies.map((esp) => {
-                    const active = especieIdWatch === esp.id
+              <fieldset className="space-y-3">
+                <legend className="text-base font-bold">
+                  Tipo de animal <span className="text-destructive">*</span>
+                </legend>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Tipo de animal">
+                  {cat.especies.map((esp) => {
+                    const activa = especieId === esp.id
                     return (
                       <button
                         key={esp.id}
                         type="button"
-                        onClick={() =>
-                          setValue("especieId", esp.id, {
-                            shouldValidate: true,
-                          })
-                        }
+                        role="radio"
+                        aria-checked={activa}
+                        onClick={() => setValue("especieId", esp.id, { shouldValidate: true })}
                         className={cn(
                           "rounded-xl border-2 px-3 py-3 text-sm font-semibold transition-all",
-                          active
-                            ? "border-blue-600 bg-primary/10 text-blue-800 shadow-md"
-                            : "border-slate-200 bg-card text-slate-600 hover:border-slate-300",
+                          activa ? "border-primary bg-primary/10 text-primary shadow-md" : "border-border text-muted-foreground hover:border-slate-300",
                         )}
                       >
                         {labelEspecie(esp.nombre)}
@@ -562,397 +441,289 @@ export function IntuitiveRegisterWizard({
                     )
                   })}
                 </div>
-                {errors.especieId && (
-                  <p className="text-sm text-red-600 font-medium flex items-center gap-1">
-                    <X className="h-4 w-4" />
-                    {errors.especieId.message}
-                  </p>
-                )}
-              </div>
+                <ErrorCampo mensaje={errors.especieId?.message} />
+              </fieldset>
 
-              {/* Caravana Visual */}
-              <div className="space-y-3">
-                <Label className="text-base font-bold text-slate-700 flex items-center gap-2">
-                  <Tag className="h-5 w-5 text-slate-500" />
-                  Número de Caravana
-                </Label>
-                <div className="relative">
-                  <Input
-                    {...register("caravanaVisual")}
-                    placeholder="Ej: 001, A-123, etc."
-                    autoFocus
-                    className={cn(
-                      "h-14 text-2xl font-bold text-center border-2 transition-all",
-                      errors.caravanaVisual
-                        ? "border-red-400 bg-red-50 focus:border-red-500"
-                        : "border-slate-200 focus:border-blue-500",
-                    )}
-                  />
-                </div>
-                {errors.caravanaVisual && (
-                  <p className="text-sm text-red-600 font-medium flex items-center gap-1">
-                    <X className="h-4 w-4" />
-                    {errors.caravanaVisual.message}
-                  </p>
-                )}
-              </div>
-
-              {/* Selector de Sexo */}
-              <div className="space-y-3">
-                <Label className="text-base font-bold text-slate-700">
-                  Sexo del Animal
-                </Label>
-                <div className="grid grid-cols-2 gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setValue("sexo", "M")}
-                    className={cn(
-                      "flex flex-col items-center justify-center gap-3 p-6 rounded-xl border-2 transition-all duration-200",
-                      selectedSexo === "M"
-                        ? "border-blue-600 bg-primary/10 text-blue-700 shadow-lg shadow-blue-100"
-                        : "border-slate-200 hover:border-slate-300 text-slate-500 hover:bg-slate-50",
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "p-3 rounded-full",
-                        selectedSexo === "M" ? "bg-blue-100" : "bg-slate-100",
-                      )}
-                    >
-                      <Crown className="h-8 w-8" />
-                    </div>
-                    <span className="text-lg font-bold">MACHO</span>
-                    {selectedSexo === "M" && (
-                      <CheckCircle2 className="h-5 w-5 text-primary" />
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setValue("sexo", "F")}
-                    className={cn(
-                      "flex flex-col items-center justify-center gap-3 p-6 rounded-xl border-2 transition-all duration-200",
-                      selectedSexo === "F"
-                        ? "border-pink-600 bg-pink-50 text-pink-700 shadow-lg shadow-pink-100"
-                        : "border-slate-200 hover:border-slate-300 text-slate-500 hover:bg-slate-50",
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "p-3 rounded-full",
-                        selectedSexo === "F" ? "bg-pink-100" : "bg-slate-100",
-                      )}
-                    >
-                      <Heart className="h-8 w-8" />
-                    </div>
-                    <span className="text-lg font-bold">HEMBRA</span>
-                    {selectedSexo === "F" && (
-                      <CheckCircle2 className="h-5 w-5 text-pink-600" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* Fecha de Nacimiento (opcional pero útil) */}
-              <div className="space-y-3">
-                <Label className="text-base font-bold text-slate-700 flex items-center gap-2">
-                  <Calendar className="h-5 w-5 text-slate-500" />
-                  Fecha de Nacimiento
-                  <Badge variant="outline" className="text-xs">
-                    Opcional
-                  </Badge>
-                </Label>
-                <Input
-                  type="date"
-                  {...register("fechaNacimiento")}
-                  className="h-12 border-2 border-slate-200"
-                />
-                <p className="text-xs text-slate-500">
-                  Si ingresas la fecha, te sugeriremos la categoría
-                  automáticamente
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* PASO 2: Clasificación */}
-        {step === 2 && (
-          <Card className="border-2 border-slate-100 shadow-sm">
-            <CardContent className="pt-6 space-y-6">
-              <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-100 rounded-xl">
-                <Sparkles className="h-5 w-5 text-emerald-600 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-emerald-900">
-                    Clasificación inteligente
-                  </p>
-                  <p className="text-xs text-emerald-700">
-                    Selecciona la raza y categoría. Te sugerimos opciones
-                    basadas en los datos anteriores.
-                  </p>
-                </div>
-              </div>
-
-              {/* Selector de Raza */}
-              <div className="space-y-3">
-                <Label className="text-base font-bold text-slate-700">
-                  Raza
-                </Label>
-                {catalogosLoading ? (
-                  <div className="flex items-center justify-center gap-2 py-10 text-slate-500">
-                    <Loader2 className="h-6 w-6 animate-spin" />
-                    <span className="text-sm">
-                      Cargando razas y categorías…
-                    </span>
-                  </div>
-                ) : (
-                  <RazaSelector
-                    razas={razas}
-                    selectedRaza={selectedRaza || ""}
-                    onSelect={(id) => setValue("razaId", id)}
-                  />
-                )}
-                {errors.razaId && (
-                  <p className="text-sm text-red-600 font-medium flex items-center gap-1">
-                    <X className="h-4 w-4" />
-                    {errors.razaId.message}
-                  </p>
-                )}
-              </div>
-
-              {/* Selector de Categoría */}
-              <div className="space-y-3">
-                <Label className="text-base font-bold text-slate-700">
-                  Categoría
-                  <span className="ml-2 text-sm font-normal text-slate-500">
-                    (Mostrando para{" "}
-                    {selectedSexo === "M" ? "machos" : "hembras"})
-                  </span>
-                </Label>
-                <CategorySelector
-                  categorias={catalogosLoading ? [] : categorias}
-                  selectedSexo={selectedSexo}
-                  selectedCategoria={selectedCategoria || ""}
-                  onSelect={(id) => setValue("categoriaId", id)}
-                  fechaNacimiento={fechaNacimiento}
-                />
-                {errors.categoriaId && (
-                  <p className="text-sm text-red-600 font-medium flex items-center gap-1">
-                    <X className="h-4 w-4" />
-                    {errors.categoriaId.message}
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* PASO 3: Detalles finales */}
-        {step === 3 && (
-          <Card className="border-2 border-slate-100 shadow-sm">
-            <CardContent className="pt-6 space-y-6">
-              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-100 rounded-xl">
-                <ClipboardList className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-amber-900">
-                    Datos adicionales
-                  </p>
-                  <p className="text-xs text-amber-700">
-                    Información opcional para completar el registro.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Peso Inicial */}
-                <div className="space-y-3">
-                  <Label className="font-bold text-slate-700 flex items-center gap-2">
-                    <Scale className="h-5 w-5 text-slate-500" />
-                    Peso Inicial (kg)
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="wiz-caravana" className="flex items-center gap-2 text-base font-bold">
+                    <Tag className="h-5 w-5 text-muted-foreground" aria-hidden /> Caravana visual <span className="text-destructive">*</span>
                   </Label>
                   <Input
-                    type="number"
-                    step="0.1"
-                    {...register("pesoInicial", { valueAsNumber: true })}
-                    placeholder="Ej: 250"
-                    className="h-12 border-2 border-slate-200"
+                    id="wiz-caravana"
+                    {...register("caravanaVisual")}
+                    placeholder="Ej: 001, A-123"
+                    autoFocus
+                    autoComplete="off"
+                    aria-invalid={!!errors.caravanaVisual}
+                    aria-describedby={errors.caravanaVisual ? "wiz-caravana-error" : undefined}
+                    className={cn("h-14 border-2 text-center text-2xl font-bold uppercase", errors.caravanaVisual && "border-red-400 bg-red-50")}
                   />
+                  <ErrorCampo id="wiz-caravana-error" mensaje={errors.caravanaVisual?.message} />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="wiz-rfid" className="flex items-center gap-2 text-base font-bold">
+                    RFID <Badge variant="outline" className="text-xs">Opcional</Badge>
+                  </Label>
+                  <Input
+                    id="wiz-rfid"
+                    {...register("caravanaRfid")}
+                    placeholder="15 o 16 dígitos"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    aria-invalid={!!errors.caravanaRfid}
+                    className={cn("h-14 border-2 text-center text-lg", errors.caravanaRfid && "border-red-400 bg-red-50")}
+                  />
+                  <ErrorCampo mensaje={errors.caravanaRfid?.message} />
+                  <p className="text-xs text-muted-foreground">Podés leerlo con el bastón: dejá el cursor en el campo.</p>
+                </div>
+              </div>
 
-                {/* Origen */}
-                <div className="space-y-3">
-                  <Label className="font-bold text-slate-700">Origen</Label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { value: "cria_propia", label: "Cría propia" },
-                      { value: "compra", label: "Compra" },
-                      { value: "otro", label: "Otro" },
-                    ].map((opt) => (
+              <fieldset className="space-y-3">
+                <legend className="text-base font-bold">
+                  Sexo <span className="text-destructive">*</span>
+                </legend>
+                <div className="grid grid-cols-2 gap-4" role="radiogroup" aria-label="Sexo">
+                  {(["M", "F"] as const).map((valor) => {
+                    const activo = sexo === valor
+                    const Icon = valor === "M" ? Crown : Heart
+                    return (
                       <button
-                        key={opt.value}
+                        key={valor}
                         type="button"
-                        onClick={() =>
-                          setValue(
-                            "origen",
-                            opt.value as "cria_propia" | "compra" | "otro",
-                          )
-                        }
+                        role="radio"
+                        aria-checked={activo}
+                        onClick={() => setValue("sexo", valor, { shouldDirty: true })}
                         className={cn(
-                          "p-3 rounded-lg border-2 transition-all text-sm font-medium",
-                          watch("origen") === opt.value
-                            ? "border-blue-600 bg-primary/10 text-blue-700"
-                            : "border-slate-200 hover:border-slate-300 text-slate-600",
+                          "flex flex-col items-center justify-center gap-3 rounded-xl border-2 p-5 transition-all",
+                          activo
+                            ? valor === "M"
+                              ? "border-primary bg-primary/10 text-primary shadow-md"
+                              : "border-pink-600 bg-pink-50 text-pink-700 shadow-md dark:bg-pink-950/20"
+                            : "border-border text-muted-foreground hover:border-slate-300",
                         )}
                       >
-                        {opt.label}
+                        <Icon className="h-8 w-8" aria-hidden />
+                        <span className="text-lg font-bold">{valor === "M" ? "MACHO" : "HEMBRA"}</span>
                       </button>
-                    ))}
-                  </div>
+                    )
+                  })}
+                </div>
+              </fieldset>
+
+              <div className="space-y-2">
+                <Label htmlFor="wiz-fecha" className="flex items-center gap-2 text-base font-bold">
+                  <Calendar className="h-5 w-5 text-muted-foreground" aria-hidden /> Fecha de nacimiento
+                  <Badge variant="outline" className="text-xs">Opcional</Badge>
+                </Label>
+                <Input id="wiz-fecha" type="date" max={hoyISO()} {...register("fechaNacimiento")} aria-invalid={!!errors.fechaNacimiento} className="h-12 border-2" />
+                <ErrorCampo mensaje={errors.fechaNacimiento?.message} />
+                <p className="text-xs text-muted-foreground">Con la fecha te sugerimos la categoría automáticamente.</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* PASO 2 */}
+        {step === 2 && (
+          <Card className="border-2">
+            <CardContent className="space-y-6 pt-6">
+              <div className="flex items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50 p-4 dark:bg-emerald-950/20">
+                <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
+                <div>
+                  <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">Clasificación</p>
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300">Elegí la raza y la categoría. Si cargaste la fecha, te marcamos la categoría sugerida.</p>
+                </div>
+              </div>
+              <fieldset className="space-y-3">
+                <legend className="text-base font-bold">
+                  Raza <span className="text-destructive">*</span>
+                </legend>
+                <RazaSelector razas={razas} seleccionada={razaId || ""} onSelect={(id) => setValue("razaId", id, { shouldValidate: true, shouldDirty: true })} />
+                <ErrorCampo mensaje={errors.razaId?.message} />
+              </fieldset>
+              <fieldset className="space-y-3">
+                <legend className="text-base font-bold">
+                  Categoría <span className="text-destructive">*</span>
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">({sexo === "M" ? "machos" : "hembras"})</span>
+                </legend>
+                <CategorySelector categorias={categorias} seleccionada={categoriaId || ""} onSelect={(id) => setValue("categoriaId", id, { shouldValidate: true, shouldDirty: true })} fechaNacimiento={fechaNacimiento} sexo={sexo} />
+                <ErrorCampo mensaje={errors.categoriaId?.message} />
+              </fieldset>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* PASO 3 */}
+        {step === 3 && (
+          <Card className="border-2">
+            <CardContent className="space-y-6 pt-6">
+              <div className="flex items-start gap-3 rounded-xl border border-amber-100 bg-amber-50 p-4 dark:bg-amber-950/20">
+                <ClipboardList className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden />
+                <div>
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">Datos adicionales</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-300">Todo lo de este paso es opcional.</p>
                 </div>
               </div>
 
-              {/* Notas */}
-              <div className="space-y-3">
-                <Label className="font-bold text-slate-700">
-                  Observaciones
-                </Label>
-                <Textarea
-                  {...register("notas")}
-                  placeholder="Notas adicionales sobre el animal..."
-                  rows={3}
-                  className="border-2 border-slate-200 resize-none"
-                />
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="wiz-peso" className="flex items-center gap-2 font-bold">
+                    <Scale className="h-5 w-5 text-muted-foreground" aria-hidden /> Peso inicial (kg)
+                  </Label>
+                  <Input
+                    id="wiz-peso"
+                    type="number"
+                    step="0.1"
+                    min={0.1}
+                    max={PESO_MAX_KG}
+                    inputMode="decimal"
+                    {...register("pesoInicial", { setValueAs: (v) => (v === "" || v === null ? undefined : Number(String(v).replace(",", "."))) })}
+                    placeholder="Ej: 250"
+                    aria-invalid={!!errors.pesoInicial}
+                    className={cn("h-12 border-2", errors.pesoInicial && "border-red-400 bg-red-50")}
+                  />
+                  <ErrorCampo mensaje={errors.pesoInicial?.message} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="wiz-cc" className="font-bold">
+                    Condición corporal ({CC_MIN}–{CC_MAX})
+                  </Label>
+                  <Input
+                    id="wiz-cc"
+                    type="number"
+                    step="0.5"
+                    min={CC_MIN}
+                    max={CC_MAX}
+                    inputMode="decimal"
+                    {...register("ccInicial", { setValueAs: (v) => (v === "" || v === null ? undefined : Number(String(v).replace(",", "."))) })}
+                    placeholder="Ej: 5"
+                    aria-invalid={!!errors.ccInicial}
+                    className={cn("h-12 border-2", errors.ccInicial && "border-red-400 bg-red-50")}
+                  />
+                  <ErrorCampo mensaje={errors.ccInicial?.message} />
+                </div>
               </div>
 
-              {/* Opción de continuar registrando */}
-              <div className="flex items-center gap-3 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="wiz-lote" className="flex items-center gap-2 font-bold">
+                    <MapPin className="h-5 w-5 text-muted-foreground" aria-hidden /> Lote
+                  </Label>
+                  <Select value={loteId || "none"} onValueChange={(v) => setValue("loteId", v === "none" ? undefined : v, { shouldDirty: true })}>
+                    <SelectTrigger id="wiz-lote" className="h-12 border-2"><SelectValue placeholder="Sin lote" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin lote</SelectItem>
+                      {lotes.map((l) => (
+                        <SelectItem key={l.id} value={l.id}>{l.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="wiz-sector" className="font-bold">Potrero / corral</Label>
+                  <Select value={sectorId || "none"} onValueChange={(v) => setValue("sectorId", v === "none" ? undefined : v, { shouldDirty: true })}>
+                    <SelectTrigger id="wiz-sector" className="h-12 border-2"><SelectValue placeholder="Sin ubicación" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin ubicación</SelectItem>
+                      {cat.sectores.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>{s.nombre} · {s.tipo}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <fieldset className="space-y-3">
+                <legend className="font-bold">Origen</legend>
+                <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Origen">
+                  {[
+                    { value: "cria_propia", label: "Cría propia" },
+                    { value: "compra", label: "Compra" },
+                    { value: "otro", label: "Otro" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={origen === opt.value}
+                      onClick={() => setValue("origen", opt.value as RegisterData["origen"], { shouldDirty: true })}
+                      className={cn(
+                        "rounded-lg border-2 p-3 text-sm font-medium transition-all",
+                        origen === opt.value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-slate-300",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              <div className="space-y-2">
+                <Label htmlFor="wiz-notas" className="font-bold">Observaciones</Label>
+                <Textarea id="wiz-notas" {...register("notas")} placeholder="Notas sobre el animal…" rows={3} className="resize-none border-2" />
+                <ErrorCampo mensaje={errors.notas?.message} />
+              </div>
+
+              <div className="flex items-center gap-3 rounded-xl border bg-muted/40 p-4">
                 <button
                   type="button"
-                  aria-label={
-                    continueRegistering
-                      ? "Continuar registrando: activado"
-                      : "Continuar registrando: desactivado"
-                  }
-                  aria-pressed={continueRegistering}
+                  role="switch"
+                  aria-checked={continueRegistering}
+                  aria-label="Continuar registrando después de guardar"
                   onClick={() => setContinueRegistering(!continueRegistering)}
-                  className={cn(
-                    "relative h-6 w-11 rounded-full transition-colors",
-                    continueRegistering ? "bg-blue-600" : "bg-slate-300",
-                  )}
+                  className={cn("relative h-6 w-11 shrink-0 rounded-full transition-colors", continueRegistering ? "bg-primary" : "bg-slate-300")}
                 >
-                  <span
-                    className={cn(
-                      "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-card transition-transform shadow",
-                      continueRegistering ? "translate-x-5" : "translate-x-0",
-                    )}
-                  />
+                  <span className={cn("absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-card shadow transition-transform", continueRegistering ? "translate-x-5" : "translate-x-0")} />
                 </button>
-                <div>
-                  <p className="text-sm font-semibold text-slate-700">
-                    {continueRegistering
-                      ? "Continuar registrando"
-                      : "Cerrar al guardar"}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {continueRegistering
-                      ? "El formulario se limpiará para registrar otro animal"
-                      : "Se cerrará el diálogo después de guardar"}
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">{continueRegistering ? "Continuar registrando" : "Cerrar al guardar"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {continueRegistering ? "Se conservan especie, sexo, raza, origen, lote y potrero para el siguiente." : "Se cierra el diálogo después de guardar."}
                   </p>
                 </div>
-                <Repeat
-                  className={cn(
-                    "h-5 w-5 ml-auto",
-                    continueRegistering ? "text-primary" : "text-slate-400",
-                  )}
-                />
+                <Repeat className={cn("ml-auto h-5 w-5 shrink-0", continueRegistering ? "text-primary" : "text-muted-foreground")} aria-hidden />
               </div>
 
-              {/* Resumen */}
-              <div className="p-4 bg-primary/10 border border-blue-200 rounded-xl space-y-2">
-                <p className="text-sm font-bold text-blue-900">
-                  Resumen del registro:
-                </p>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="text-blue-700">
-                    <span className="text-blue-500">Caravana:</span>{" "}
-                    {watch("caravanaVisual") || "—"}
-                  </div>
-                  <div className="text-blue-700">
-                    <span className="text-blue-500">Sexo:</span>{" "}
-                    {selectedSexo === "M" ? "Macho" : "Hembra"}
-                  </div>
-                  <div className="text-blue-700">
-                    <span className="text-blue-500">Raza:</span>{" "}
-                    {razas.find((r) => r.id === selectedRaza)?.nombre || "—"}
-                  </div>
-                  <div className="text-blue-700">
-                    <span className="text-blue-500">Categoría:</span>{" "}
-                    {categorias.find((c) => c.id === selectedCategoria)
-                      ?.nombre || "—"}
-                  </div>
-                </div>
-              </div>
+              <dl className="grid grid-cols-2 gap-2 rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm">
+                <div><dt className="inline text-muted-foreground">Caravana: </dt><dd className="inline font-medium uppercase">{caravanaVisual || caravanaRfid || "—"}</dd></div>
+                <div><dt className="inline text-muted-foreground">Sexo: </dt><dd className="inline font-medium">{sexo === "M" ? "Macho" : "Hembra"}</dd></div>
+                <div><dt className="inline text-muted-foreground">Raza: </dt><dd className="inline font-medium">{razas.find((r) => r.id === razaId)?.nombre || "—"}</dd></div>
+                <div><dt className="inline text-muted-foreground">Categoría: </dt><dd className="inline font-medium capitalize">{categorias.find((c) => c.id === categoriaId)?.nombre || "—"}</dd></div>
+              </dl>
             </CardContent>
           </Card>
         )}
 
         {/* Navegación */}
-        <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
           <div className="flex items-center gap-2">
             {step > 1 && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={prevStep}
-                disabled={isSubmitting}
-                className="h-12 px-6 border-2"
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Anterior
+              <Button type="button" variant="outline" onClick={prevStep} disabled={isSubmitting} className="h-12 border-2">
+                <ArrowLeft className="h-4 w-4 sm:mr-2" aria-hidden />
+                <span className="hidden sm:inline">Anterior</span>
               </Button>
             )}
-
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                reset()
-                setStep(1)
-              }}
-              disabled={isSubmitting}
-              className="text-slate-500"
-            >
-              <RotateCcw className="h-4 w-4 mr-2" />
-              Reiniciar
+            <Button type="button" variant="ghost" onClick={() => reiniciar()} disabled={isSubmitting} className="text-muted-foreground">
+              <RotateCcw className="h-4 w-4 sm:mr-2" aria-hidden />
+              <span className="hidden sm:inline">Reiniciar</span>
             </Button>
           </div>
-
           {step < totalSteps ? (
-            <Button
-              type="button"
-              onClick={nextStep}
-              className="h-12 px-8 bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-100"
-            >
-              Siguiente
-              <ArrowRight className="h-4 w-4 ml-2" />
+            // key distinta: si React reutilizara el mismo <button>, el navegador
+            // lo vería como submit al terminar el click y guardaría sin querer.
+            <Button key="siguiente" type="button" onClick={nextStep} className="h-12 px-6">
+              Siguiente <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
             </Button>
           ) : (
-            <Button
-              type="submit"
-              disabled={isSubmitting}
-              className="h-12 px-8 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-100"
-            >
+            <Button key="guardar" type="submit" disabled={isSubmitting} className="h-12 bg-emerald-600 px-6 hover:bg-emerald-700">
               {isSubmitting ? (
                 <>
-                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                  Guardando...
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden /> Guardando…
                 </>
               ) : (
                 <>
-                  <CheckCircle2 className="h-5 w-5 mr-2" />
-                  {continueRegistering
-                    ? "Guardar y Siguiente"
-                    : "Guardar Animal"}
+                  <CheckCircle2 className="mr-2 h-5 w-5" aria-hidden /> {continueRegistering ? "Guardar y seguir" : "Guardar animal"}
                 </>
               )}
             </Button>

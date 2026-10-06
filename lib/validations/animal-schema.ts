@@ -80,7 +80,7 @@ function finDeHoy(): Date {
 }
 
 /** Fecha opcional que no puede ser futura. Devuelve `Date` o `undefined`. */
-const fechaPasadaOpcional = (campo: string) =>
+export const fechaPasadaOpcional = (campo: string) =>
   z.preprocess(
     (v) => (v === null || v === undefined || v === "" ? undefined : v),
     z
@@ -120,15 +120,15 @@ const rfidOpcional = textoOpcional(40).transform((v, ctx) => {
 /** Caravana visual: se guarda en mayúsculas y sin espacios en los bordes para comparar duplicados. */
 const caravanaVisualOpcional = textoOpcional(30).transform((v) => (v === undefined ? undefined : v.toUpperCase()))
 
-const pesoOpcional = numeroOpcional.refine((v) => v === undefined || (v > 0 && v <= PESO_MAX_KG), {
+export const pesoOpcional = numeroOpcional.refine((v) => v === undefined || (v > 0 && v <= PESO_MAX_KG), {
   message: `El peso debe ser mayor a 0 y hasta ${PESO_MAX_KG} kg`,
 })
 
-const ccOpcional = numeroOpcional.refine((v) => v === undefined || (v >= CC_MIN && v <= CC_MAX), {
+export const ccOpcional = numeroOpcional.refine((v) => v === undefined || (v >= CC_MIN && v <= CC_MAX), {
   message: `La condición corporal va de ${CC_MIN} a ${CC_MAX}`,
 })
 
-const uuidOpcional = z.preprocess(
+export const uuidOpcional = z.preprocess(
   (v) => (v === null || v === "" ? undefined : v),
   z.string().uuid("Identificador inválido").optional(),
 )

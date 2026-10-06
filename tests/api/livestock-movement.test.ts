@@ -3,7 +3,15 @@ import { NextRequest } from "next/server"
 const mocks = vi.hoisted(() => ({
   lote: vi.fn(), animals: vi.fn(), transaction: vi.fn(), count: vi.fn(), close: vi.fn(), create: vi.fn(),
 }))
-vi.mock("@/lib/api/with-auth", () => ({ withAuth: (handler: Function) => (request: unknown) => handler(request, { establecimientoIds: ["est1", "est2"] }) }))
+vi.mock("@/lib/api/with-auth", () => ({
+  withAuth: (handler: Function) => (request: unknown) =>
+    handler(request, {
+      userId: "u1",
+      establecimientoIds: ["est1", "est2"],
+      establecimientoIdsConRol: () => ["est1", "est2"],
+      organizacionDeEstablecimiento: { est1: "org1", est2: "org2" },
+    }),
+}))
 vi.mock("@/lib/api/tenant", () => ({ loteDelTenant: mocks.lote }))
 vi.mock("@/lib/prisma", () => ({ prisma: { animal: { findMany: mocks.animals }, $transaction: mocks.transaction } }))
 import { POST as routePOST } from "@/app/api/ganado/movimiento-lote/route"
@@ -16,19 +24,28 @@ function request(body: object) {
 }
 beforeEach(() => {
   vi.resetAllMocks()
-  mocks.lote.mockResolvedValue({ id: loteDestinoId, establecimientoId: "est1", especieId: "ovino", nombre: "Lote 1" })
-  mocks.animals.mockResolvedValue([{ id: animalId, establecimientoId: "est1", especieId: "ovino" }])
+  mocks.lote.mockResolvedValue({ id: loteDestinoId, establecimientoId: "est1", especieId: "ovino", nombre: "Lote 1", activo: true })
+  mocks.animals.mockResolvedValue([{ id: animalId, establecimientoId: "est1", especieId: "ovino", estadoVital: "activo" }])
   mocks.count.mockResolvedValue(0)
-  mocks.transaction.mockImplementation((callback) => callback({ animalLoteHist: { count: mocks.count, updateMany: mocks.close, create: mocks.create } }))
+  mocks.transaction.mockImplementation((callback) =>
+    callback({
+      animalLoteHist: {
+        count: mocks.count,
+        updateMany: mocks.close,
+        createMany: mocks.create,
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    }),
+  )
 })
 describe("movimiento entre lotes", () => {
   it("rechaza cruzar bovinos a un lote ovino del mismo campo", async () => {
-    mocks.animals.mockResolvedValue([{ id: animalId, establecimientoId: "est1", especieId: "bovino" }])
+    mocks.animals.mockResolvedValue([{ id: animalId, establecimientoId: "est1", especieId: "bovino", estadoVital: "activo" }])
     expect((await POST(request({ animalIds: [animalId], loteDestinoId }))).status).toBe(400)
     expect(mocks.transaction).not.toHaveBeenCalled()
   })
   it("rechaza cruces de establecimiento aunque ambos sean accesibles", async () => {
-    mocks.animals.mockResolvedValue([{ id: animalId, establecimientoId: "est2" }])
+    mocks.animals.mockResolvedValue([{ id: animalId, establecimientoId: "est2", especieId: "ovino", estadoVital: "activo" }])
     expect((await POST(request({ animalIds: [animalId], loteDestinoId }))).status).toBe(400)
     expect(mocks.transaction).not.toHaveBeenCalled()
   })
@@ -41,7 +58,15 @@ describe("movimiento entre lotes", () => {
     expect(response.status).toBe(200)
     expect((await response.json()).data.moved).toBe(1)
     expect(mocks.create).toHaveBeenCalledOnce()
-    expect(mocks.create).toHaveBeenCalledWith({ data: expect.objectContaining({ animalId, motivo: "Rotación" }) })
+    expect(mocks.create).toHaveBeenCalledWith({ data: [expect.objectContaining({ animalId, motivo: "Rotación" })] })
+  })
+  it("rechaza animales dados de baja y fechas futuras", async () => {
+    mocks.animals.mockResolvedValue([{ id: animalId, establecimientoId: "est1", especieId: "ovino", estadoVital: "vendido" }])
+    expect((await POST(request({ animalIds: [animalId], loteDestinoId }))).status).toBe(400)
+    expect(mocks.transaction).not.toHaveBeenCalled()
+    const futura = new Date(Date.now() + 86_400_000 * 2).toISOString()
+    expect((await POST(request({ animalIds: [animalId], loteDestinoId, fecha: futura }))).status).toBe(400)
+    expect(mocks.lote).toHaveBeenCalledTimes(1)
   })
   it("no genera intervalos negativos en el historial", async () => {
     mocks.count.mockResolvedValue(1)

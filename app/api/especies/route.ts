@@ -8,7 +8,15 @@ export const GET = withAuth(async (request, ctx) => {
     const especies = await prisma.especie.findMany({
       where: scopeCatalogo(ctx.organizacionIds),
       include: {
-        _count: { select: { razas: true, categorias: true, animales: true } },
+        // Contadores del tenant: un catálogo global no debe sumar animales
+        // ni razas de otras organizaciones
+        _count: {
+          select: {
+            razas: { where: scopeCatalogo(ctx.organizacionIds) },
+            categorias: { where: scopeCatalogo(ctx.organizacionIds) },
+            animales: { where: { establecimientoId: { in: ctx.establecimientoIds } } },
+          },
+        },
       },
       orderBy: { nombre: "asc" },
     })
@@ -28,17 +36,19 @@ export const POST = withAuth(
         return NextResponse.json({ error: "El nombre es requerido" }, { status: 400 })
       }
 
-      // Resolver organización destino (scoping multi-tenant)
+      // Organización destino: sólo donde el usuario es admin/encargado
+      // (el rol es por organización, nunca global)
+      const organizacionesEditables = ctx.organizacionIdsConRol(["admin", "encargado"])
       let organizacionId: string | undefined = body.organizacionId
       if (organizacionId) {
-        if (!ctx.organizacionIds.includes(organizacionId)) {
+        if (!organizacionesEditables.includes(organizacionId)) {
           return NextResponse.json(
-            { error: "No tienes acceso a esta organización" },
+            { error: "No tenés permisos para editar el catálogo de esta organización" },
             { status: 403 }
           )
         }
-      } else if (ctx.organizacionIds.length === 1) {
-        organizacionId = ctx.organizacionIds[0]
+      } else if (organizacionesEditables.length === 1) {
+        organizacionId = organizacionesEditables[0]
       } else {
         return NextResponse.json(
           { error: "Se requiere organizacionId para crear la especie" },

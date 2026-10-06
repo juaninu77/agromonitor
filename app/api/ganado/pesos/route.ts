@@ -1,63 +1,73 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 import { withAuth } from "@/lib/api/with-auth"
 import { animalDelTenant, scopeEventoAnimal } from "@/lib/api/tenant"
+import { logAudit } from "@/lib/api/audit-log"
 import { prisma } from "@/lib/prisma"
+import { erroresZod, mapearErrorPrisma } from "@/lib/ganado/alta"
+import { pesadaSchema } from "@/lib/validations/eventos-schema"
 
-const createPesoSchema = z.object({
-  bovinoId: z.string().uuid("ID de animal inválido"),
-  peso: z.number().min(1, "El peso debe ser mayor a 0").max(2000, "Peso máximo 2000 kg"),
-  fecha: z.string().refine((date) => !isNaN(Date.parse(date)), {
-    message: "Fecha inválida",
-  }),
-  notas: z.string().optional(),
-})
+// ============================================
+// POST /api/ganado/pesos
+// ============================================
+// Registra una pesada individual. Cualquier rol de la organización puede
+// pesar (es trabajo de campo), pero el animal debe estar activo y la fecha
+// no puede ser futura.
 
 export const POST = withAuth(async (req, ctx) => {
   try {
-    const body = await req.json()
-    const validatedData = createPesoSchema.parse(body)
+    const parsed = pesadaSchema.safeParse(await req.json().catch(() => null))
+    if (!parsed.success) {
+      const errores = erroresZod(parsed.error)
+      return NextResponse.json({ success: false, error: errores[0], errores }, { status: 400 })
+    }
+    const { animalId, peso, cc, fecha, notas, balanza } = parsed.data
 
-    const animal = await animalDelTenant(
-      validatedData.bovinoId,
-      ctx.establecimientoIds
-    )
-
+    const animal = await animalDelTenant(animalId, ctx.establecimientoIds)
     if (!animal) {
+      return NextResponse.json({ success: false, error: "Animal no encontrado" }, { status: 404 })
+    }
+    if (animal.estadoVital !== "activo") {
       return NextResponse.json(
-        { error: "Animal no encontrado" },
-        { status: 404 }
+        { success: false, error: "No se pueden registrar pesadas de un animal dado de baja" },
+        { status: 400 }
       )
     }
 
     const pesada = await prisma.evtPesada.create({
       data: {
-        animalId: validatedData.bovinoId,
-        pesoKg: validatedData.peso,
-        fecha: new Date(validatedData.fecha),
-        observ: validatedData.notas,
+        animalId,
+        pesoKg: peso,
+        cc: cc ?? null,
+        fecha,
+        observ: notas ?? null,
+        balanza: balanza ?? null,
       },
     })
 
-    return NextResponse.json({
-      success: true,
-      data: pesada,
-      message: "Pesada registrada exitosamente",
+    await logAudit({
+      userId: ctx.userId,
+      tabla: "evt_pesada",
+      rowPk: pesada.id,
+      accion: "INSERT",
+      detalle: { animalId, pesoKg: peso, cc: cc ?? null },
+      organizacionId: animal.establecimientoId ? ctx.organizacionDeEstablecimiento[animal.establecimientoId] : null,
     })
-  } catch (error: any) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Datos inválidos", details: error.errors },
-        { status: 400 }
-      )
-    }
-    console.error("Error al crear pesada:", error)
+
     return NextResponse.json(
-      { error: error.message || "Error al registrar la pesada" },
-      { status: 500 }
+      { success: true, data: pesada, message: "Pesada registrada exitosamente" },
+      { status: 201 }
     )
+  } catch (error) {
+    const conocido = mapearErrorPrisma(error)
+    if (conocido) return NextResponse.json({ success: false, error: conocido.error }, { status: conocido.status })
+    console.error("Error al crear pesada:", error)
+    return NextResponse.json({ success: false, error: "Error al registrar la pesada" }, { status: 500 })
   }
 })
+
+// ============================================
+// GET /api/ganado/pesos?animalId=
+// ============================================
 
 export const GET = withAuth(async (req, ctx) => {
   try {
@@ -66,7 +76,7 @@ export const GET = withAuth(async (req, ctx) => {
 
     if (!animalId) {
       return NextResponse.json(
-        { error: "Se requiere el ID del animal (bovinoId o animalId)" },
+        { success: false, error: "Se requiere el ID del animal (animalId)" },
         { status: 400 }
       )
     }
@@ -80,11 +90,8 @@ export const GET = withAuth(async (req, ctx) => {
     })
 
     return NextResponse.json({ success: true, data: pesos })
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error al obtener pesos:", error)
-    return NextResponse.json(
-      { error: error.message || "Error al obtener los pesos" },
-      { status: 500 }
-    )
+    return NextResponse.json({ success: false, error: "Error al obtener los pesos" }, { status: 500 })
   }
 })

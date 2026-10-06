@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server"
-import { animalDelTenant, scopeEventoAnimal } from "@/lib/api/tenant"
+import { scopeEventoAnimal } from "@/lib/api/tenant"
 import { withAuth } from "@/lib/api/with-auth"
 import { logAudit } from "@/lib/api/audit-log"
 import { prisma } from "@/lib/prisma"
 import { decimalToNumber } from "@/lib/api/serialize"
+import { erroresZod, mapearErrorPrisma } from "@/lib/ganado/alta"
+import { BajaError, registrarBaja } from "@/lib/ganado/baja"
+import { bajaSchema } from "@/lib/validations/eventos-schema"
 
 export const GET = withAuth(async (request, ctx) => {
   try {
@@ -61,115 +64,58 @@ export const GET = withAuth(async (request, ctx) => {
   }
 })
 
-export const POST = withAuth(async (request, ctx) => {
-  try {
-    const body = await request.json()
+// Dar de baja (venta, muerte, faena, descarte, robo, otro). Sólo admin o
+// encargado de la organización dueña del animal. Comparte el servicio con
+// DELETE /api/ganado/bovinos/[id].
+export const POST = withAuth(
+  async (request, ctx) => {
+    try {
+      const parsed = bajaSchema.safeParse(await request.json().catch(() => null))
+      if (!parsed.success) {
+        const errores = erroresZod(parsed.error)
+        return NextResponse.json({ success: false, error: errores[0], errores }, { status: 400 })
+      }
 
-    if (!body.animalId || !body.fecha || !body.motivo) {
-      return NextResponse.json(
-        { error: "animalId, fecha y motivo son requeridos" },
-        { status: 400 }
-      )
-    }
-
-    const motivosValidos = ["venta", "muerte", "faena", "descarte", "robo", "otro"]
-    if (!motivosValidos.includes(body.motivo)) {
-      return NextResponse.json(
-        { error: `Motivo inválido. Opciones: ${motivosValidos.join(", ")}` },
-        { status: 400 }
-      )
-    }
-
-    const animal = await animalDelTenant(body.animalId, ctx.establecimientoIds)
-
-    if (!animal) {
-      return NextResponse.json({ error: "Animal no encontrado" }, { status: 404 })
-    }
-
-    if (animal.estadoVital !== "activo") {
-      return NextResponse.json(
-        { error: "El animal ya tiene una baja registrada o no está activo" },
-        { status: 400 }
-      )
-    }
-
-    if (body.clienteId) {
-      const cliente = await prisma.cliente.findFirst({
-        where: {
-          id: body.clienteId,
-          organizacionId: { in: ctx.organizacionIds },
-        },
+      const { baja, animal } = await registrarBaja(parsed.data, {
+        establecimientoIds: ctx.establecimientoIdsConRol(["admin", "encargado"]),
+        organizacionIds: ctx.organizacionIds,
       })
 
-      if (!cliente) {
-        return NextResponse.json(
-          { error: "El cliente no pertenece a tu organización" },
-          { status: 403 }
-        )
+      await logAudit({
+        userId: ctx.userId,
+        tabla: "evt_baja",
+        rowPk: baja.id,
+        accion: "INSERT",
+        detalle: {
+          animalId: parsed.data.animalId,
+          motivo: parsed.data.motivo,
+          estadoVital: animal.estadoVital,
+          precioTotal: parsed.data.precioTotal ?? null,
+        },
+        organizacionId: animal.establecimientoId
+          ? ctx.organizacionDeEstablecimiento[animal.establecimientoId]
+          : null,
+      })
+
+      const data = {
+        ...baja,
+        precioKg: decimalToNumber(baja.precioKg),
+        precioTotal: decimalToNumber(baja.precioTotal),
       }
+
+      return NextResponse.json({ success: true, data }, { status: 201 })
+    } catch (error) {
+      if (error instanceof BajaError) {
+        return NextResponse.json({ success: false, error: error.message }, { status: error.status })
+      }
+      const conocido = mapearErrorPrisma(error)
+      if (conocido) return NextResponse.json({ success: false, error: conocido.error }, { status: conocido.status })
+      console.error("Error al crear baja:", error)
+      return NextResponse.json(
+        { success: false, error: "Error interno del servidor" },
+        { status: 500 }
+      )
     }
-
-    const estadoVitalMap: Record<string, string> = {
-      venta: "vendido",
-      muerte: "muerto",
-      faena: "baja",
-      descarte: "baja",
-      robo: "baja",
-      otro: "baja",
-    }
-
-    const [baja] = await prisma.$transaction([
-      prisma.evtBaja.create({
-        data: {
-          fecha: new Date(body.fecha),
-          motivo: body.motivo,
-          pesoVivoKg: body.pesoVivoKg ? parseFloat(body.pesoVivoKg) : null,
-          precioKg: body.precioKg ? parseFloat(body.precioKg) : null,
-          precioTotal: body.precioTotal ? parseFloat(body.precioTotal) : null,
-          dtaNumero: body.dtaNumero || null,
-          facturaNumero: body.facturaNumero || null,
-          observ: body.observ || null,
-          animalId: body.animalId,
-          clienteId: body.clienteId || null,
-        },
-        include: {
-          animal: { include: { raza: true, categoria: true } },
-          cliente: true,
-        },
-      }),
-      prisma.animal.update({
-        where: { id: body.animalId },
-        data: { estadoVital: estadoVitalMap[body.motivo] || "baja" },
-      }),
-    ])
-
-    await logAudit({
-      userId: ctx.userId,
-      tabla: "evt_baja",
-      rowPk: baja.id,
-      accion: "INSERT",
-      detalle: {
-        animalId: body.animalId,
-        motivo: body.motivo,
-        precioTotal: body.precioTotal ?? null,
-      },
-      organizacionId: animal.establecimientoId
-        ? ctx.organizacionDeEstablecimiento[animal.establecimientoId]
-        : null,
-    })
-
-    const data = {
-      ...baja,
-      precioKg: decimalToNumber(baja.precioKg),
-      precioTotal: decimalToNumber(baja.precioTotal),
-    }
-
-    return NextResponse.json({ success: true, data }, { status: 201 })
-  } catch (error) {
-    console.error("Error al crear baja:", error)
-    return NextResponse.json(
-      { success: false, error: "Error interno del servidor" },
-      { status: 500 }
-    )
-  }
-})
+  },
+  { roles: ["admin", "encargado"] }
+)

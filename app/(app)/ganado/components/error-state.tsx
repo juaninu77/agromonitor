@@ -79,28 +79,28 @@ function getErrorConfig(type: "network" | "auth" | "server" | "unknown") {
         icon: <WifiOff className="h-8 w-8 text-orange-600" />,
         bgColor: "bg-orange-100",
         title: "Error de conexión",
-        message: "No se pudo conectar al servidor. Por favor, verifica tu conexión a internet e intenta nuevamente."
+        message: "No se pudo conectar al servidor. Revisá tu conexión a internet e intentá de nuevo."
       }
     case "auth":
       return {
         icon: <ShieldAlert className="h-8 w-8 text-yellow-600" />,
         bgColor: "bg-yellow-100",
         title: "Sesión expirada",
-        message: "Tu sesión ha expirado. Por favor, inicia sesión nuevamente para continuar."
+        message: "Tu sesión expiró. Iniciá sesión de nuevo para continuar."
       }
     case "server":
       return {
         icon: <ServerCrash className="h-8 w-8 text-red-600" />,
         bgColor: "bg-red-100",
         title: "Error del servidor",
-        message: "Ocurrió un error en el servidor. El equipo técnico ha sido notificado. Por favor, intenta nuevamente en unos minutos."
+        message: "Ocurrió un error en el servidor. Intentá de nuevo en unos minutos; si persiste, avisá al administrador."
       }
     default:
       return {
         icon: <AlertCircle className="h-8 w-8 text-red-600" />,
         bgColor: "bg-red-100",
         title: "Error inesperado",
-        message: "Ocurrió un error inesperado. Por favor, intenta nuevamente."
+        message: "Ocurrió un error inesperado. Intentá de nuevo."
       }
   }
 }

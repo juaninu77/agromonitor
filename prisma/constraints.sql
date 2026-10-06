@@ -135,3 +135,35 @@ BEGIN
       CHECK (costo IS NULL OR costo >= 0) NOT VALID;
   END IF;
 END $$;
+
+-- --------------------------------------------
+-- 5) Productos: nombre único por organización (insensible a mayúsculas) y
+--    único entre los globales (organizacion_id IS NULL). Evita que los eventos
+--    sanitarios creen duplicados al buscar por nombre.
+-- --------------------------------------------
+CREATE UNIQUE INDEX IF NOT EXISTS productos_org_nombre_unico
+  ON productos (organizacion_id, lower(nombre))
+  WHERE organizacion_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS productos_global_nombre_unico
+  ON productos (lower(nombre))
+  WHERE organizacion_id IS NULL;
+
+-- --------------------------------------------
+-- 6) Búsqueda de animales por identificación con ILIKE '%x%': índices trigram.
+--    Requiere la extensión pg_trgm (disponible en Neon y en Postgres estándar).
+--    Si el rol no puede crear la extensión, se omite sin fallar el deploy.
+-- --------------------------------------------
+DO $$
+BEGIN
+  BEGIN
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'pg_trgm no disponible (%): se omiten los índices trigram', SQLERRM;
+    RETURN;
+  END;
+  CREATE INDEX IF NOT EXISTS animales_caravana_visual_trgm_idx ON animales USING gin (caravana_visual gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS animales_caravana_rfid_trgm_idx   ON animales USING gin (caravana_rfid gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS animales_cuig_trgm_idx            ON animales USING gin (cuig gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS animales_otro_id_trgm_idx         ON animales USING gin (otro_id gin_trgm_ops);
+END $$;

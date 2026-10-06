@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { List, Grid3x3, ArrowUpDown, Plus } from "lucide-react"
+import { List, Grid3x3, ArrowUpDown, Plus, Pencil } from "lucide-react"
 import type { AnimalAPI, PaginationInfo } from "@/lib/hooks/use-ganado"
 import { DataPagination } from "./data-pagination"
 
@@ -148,7 +148,7 @@ export function AnimalListTab({
                       "Peso",
                       "Lote y ubicación",
                       "Estado",
-                      "Ficha",
+                      "Acciones",
                     ].map((title) => (
                       <th
                         key={title}
@@ -197,14 +197,24 @@ export function AnimalListTab({
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => onAnimalSelect(a)}
-                          aria-label={`Ver ficha de ${a.caravanaVisual || a.nombre}`}
-                        >
-                          Ver ficha
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => onAnimalSelect(a)}
+                            aria-label={`Ver ficha de ${a.caravanaVisual || a.nombre}`}
+                          >
+                            Ver ficha
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => onOpenEdit(a.id)}
+                            aria-label={`Editar ${a.caravanaVisual || a.nombre}`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}

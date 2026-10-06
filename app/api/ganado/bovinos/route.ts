@@ -5,6 +5,7 @@ import { scopeEstablecimiento, resolverEstablecimientoDestino } from "@/lib/api/
 import { logAudit } from "@/lib/api/audit-log"
 import { prisma } from "@/lib/prisma"
 import { ejecutarAltas, mapearErrorPrisma, prepararAltas } from "@/lib/ganado/alta"
+import { animalIdsPorUltimaPesada, estadisticasDeAnimales } from "@/lib/ganado/estadisticas"
 
 // ============================================
 // GET /api/ganado/bovinos
@@ -112,36 +113,19 @@ export const GET = withAuth(async (request, ctx) => {
       where.id = { in: animalIdsEnLote }
     }
 
-    // Filtros por peso y condicion corporal (via ultima pesada)
+    // Filtros por peso y condición corporal: sobre la ÚLTIMA pesada de cada
+    // animal (resuelto en SQL), no sobre cualquier pesada histórica
     if (pesoMin || pesoMax || ccMin || ccMax) {
-      const pesadaFilter: Record<string, unknown> = {}
-      if (pesoMin) pesadaFilter.gte = parseFloat(pesoMin)
-      if (pesoMax) pesadaFilter.lte = parseFloat(pesoMax)
-
-      const animalesConPeso = await prisma.evtPesada.findMany({
-        where: {
-          animalId: { not: null },
-          animal: { establecimientoId: { in: ctx.establecimientoIds } },
-          ...(pesoMin || pesoMax ? { pesoKg: pesadaFilter } : {}),
-          ...(ccMin || ccMax ? {
-            cc: {
-              ...(ccMin ? { gte: parseFloat(ccMin) } : {}),
-              ...(ccMax ? { lte: parseFloat(ccMax) } : {}),
-            },
-          } : {}),
-        },
-        distinct: ["animalId"],
-        orderBy: { fecha: "desc" },
-        select: { animalId: true },
+      const numero = (v: string | null) => (v && !Number.isNaN(Number(v)) ? Number(v) : undefined)
+      const idsConPeso = await animalIdsPorUltimaPesada(establecimientosPermitidos, {
+        pesoMin: numero(pesoMin),
+        pesoMax: numero(pesoMax),
+        ccMin: numero(ccMin),
+        ccMax: numero(ccMax),
       })
-
-      const idsConPeso = animalesConPeso
-        .map(p => p.animalId)
-        .filter((id): id is string => id !== null)
-
       if (where.id) {
-        const existingIds = (where.id as { in: string[] }).in
-        where.id = { in: existingIds.filter((id: string) => idsConPeso.includes(id)) }
+        const conPeso = new Set(idsConPeso)
+        where.id = { in: (where.id as { in: string[] }).in.filter((id) => conPeso.has(id)) }
       } else {
         where.id = { in: idsConPeso }
       }
@@ -243,55 +227,11 @@ export const GET = withAuth(async (request, ctx) => {
       }
     })
 
-    // Estadísticas (misma consulta `where` que la lista; puede incluir varias especies)
-    const todosAnimales = await prisma.animal.findMany({
-      where: where as any,
-      include: {
-        categoria: true,
-        eventosPesada: {
-          orderBy: [{ fecha: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
-          take: 1
-        }
-      }
-    })
-
-    const stats = {
-      total: totalAnimales,
-      porCategoria: {} as Record<string, number>,
-      pesoPromedio: 0,
-      conPeso: 0,
-      activos: todosAnimales.filter(a => a.estadoVital === "activo").length,
-      pesoPorCategoria: [] as { category: string; avgWeight: number; count: number }[],
-    }
-
-    for (const a of todosAnimales) {
-      const nombreCat = a.categoria?.nombre
-      if (nombreCat) {
-        stats.porCategoria[nombreCat] = (stats.porCategoria[nombreCat] || 0) + 1
-      }
-    }
-
-    // Calcular peso promedio
-    const pesosValidos = todosAnimales
-      .map(a => a.eventosPesada[0]?.pesoKg)
-      .filter((p): p is number => p !== null && p !== undefined && p > 0)
-
-    stats.conPeso = pesosValidos.length
-    const pesosCategoria = new Map<string, number[]>()
-    for (const animal of todosAnimales) {
-      const peso = animal.eventosPesada[0]?.pesoKg
-      if (peso && peso > 0) {
-        const nombre = animal.categoria?.nombre || "Sin categoría"
-        pesosCategoria.set(nombre, [...(pesosCategoria.get(nombre) || []), peso])
-      }
-    }
-    stats.pesoPorCategoria = Array.from(pesosCategoria, ([category, pesos]) => ({ category, count: pesos.length, avgWeight: Math.round(pesos.reduce((a, b) => a + b, 0) / pesos.length) }))
-
-    if (pesosValidos.length > 0) {
-      stats.pesoPromedio = Math.round(
-        pesosValidos.reduce((acc, p) => acc + p, 0) / pesosValidos.length
-      )
-    }
+    // Estadísticas (misma consulta `where` que la lista; puede incluir varias
+    // especies). Sólo se traen los ids y la agregación la hace la base.
+    const idsFiltrados = await prisma.animal.findMany({ where: where as any, select: { id: true } })
+    const stats = await estadisticasDeAnimales(idsFiltrados.map((a) => a.id))
+    stats.total = totalAnimales
 
     // Información de paginación
     const totalPages = Math.ceil(totalAnimales / limit)

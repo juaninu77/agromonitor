@@ -52,6 +52,7 @@ import {
   TrendingUp,
   Heart,
   Footprints,
+  Ban,
 } from "lucide-react"
 import {
   LineChart,
@@ -68,6 +69,9 @@ import { leerEspecie } from "@/lib/ganado/query"
 import { useTenant } from "@/lib/context/tenant-context"
 import { formatDate } from "@/lib/utils"
 import { PreparacionSenasa } from "@/components/ganado/preparacion-senasa"
+import { usePermissions } from "@/lib/hooks/use-permissions"
+import { AnimalDialog } from "../components/animal-dialog"
+import { MOTIVOS_BAJA } from "@/lib/validations/eventos-schema"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -268,6 +272,15 @@ export default function AnimalDetailPage() {
   const [pesoDialogOpen, setPesoDialogOpen] = useState(false)
   const [sanidadDialogOpen, setSanidadDialogOpen] = useState(false)
   const [moverDialogOpen, setMoverDialogOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [bajaDialogOpen, setBajaDialogOpen] = useState(false)
+  const { canDeleteData } = usePermissions()
+
+  // Form state: baja
+  const [bajaMotivo, setBajaMotivo] = useState<(typeof MOTIVOS_BAJA)[number]>("otro")
+  const [bajaFecha, setBajaFecha] = useState(() => new Date().toISOString().slice(0, 10))
+  const [bajaObserv, setBajaObserv] = useState("")
+  const [bajaSubmitting, setBajaSubmitting] = useState(false)
 
   // Form state: peso
   const [pesoKg, setPesoKg] = useState("")
@@ -368,6 +381,28 @@ export default function AnimalDetailPage() {
       setSanidadSubmitting(false)
     }
   }, [id, productoId, dosis, invalidateAnimal])
+
+  // ----- Baja submit -----
+  const handleBajaSubmit = useCallback(async () => {
+    setBajaSubmitting(true)
+    try {
+      const res = await fetch("/api/ventas/bajas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ animalId: id, motivo: bajaMotivo, fecha: bajaFecha, observ: bajaObserv || undefined }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || "No se pudo registrar la baja")
+      toast.success("Animal dado de baja", { description: "Se cerró su historial de lote y ubicación." })
+      setBajaDialogOpen(false)
+      invalidateAnimal()
+      queryClient.invalidateQueries({ queryKey: ["ganado-lista"] })
+    } catch (err: any) {
+      toast.error("Error", { description: err.message })
+    } finally {
+      setBajaSubmitting(false)
+    }
+  }, [id, bajaMotivo, bajaFecha, bajaObserv, invalidateAnimal, queryClient])
 
   // ----- Mover lote submit -----
   const handleMoverSubmit = useCallback(async () => {
@@ -488,6 +523,7 @@ export default function AnimalDetailPage() {
   }
 
   const badge = ESTADO_BADGE[animal.estadoVital] ?? ESTADO_BADGE.activo
+  const activo = animal.estadoVital === "activo"
 
   return (
     <div className="space-y-6">
@@ -516,6 +552,8 @@ export default function AnimalDetailPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          {activo && (
+          <>
           <Button
             variant="outline"
             size="sm"
@@ -543,14 +581,27 @@ export default function AnimalDetailPage() {
             <ArrowRightLeft className="h-4 w-4 mr-1.5" />
             Mover de lote
           </Button>
+          </>
+          )}
           <Button
             size="sm"
             className="bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700"
-            onClick={() => router.push(`${regreso}&edit=${id}`)}
+            onClick={() => setEditOpen(true)}
           >
             <Edit className="h-4 w-4 mr-1.5" />
             Editar
           </Button>
+          {activo && canDeleteData && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-red-300 text-red-700 hover:bg-red-50"
+              onClick={() => setBajaDialogOpen(true)}
+            >
+              <Ban className="h-4 w-4 mr-1.5" />
+              Dar de baja
+            </Button>
+          )}
         </div>
       </div>
 
@@ -915,7 +966,7 @@ export default function AnimalDetailPage() {
                   <SelectValue placeholder="Seleccionar CC" />
                 </SelectTrigger>
                 <SelectContent>
-                  {[1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].map((v) => (
+                  {[1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9].map((v) => (
                     <SelectItem key={v} value={String(v)}>
                       {v}
                     </SelectItem>
@@ -1034,6 +1085,84 @@ export default function AnimalDetailPage() {
             <Button onClick={handleMoverSubmit} disabled={!loteId || moverSubmitting}>
               {moverSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Mover
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ================================================================ */}
+      {/* DIALOG: Editar (en la ficha, sin volver al listado)              */}
+      {/* ================================================================ */}
+      <AnimalDialog
+        key={`edit-${id}-${editOpen}`}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        onSuccess={() => {
+          invalidateAnimal()
+          queryClient.invalidateQueries({ queryKey: ["ganado-lista"] })
+        }}
+        mode="edit"
+        animalId={id}
+      />
+
+      {/* ================================================================ */}
+      {/* DIALOG: Dar de baja                                              */}
+      {/* ================================================================ */}
+      <Dialog open={bajaDialogOpen} onOpenChange={(open) => { if (!bajaSubmitting) setBajaDialogOpen(open) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Ban className="h-5 w-5 text-red-600" />
+              Dar de baja
+            </DialogTitle>
+            <DialogDescription>
+              {getAnimalName(animal)} dejará de contar en el rodeo. Se registra el evento de baja y se cierra su
+              historial de lote y ubicación. Para ventas con cliente y precio usá el módulo Ventas.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="bajaMotivo">Motivo</Label>
+              <Select value={bajaMotivo} onValueChange={(v) => setBajaMotivo(v as (typeof MOTIVOS_BAJA)[number])}>
+                <SelectTrigger id="bajaMotivo">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MOTIVOS_BAJA.map((m) => (
+                    <SelectItem key={m} value={m} className="capitalize">
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bajaFecha">Fecha</Label>
+              <Input
+                id="bajaFecha"
+                type="date"
+                max={new Date().toISOString().slice(0, 10)}
+                value={bajaFecha}
+                onChange={(e) => setBajaFecha(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bajaObserv">Observaciones</Label>
+              <Input
+                id="bajaObserv"
+                placeholder="Opcional"
+                value={bajaObserv}
+                onChange={(e) => setBajaObserv(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBajaDialogOpen(false)} disabled={bajaSubmitting}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={handleBajaSubmit} disabled={!bajaFecha || bajaSubmitting}>
+              {bajaSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Confirmar baja
             </Button>
           </DialogFooter>
         </DialogContent>

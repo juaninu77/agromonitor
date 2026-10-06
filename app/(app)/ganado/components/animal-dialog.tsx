@@ -63,6 +63,7 @@ export function AnimalDialog({
               esCabana: animal.esCabana || false,
               registroCabana: animal.registroCabana || '',
               notas: animal.notas || '',
+              loteId: animal.loteHist?.find((h: { hasta: string | null }) => !h.hasta)?.loteId || '',
             })
           }
         })
@@ -136,7 +137,7 @@ export function AnimalDialog({
                 {mode === 'edit' ? 'No se pudo actualizar' : 'No se pudo registrar'}
               </p>
               <p className="text-xs text-slate-500">
-                {error instanceof Error ? error.message : 'Error interno del servidor. Intente nuevamente.'}
+                {error instanceof Error ? error.message : 'Error interno del servidor. Intentá de nuevo.'}
               </p>
             </div>
           </div>
@@ -156,8 +157,8 @@ export function AnimalDialog({
           </DialogTitle>
           <DialogDescription>
             {mode === 'edit'
-              ? 'Modifique los datos del animal. Los campos marcados con * son obligatorios.'
-              : 'Complete el formulario para agregar un nuevo animal bovino al sistema. Los campos marcados con * son obligatorios.'
+              ? 'Modificá los datos del animal. Los campos marcados con * son obligatorios.'
+              : 'Completá el formulario para agregar un animal al rodeo. Los campos marcados con * son obligatorios.'
             }
           </DialogDescription>
         </DialogHeader>

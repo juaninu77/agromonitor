@@ -747,6 +747,7 @@ model EvtPesada {
   cantidadAnimales Int? @map("cantidad_animales") // Si es por lote
 
   @@index([animalId])
+  @@index([animalId, fecha]) // última pesada por animal
   @@index([loteId])
   @@index([fecha])
   @@map("evt_pesada")
@@ -1182,6 +1183,7 @@ model MovimientoStock {
 
   @@index([productoId])
   @@index([loteProductoId])
+  @@index([sectorId])
   @@index([fecha])
   @@index([tipo])
   @@map("movimientos_stock")

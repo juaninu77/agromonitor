@@ -6,7 +6,9 @@ import { decimalToNumber } from "@/lib/api/serialize"
 import { prisma } from "@/lib/prisma"
 import { validarRazaYCategoriaParaEspecie } from "@/lib/ganado/validate-especie"
 import { erroresZod, mapearErrorPrisma } from "@/lib/ganado/alta"
+import { BajaError, registrarBaja } from "@/lib/ganado/baja"
 import { animalActualizacionSchema } from "@/lib/validations/animal-schema"
+import { bajaSchema } from "@/lib/validations/eventos-schema"
 import { Prisma } from "@prisma/client"
 
 // ============================================
@@ -107,6 +109,12 @@ export const GET = withAuth(async (request, ctx) => {
 // ============================================
 // Actualiza un animal existente
 
+// Quién puede editar qué: la identificación y los datos del animal los cambian
+// admin/encargado de la org dueña; mover de lote o sector lo puede hacer
+// cualquier rol de esa org (es operación de campo).
+const ROLES_EDICION = ["admin", "encargado"] as const
+const CAMPOS_OPERATIVOS = new Set(["loteId", "sectorId", "pesoNuevo", "ccNuevo"])
+
 export const PATCH = withAuth(async (request, ctx) => {
   try {
     const { id } = ctx.params
@@ -120,6 +128,24 @@ export const PATCH = withAuth(async (request, ctx) => {
     const animalExistente = await animalDelTenant(id, ctx.establecimientoIds)
     if (!animalExistente) {
       return NextResponse.json({ error: "Animal no encontrado" }, { status: 404 })
+    }
+
+    // Rol EN LA ORG DUEÑA del animal (nunca el rol global)
+    const camposPedidos = Object.keys(parsed.data as object)
+    const soloOperativo = camposPedidos.every((c) => CAMPOS_OPERATIVOS.has(c))
+    const puedeEditar =
+      ctx.esAdminPlataforma ||
+      (animalExistente.establecimientoId
+        ? ctx.establecimientoIdsConRol([...ROLES_EDICION]).includes(animalExistente.establecimientoId)
+        : false)
+    if (!soloOperativo && !puedeEditar) {
+      return NextResponse.json(
+        { error: "Sólo un administrador o encargado del campo puede editar los datos del animal" },
+        { status: 403 }
+      )
+    }
+    if (animalExistente.estadoVital !== "activo" && !puedeEditar) {
+      return NextResponse.json({ error: "El animal está dado de baja" }, { status: 400 })
     }
 
     // Organización dueña del establecimiento del animal (para scopear el catálogo)
@@ -254,37 +280,46 @@ export const PATCH = withAuth(async (request, ctx) => {
 // ============================================
 // DELETE /api/ganado/bovinos/[id]
 // ============================================
-// Elimina un animal (soft delete recomendado)
+// Baja lógica: NO borra la fila. Crea un EvtBaja (motivo por defecto "otro",
+// fecha de hoy; se pueden pasar `motivo`, `fecha` y `observ` en el body),
+// deja el estadoVital según el motivo y cierra los historiales de lote y
+// ubicación. Para ventas con cliente/precio usar POST /api/ventas/bajas.
 
 export const DELETE = withAuth(
   async (request, ctx) => {
     try {
       const { id } = ctx.params
-
-      // Solo donde el usuario es admin/encargado de la org dueña del animal
-      const animal = await animalDelTenant(
-        id,
-        ctx.establecimientoIdsConRol(["admin", "encargado"])
-      )
-
-      if (!animal) {
-        return NextResponse.json(
-          { error: "Animal no encontrado" },
-          { status: 404 }
-        )
+      const body = (await request.json().catch(() => null)) ?? {}
+      const parsed = bajaSchema.safeParse({
+        animalId: id,
+        motivo: body.motivo ?? "otro",
+        fecha: body.fecha ?? new Date(),
+        observ: body.observ ?? body.notas,
+        pesoVivoKg: body.pesoVivoKg,
+      })
+      if (!parsed.success) {
+        const errores = erroresZod(parsed.error)
+        return NextResponse.json({ success: false, error: errores[0], errores }, { status: 400 })
       }
 
-      await prisma.animal.update({
-        where: { id },
-        data: { estadoVital: "baja" }
+      // Solo donde el usuario es admin/encargado de la org dueña del animal
+      const { baja, animal } = await registrarBaja(parsed.data, {
+        establecimientoIds: ctx.establecimientoIdsConRol(["admin", "encargado"]),
+        organizacionIds: ctx.organizacionIds,
       })
 
       await logAudit({
         userId: ctx.userId,
         tabla: "animales",
         rowPk: id,
-        accion: "DELETE",
-        detalle: { caravanaVisual: animal.caravanaVisual },
+        accion: "UPDATE",
+        detalle: {
+          baja: true,
+          motivo: parsed.data.motivo,
+          estadoVital: animal.estadoVital,
+          evtBajaId: baja.id,
+          caravanaVisual: animal.caravanaVisual,
+        },
         organizacionId: animal.establecimientoId
           ? ctx.organizacionDeEstablecimiento[animal.establecimientoId]
           : null,
@@ -292,10 +327,16 @@ export const DELETE = withAuth(
 
       return NextResponse.json({
         success: true,
-        message: "Animal eliminado exitosamente",
+        data: { animalId: id, estadoVital: animal.estadoVital, evtBajaId: baja.id },
+        message: "Animal dado de baja",
       })
     } catch (error) {
-      console.error("Error al eliminar animal:", error)
+      if (error instanceof BajaError) {
+        return NextResponse.json({ success: false, error: error.message }, { status: error.status })
+      }
+      const conocido = mapearErrorPrisma(error)
+      if (conocido) return NextResponse.json({ success: false, error: conocido.error }, { status: conocido.status })
+      console.error("Error al dar de baja animal:", error)
       return NextResponse.json(
         { success: false, error: "Error interno del servidor" },
         { status: 500 }

@@ -29,7 +29,7 @@ export const GET = withAuth(async (request, ctx) => {
       where: where as any,
       include: {
         especie: { select: { id: true, nombre: true } },
-        _count: { select: { animales: true } },
+        _count: { select: { animales: { where: { establecimientoId: { in: ctx.establecimientoIds } } } } },
       },
       orderBy: { nombre: "asc" },
     })
@@ -52,17 +52,19 @@ export const POST = withAuth(
         return NextResponse.json({ error: "La especie es requerida" }, { status: 400 })
       }
 
-      // Resolver organización destino (scoping multi-tenant)
+      // Organización destino: sólo donde el usuario es admin/encargado
+      // (el rol es por organización, nunca global)
+      const organizacionesEditables = ctx.organizacionIdsConRol(["admin", "encargado"])
       let organizacionId: string | undefined = body.organizacionId
       if (organizacionId) {
-        if (!ctx.organizacionIds.includes(organizacionId)) {
+        if (!organizacionesEditables.includes(organizacionId)) {
           return NextResponse.json(
-            { error: "No tienes acceso a esta organización" },
+            { error: "No tenés permisos para editar el catálogo de esta organización" },
             { status: 403 }
           )
         }
-      } else if (ctx.organizacionIds.length === 1) {
-        organizacionId = ctx.organizacionIds[0]
+      } else if (organizacionesEditables.length === 1) {
+        organizacionId = organizacionesEditables[0]
       } else {
         return NextResponse.json(
           { error: "Se requiere organizacionId para crear la categoría" },
@@ -70,13 +72,13 @@ export const POST = withAuth(
         )
       }
 
-      // La especie referenciada debe pertenecer a la organización del tenant
+      // La especie puede ser de la organización o del catálogo global
       const especie = await prisma.especie.findFirst({
-        where: { id: body.especieId, organizacionId },
+        where: { id: body.especieId, ...scopeCatalogo([organizacionId]) },
       })
       if (!especie) {
         return NextResponse.json(
-          { error: "La especie no pertenece a la organización" },
+          { error: "La especie no existe o no es visible para la organización" },
           { status: 400 }
         )
       }

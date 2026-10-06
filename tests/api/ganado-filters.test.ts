@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   count: vi.fn(),
   findMany: vi.fn(),
   lotes: vi.fn(),
+  queryRaw: vi.fn(),
 }))
 vi.mock("@/lib/api/with-auth", () => ({
   withAuth: (handler: Function) => (request: unknown) =>
@@ -13,6 +14,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     animal: { count: mocks.count, findMany: mocks.findMany },
     animalLoteHist: { findMany: mocks.lotes },
+    $queryRaw: mocks.queryRaw,
   },
 }))
 import { GET as routeGET } from "@/app/api/ganado/bovinos/route"
@@ -25,6 +27,7 @@ beforeEach(() => {
   mocks.count.mockResolvedValue(0)
   mocks.findMany.mockResolvedValue([])
   mocks.lotes.mockResolvedValue([])
+  mocks.queryRaw.mockResolvedValue([])
 })
 
 describe("filtros de Ganado en el servidor", () => {
@@ -87,34 +90,33 @@ describe("filtros de Ganado en el servidor", () => {
     expect({ skip, take }).toEqual({ skip: 10, take: 10 })
     expect(orderBy.at(-1)).toEqual({ id: "asc" })
   })
-  it("calcula reportes con todos los resultados y excluye pesos ausentes", async () => {
+  it("calcula reportes con todos los resultados agregando en la base", async () => {
     mocks.count.mockResolvedValue(3)
-    mocks.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
-      {
-        categoria: { nombre: "oveja" },
-        estadoVital: "activo",
-        eventosPesada: [{ pesoKg: 40 }],
-      },
-      {
-        categoria: { nombre: "oveja" },
-        estadoVital: "activo",
-        eventosPesada: [{ pesoKg: 60 }],
-      },
-      {
-        categoria: { nombre: "cordero" },
-        estadoVital: "activo",
-        eventosPesada: [],
-      },
+    mocks.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "a1" }, { id: "a2" }, { id: "a3" }])
+    mocks.queryRaw.mockResolvedValueOnce([
+      { categoria: "oveja", estado_vital: "activo", total: 2, con_peso: 2, suma_peso: 100 },
+      { categoria: "cordero", estado_vital: "activo", total: 1, con_peso: 0, suma_peso: 0 },
     ])
     const result = await (await get("especie=ovino&limit=1")).json()
     expect(result.stats).toMatchObject({
       total: 3,
       conPeso: 2,
       pesoPromedio: 50,
+      activos: 3,
       porCategoria: { oveja: 2, cordero: 1 },
       pesoPorCategoria: [{ category: "oveja", count: 2, avgWeight: 50 }],
     })
     expect(result.pagination.totalPages).toBe(3)
-    expect(mocks.findMany.mock.calls[1][0].include.eventosPesada.orderBy).toEqual([{ fecha: "desc" }, { createdAt: "desc" }, { id: "desc" }])
+    // Para las estadísticas sólo se piden los ids, nunca el rodeo completo
+    expect(mocks.findMany.mock.calls[1][0].select).toEqual({ id: true })
+    expect(mocks.findMany.mock.calls[1][0].include).toBeUndefined()
+  })
+  it("filtra por peso usando la última pesada resuelta en SQL", async () => {
+    mocks.queryRaw.mockResolvedValueOnce([{ animal_id: "a1" }]).mockResolvedValueOnce([])
+    await get("establecimientoId=campo1&especie=bovino&pesoMin=300")
+    const where = mocks.count.mock.calls[0][0].where
+    expect(where.id).toEqual({ in: ["a1"] })
   })
 })

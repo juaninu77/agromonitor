@@ -230,49 +230,46 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
   return (
     <div className="space-y-8">
       {/* Indicador de Pasos */}
-      <nav aria-label="Progress">
-        <ol role="list" className="flex items-center">
-          {STEPS.map((s, index) => (
-            <li key={s.name} className={cn(index !== STEPS.length - 1 ? "pr-8 sm:pr-20" : "", "relative")}>
-              {s.id < step ? (
-                <>
-                  <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                    <div className="h-0.5 w-full bg-blue-600" />
+      <nav aria-label="Progreso del formulario">
+        <ol role="list" className="grid grid-cols-4 gap-2">
+          {STEPS.map((s, index) => {
+            const completado = s.id < step
+            const actual = s.id === step
+            return (
+              <li key={s.name} className="relative flex flex-col items-center text-center">
+                {index !== STEPS.length - 1 && (
+                  <div className="absolute left-1/2 top-4 h-0.5 w-full" aria-hidden="true">
+                    <div className={cn("h-full w-full", completado ? "bg-blue-600" : "bg-slate-200")} />
                   </div>
-                  <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-blue-600">
+                )}
+                <div
+                  className={cn(
+                    "relative z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 bg-card",
+                    completado ? "border-blue-600 bg-blue-600" : actual ? "border-blue-600" : "border-slate-200"
+                  )}
+                  aria-current={actual ? "step" : undefined}
+                >
+                  {completado ? (
                     <Check className="h-5 w-5 text-white" aria-hidden="true" />
-                    <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-bold text-primary uppercase">
-                      {s.name}
-                    </span>
-                  </div>
-                </>
-              ) : s.id === step ? (
-                <>
-                  <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                    <div className="h-0.5 w-full bg-slate-200" />
-                  </div>
-                  <div className="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-blue-600 bg-card" aria-current="step">
-                    <s.icon className="h-4 w-4 text-primary" />
-                    <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-bold text-primary uppercase">
-                      {s.name}
-                    </span>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                    <div className="h-0.5 w-full bg-slate-200" />
-                  </div>
-                  <div className="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 bg-card">
-                    <s.icon className="h-4 w-4 text-slate-400" />
-                    <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-bold text-slate-400 uppercase">
-                      {s.name}
-                    </span>
-                  </div>
-                </>
-              )}
-            </li>
-          ))}
+                  ) : (
+                    <s.icon className={cn("h-4 w-4", actual ? "text-primary" : "text-slate-400")} />
+                  )}
+                </div>
+                <span
+                  className={cn(
+                    "mt-2 hidden text-[10px] font-bold uppercase leading-tight sm:block",
+                    completado || actual ? "text-primary" : "text-slate-400"
+                  )}
+                >
+                  {s.name}
+                </span>
+                <span className="sr-only">
+                  Paso {s.id} de {STEPS.length}: {s.name}
+                  {completado ? " (completado)" : actual ? " (actual)" : ""}
+                </span>
+              </li>
+            )
+          })}
         </ol>
       </nav>
 
@@ -286,7 +283,7 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
                   <Fingerprint className="h-5 w-5 text-primary" />
                   Identificación del Animal
                 </h3>
-                <p className="text-sm text-slate-500">Registra las marcas y números oficiales para seguimiento.</p>
+                <p className="text-sm text-slate-500">Registrá las marcas y números oficiales para el seguimiento.</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -365,13 +362,13 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-2 md:col-span-2">
-                <Label className="flex items-center gap-2">Especie *</Label>
+                <Label htmlFor="especieId" className="flex items-center gap-2">Especie *</Label>
                 <Select
                   value={especieIdWatch || undefined}
                   onValueChange={(value) => setValue("especieId", value)}
                   disabled={loadingOptions || especies.length === 0}
                 >
-                  <SelectTrigger className={cn("h-11 border-2", errors.especieId ? "border-red-500" : "border-slate-200")}>
+                  <SelectTrigger id="especieId" className={cn("h-11 border-2", errors.especieId ? "border-red-500" : "border-slate-200")}>
                     <SelectValue placeholder={loadingOptions ? "Cargando especies…" : "Seleccionar especie"} />
                   </SelectTrigger>
                   <SelectContent>
@@ -388,14 +385,14 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
               </div>
 
               <div className="space-y-2">
-                <Label className="flex items-center gap-2">Raza *</Label>
+                <Label htmlFor="razaId" className="flex items-center gap-2">Raza *</Label>
                 <Select
                   key={`raza-${especieIdWatch}`}
                   onValueChange={(value) => setValue("razaId", value)}
                   value={watch("razaId") || undefined}
                   disabled={loadingOptions}
                 >
-                  <SelectTrigger className={cn("h-11 border-2", errors.razaId ? "border-red-500" : "border-slate-200")}>
+                  <SelectTrigger id="razaId" className={cn("h-11 border-2", errors.razaId ? "border-red-500" : "border-slate-200")}>
                     <SelectValue placeholder={loadingOptions ? "Cargando..." : "Seleccionar raza"} />
                   </SelectTrigger>
                   <SelectContent>
@@ -412,14 +409,14 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
               </div>
 
               <div className="space-y-2">
-                <Label className="flex items-center gap-2">Categoría *</Label>
+                <Label htmlFor="categoriaId" className="flex items-center gap-2">Categoría *</Label>
                 <Select
                   key={`cat-${especieIdWatch}`}
                   onValueChange={(value) => setValue("categoriaId", value)}
                   value={watch("categoriaId") || undefined}
                   disabled={loadingOptions}
                 >
-                  <SelectTrigger className={cn("h-11 border-2", errors.categoriaId ? "border-red-500" : "border-slate-200")}>
+                  <SelectTrigger id="categoriaId" className={cn("h-11 border-2", errors.categoriaId ? "border-red-500" : "border-slate-200")}>
                     <SelectValue placeholder={loadingOptions ? "Cargando..." : "Seleccionar categoría"} />
                   </SelectTrigger>
                   <SelectContent>
@@ -436,11 +433,13 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
               </div>
 
               <div className="space-y-4">
-                <Label className="flex items-center gap-2 text-slate-700 font-bold">Sexo *</Label>
-                <div className="grid grid-cols-2 gap-4 h-14">
+                <Label id="sexo-label" className="flex items-center gap-2 text-slate-700 font-bold">Sexo *</Label>
+                <div role="radiogroup" aria-labelledby="sexo-label" className="grid grid-cols-2 gap-4 h-14">
                   <button
                     type="button"
-                    onClick={() => setValue("sexo", "M")}
+                    role="radio"
+                    aria-checked={selectedSexo === "M"}
+                    onClick={() => setValue("sexo", "M", { shouldDirty: true })}
                     className={cn(
                       "flex flex-col items-center justify-center rounded-xl border-2 transition-all p-2",
                       selectedSexo === "M"
@@ -452,7 +451,9 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
                   </button>
                   <button
                     type="button"
-                    onClick={() => setValue("sexo", "F")}
+                    role="radio"
+                    aria-checked={selectedSexo === "F"}
+                    onClick={() => setValue("sexo", "F", { shouldDirty: true })}
                     className={cn(
                       "flex flex-col items-center justify-center rounded-xl border-2 transition-all p-2",
                       selectedSexo === "F"
@@ -479,12 +480,12 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
               </div>
 
               <div className="space-y-2">
-                <Label className="flex items-center gap-2">Origen *</Label>
+                <Label htmlFor="origen" className="flex items-center gap-2">Origen *</Label>
                 <Select
-                  onValueChange={(value: "cria_propia" | "compra" | "otro") => setValue("origen", value)}
-                  defaultValue={initialData?.origen || "cria_propia"}
+                  onValueChange={(value: "cria_propia" | "compra" | "otro") => setValue("origen", value, { shouldDirty: true })}
+                  value={watch("origen") || "cria_propia"}
                 >
-                  <SelectTrigger className={cn("h-11 border-2", errors.origen ? "border-red-500" : "border-slate-200")}>
+                  <SelectTrigger id="origen" className={cn("h-11 border-2", errors.origen ? "border-red-500" : "border-slate-200")}>
                     <SelectValue placeholder="Seleccionar origen" />
                   </SelectTrigger>
                   <SelectContent>
@@ -522,14 +523,16 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
 
               <div className="space-y-2">
                 <Label htmlFor="estadoCastracion">Estado de Castración</Label>
-                <Select onValueChange={(value) => setValue("estadoCastracion", value)}>
-                  <SelectTrigger className="h-11 border-2 border-slate-200">
+                <Select
+                  onValueChange={(value) => setValue("estadoCastracion", value, { shouldDirty: true })}
+                  value={watch("estadoCastracion") || undefined}
+                >
+                  <SelectTrigger id="estadoCastracion" className="h-11 border-2 border-slate-200">
                     <SelectValue placeholder="Seleccionar" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="entero">Entero</SelectItem>
                     <SelectItem value="castrado">Castrado</SelectItem>
-                    <SelectItem value="no_aplica">No Aplica</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -549,12 +552,12 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label htmlFor="esCabana" className="text-base font-bold text-slate-800">Animal de Cabaña</Label>
-                  <p className="text-sm text-slate-500">Activa si el animal tiene registro de pedigrí o pureza racial.</p>
+                  <p className="text-sm text-slate-500">Activalo si el animal tiene registro de pedigrí o pureza racial.</p>
                 </div>
                 <Switch
                   id="esCabana"
-                  onCheckedChange={(checked) => setValue("esCabana", checked)}
-                  defaultChecked={initialData?.esCabana}
+                  onCheckedChange={(checked) => setValue("esCabana", checked, { shouldDirty: true })}
+                  checked={!!esCabana}
                 />
               </div>
 
@@ -588,11 +591,11 @@ export function AnimalForm({ onSubmit, isSubmitting, initialData }: AnimalFormPr
               <div className="space-y-2">
                 <Label htmlFor="loteId">Lote Asignado</Label>
                 <Select
-                  onValueChange={(value) => setValue("loteId", value)}
-                  defaultValue={initialData?.loteId}
+                  onValueChange={(value) => setValue("loteId", value, { shouldDirty: true })}
+                  value={watch("loteId") || undefined}
                   disabled={loadingOptions || !establecimientoActivo || lotes.length === 0}
                 >
-                  <SelectTrigger className={cn("h-11 border-2", errors.loteId ? "border-red-500" : "border-slate-200")}>
+                  <SelectTrigger id="loteId" className={cn("h-11 border-2", errors.loteId ? "border-red-500" : "border-slate-200")}>
                     <SelectValue
                       placeholder={
                         !establecimientoActivo

@@ -25,8 +25,8 @@ const date = (s: string) => new Date(s).toLocaleDateString("es-AR", { timeZone: 
 const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" })
 const labels: Record<string, string> = { nota: "Nota", tarea: "Tarea", revision_agua: "Revisión de agua", descanso: "Descanso", labor: "Labor / cosecha", medicion: "Medición de pasto", pendiente: "Pendiente", completada: "Completada", registrado: "Registrado", disponible: "Agua disponible", sin_agua: "Sin agua", requiere_revision: "Requiere revisión", inicio: "Inicio", fin: "Fin" }
 type Action = "record" | "move" | "group" | "crop" | "stock" | "document"
-export function SectorPanel({ sector, fieldId, sectors, onBack, onClose, onEdit, onDivide, onEditingChange }: { sector: MapSector; fieldId: string; sectors: MapSector[]; onBack: () => void; onClose?: () => void; onEdit: () => void; onDivide?: () => void; onEditingChange: (editing: boolean) => void }) {
-  const client = useQueryClient(), [tab, setTab] = useState("resumen"), [page, setPage] = useState(1)
+export function SectorPanel({ sector, fieldId, sectors, onBack, onClose, onEdit, onDivide, onEditingChange, initialTab }: { initialTab?: string; sector: MapSector; fieldId: string; sectors: MapSector[]; onBack: () => void; onClose?: () => void; onEdit: () => void; onDivide?: () => void; onEditingChange: (editing: boolean) => void }) {
+  const client = useQueryClient(), [tab, setTab] = useState(initialTab ?? "resumen"), [page, setPage] = useState(1)
   const [action, setAction] = useState<Action | null>(null), [animalSearch, setAnimalSearch] = useState("")
   const scroll = useRef<HTMLDivElement>(null), heading = useRef<HTMLHeadingElement>(null)
   useEffect(() => { if (scroll.current) scroll.current.scrollTop = 0 }, [action, tab])

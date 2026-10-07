@@ -71,3 +71,12 @@
   .field-workspace[data-panel="true"] .map-drawing-controls { bottom: calc(min(56dvh, 100% - 164px) + 42px); right: 64px; }
   .field-workspace[data-panel="true"] .map-bottom-summary { display: none; }
 }
+.map-summary { max-width: 100%; }
+.map-legend { width: 220px; max-height: 40vh; overflow-y: auto; }
+.field-workspace[data-panel="true"] .map-legend-wrap { right: 460px; }
+@media (max-width: 767px) {
+  .map-legend { width: 170px; }
+  .field-workspace[data-panel="true"] .map-legend-wrap { display: none; }
+  .map-bottom-summary { bottom: 36px; }
+  .map-legend-wrap { bottom: 96px; }
+}

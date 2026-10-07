@@ -10,8 +10,10 @@ import { useTenant } from "@/lib/context/tenant-context"
 import { useMapDraft } from "./use-map-draft"
 import { filterPlaces } from "@/lib/mapa/filters"
 import { SectorPanel } from "./sector-panel"
+import { CapasMapa, LeyendaMapa, ResumenCampo } from "./map-overlays"
+import { colorDeLugar, type ModoColor } from "@/lib/mapa/capas"
 import { parseMapImport, type ImportedPlace } from "@/lib/mapa/import"
-import { sectorState, isParcel, livestockTypes } from "@/lib/mapa/sector-state"
+import { livestockTypes } from "@/lib/mapa/sector-state"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
@@ -19,8 +21,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Search, Loader2, LocateFixed, Plus, MoreHorizontal, Maximize, Minimize, ListFilter, Layers, Info, ArrowLeft, X, Undo2, Redo2, Magnet, Hexagon, RectangleHorizontal, Spline, MapPin } from "lucide-react"
-import { areaHa, geometrySchema, polygonFrom, QUICK_PLACES, SECTOR_TYPES, sectorColor, sectorLabel, type Geometry, type Position } from "@/lib/mapa/geometry"
+import { Search, Loader2, LocateFixed, Plus, MoreHorizontal, Maximize, Minimize, ListFilter, Layers, ArrowLeft, X, Undo2, Redo2, Magnet, Hexagon, RectangleHorizontal, Spline, MapPin } from "lucide-react"
+import { areaHa, geometrySchema, polygonFrom, QUICK_PLACES, SECTOR_TYPES, sectorLabel, type Geometry, type Position } from "@/lib/mapa/geometry"
 import type { MapDraft, MapFocus, MapSector } from "@/lib/mapa/types"
 import { formatearEv, textoEspecies } from "@/lib/mapa/carga"
 import { dividirPoligono, DivisionError, formaPorTipo, formatearDistancia, geometriaDeForma, largoM, perimetroM, type Forma } from "@/lib/mapa/drawing"
@@ -60,7 +62,12 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
   const [panelEditing, setPanelEditing] = useState(false), [expanded, setExpanded] = useState(true), [panel, setPanel] = useState(!!params.get("sector"))
   const panelRef = useRef<HTMLElement>(null)
   useEffect(() => { if (recovered) setPanel(true) }, [recovered])
-  const [colorByState, setColorByState] = useState(false), [placeQuery, setPlaceQuery] = useState("")
+  const [placeQuery, setPlaceQuery] = useState("")
+  // Preferencias de vista guardadas en este dispositivo
+  const [modoColor, setModoColor] = usePreferencia<ModoColor>("modo", "tipo")
+  const [capasOcultas, setCapasOcultas] = usePreferencia<string[]>("capas-ocultas", [])
+  const [etiquetas, setEtiquetas] = usePreferencia<boolean>("etiquetas", true)
+  const [tabInicial, setTabInicial] = useState<string | undefined>()
   const [imports, setImports] = useState<ImportedPlace[]>([]), [importError, setImportError] = useState("")
   const [undoStack, setUndoStack] = useState<Position[][]>([]), [redoStack, setRedoStack] = useState<Position[][]>([])
   function changeVertices(vertices: Position[], terminar = false) { if (!draft) return; setUndoStack(v => [...v.slice(-49), draft.vertices]); setRedoStack([]); setDraft({ ...draft, vertices, ...(terminar ? { drawing: false } : {}) }) }
@@ -166,8 +173,8 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
   const hasFilters = filter !== "todos" || stateFilter !== "todos" || !!placeQuery
   return <div className="field-workspace" data-expanded={expanded} data-panel={panel} aria-label="Espacio de trabajo del mapa">
     <FieldMap sectors={visible} selected={selected} draft={saving ? null : draft} focus={focus} satellite={satellite} fitKey={fitKey}
-      panelRef={panelRef} onSelect={id => { if (!panelEditing) { setSelected(id); setPanel(true); setShowLocation(false) } }}
-      onVertices={changeVertices} colorByState={colorByState} onFinish={terminar} snap={snap} preview={corte?.partes ?? null} />
+      panelRef={panelRef} onSelect={(id, tab) => { if (!panelEditing) { setTabInicial(tab); setSelected(id); setPanel(true); setShowLocation(false) } }}
+      onVertices={changeVertices} modoColor={modoColor} capasOcultas={capasOcultas} etiquetas={etiquetas} onFinish={terminar} snap={snap} preview={corte?.partes ?? null} />
 
     <div className="map-topbar">
       <div className="map-floating flex min-w-0 max-w-full items-center gap-1 py-1 pl-1 pr-3">
@@ -189,11 +196,8 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
 
     <div className="absolute right-3 top-3 z-20 flex flex-col gap-2">
       <Popover><PopoverTrigger asChild><Button className="map-floating" variant="outline" size="icon" aria-label="Capas del mapa" title="Capas del mapa"><Layers className="h-4 w-4"/></Button></PopoverTrigger>
-        <PopoverContent side="left" align="start" className="w-64 space-y-4">
-          <h2 className="text-sm font-semibold">Vista del mapa</h2>
-          <div className="flex gap-2" role="group" aria-label="Vista del mapa"><Button size="sm" variant={!satellite ? "default" : "outline"} aria-pressed={!satellite} onClick={() => setSatellite(false)}>Mapa</Button><Button size="sm" variant={satellite ? "default" : "outline"} aria-pressed={satellite} onClick={() => setSatellite(true)}>Satélite</Button></div>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={colorByState} onChange={e => setColorByState(e.target.checked)}/>Colorear por estado</label>
-          {colorByState && <p className="text-xs text-muted-foreground">Azul: ganado · Violeta: descanso · Ocre: cultivo · Gris: otros</p>}
+        <PopoverContent side="left" align="start" className="w-72">
+          <CapasMapa satellite={satellite} setSatellite={setSatellite} modo={modoColor} setModo={setModoColor} etiquetas={etiquetas} setEtiquetas={setEtiquetas} ocultas={capasOcultas} setOcultas={setCapasOcultas} sectors={sectors}/>
         </PopoverContent>
       </Popover>
       <Button className="map-floating" variant="outline" size="icon" aria-label="Ver todos los lugares del campo" title="Ver todo el campo" disabled={blocked || !sectors.some(s => s.geometria)} onClick={() => { setFilter("todos"); setStateFilter("todos"); setPlaceQuery(""); setSelected(null); setPanel(false); setShowLocation(false); setFitKey(v => v + 1) }}><LocateFixed className="h-4 w-4"/></Button>
@@ -242,7 +246,7 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
           {geometry && !validation.success && <p role="alert" className="text-sm text-destructive">{validation.error.issues[0].message}</p>}
           <div className="flex flex-wrap gap-2"><Button type="submit" disabled={!online || !validation.success || !draft.nombre.trim() || (draft.kind !== "Point" && draft.drawing) || saving}>{saving ? "Guardando…" : "Guardar lugar"}</Button><Button type="button" variant="outline" disabled={saving} onClick={() => setDraft(null)}>Cancelar</Button></div>
           <p className="text-xs text-muted-foreground">Guardar actualiza el campo compartido. Cancelar descarta este borrador.</p>
-        </form> : current ? <SectorPanel key={current.id} sector={current} fieldId={fieldId} sectors={sectors} onBack={() => setSelected(null)} onClose={() => { setSelected(null); setPanel(false) }} onEdit={() => editar(current)} onDivide={current.geometria?.type === "Polygon" ? () => dividir(current) : undefined} onEditingChange={setPanelEditing}/> : <div className="flex h-full min-h-0 flex-col">
+        </form> : current ? <SectorPanel key={current.id + (tabInicial ?? "")} initialTab={tabInicial} sector={current} fieldId={fieldId} sectors={sectors} onBack={() => setSelected(null)} onClose={() => { setSelected(null); setPanel(false) }} onEdit={() => editar(current)} onDivide={current.geometria?.type === "Polygon" ? () => dividir(current) : undefined} onEditingChange={setPanelEditing}/> : <div className="flex h-full min-h-0 flex-col">
           <div className="shrink-0 space-y-3 border-b p-3"><div className="flex items-center justify-between"><h2 className="font-semibold">Lugares del campo</h2><Button size="icon" variant="ghost" aria-label="Cerrar lugares y filtros" onClick={() => setPanel(false)}><X className="h-4 w-4"/></Button></div>
             <Input aria-label="Buscar lugar en el campo" placeholder="Buscar lugar…" value={placeQuery} onChange={e => setPlaceQuery(e.target.value)}/>
             <div className="grid grid-cols-2 gap-2">
@@ -252,7 +256,7 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>{visible.length} de {sectors.length} lugares</span>{(filter !== "todos" || stateFilter !== "todos" || placeQuery) && <button type="button" className="font-medium text-primary underline" onClick={() => { setFilter("todos"); setStateFilter("todos"); setPlaceQuery("") }}>Limpiar filtros</button>}</div>
           </div>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3">
-          <div className="space-y-1" aria-label="Lugares del campo">{visible.map(s => <button key={s.id} type="button" onClick={() => setSelected(s.id)} className="flex w-full items-center gap-3 rounded-lg border border-transparent p-3 text-left text-sm hover:border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span className="h-3 w-3 shrink-0 rounded-full ring-1 ring-border" style={{ backgroundColor: colorByState ? sectorState(s).color : sectorColor(s.tipo) }}/><span className="min-w-0 flex-1"><span className="block font-medium">{s.nombre}</span><span className="block text-xs text-muted-foreground">{sectorLabel(s.tipo)}{!s.geometria ? " · Sin ubicar" : ""}{s.pendientes ? " · " + s.pendientes + (s.pendientes === 1 ? " tarea" : " tareas") : ""}</span>{livestockTypes.has(s.tipo) && s.animales > 0 && <span className="block text-xs text-muted-foreground">{textoEspecies(s.porEspecie)} · {formatearEv(s.ev)} EV</span>}</span></button>)}</div>
+          <div className="space-y-1" aria-label="Lugares del campo">{visible.map(s => <button key={s.id} type="button" onClick={() => setSelected(s.id)} className="flex w-full items-center gap-3 rounded-lg border border-transparent p-3 text-left text-sm hover:border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span className="h-3 w-3 shrink-0 rounded-full ring-1 ring-border" style={{ backgroundColor: colorDeLugar(s, modoColor, satellite) }}/><span className="min-w-0 flex-1"><span className="block font-medium">{s.nombre}</span><span className="block text-xs text-muted-foreground">{sectorLabel(s.tipo)}{!s.geometria ? " · Sin ubicar" : ""}{s.pendientes ? " · " + s.pendientes + (s.pendientes === 1 ? " tarea" : " tareas") : ""}</span>{livestockTypes.has(s.tipo) && s.animales > 0 && <span className="block text-xs text-muted-foreground">{textoEspecies(s.porEspecie)} · {formatearEv(s.ev)} EV</span>}</span></button>)}</div>
           {!visible.length && <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">{sectors.length ? "No hay lugares que coincidan con estos filtros. Probá otra combinación o limpiá los filtros." : "Todavía no hay lugares. Usá Agregar para dibujar el primero."}</p>}
           {canEdit && <details className="border-t pt-3"><summary className="cursor-pointer text-sm font-medium">Importar límites de Google Earth</summary><label className="mt-3 block text-xs text-muted-foreground">KML o GeoJSON · máximo 1 MB<Input type="file" accept=".kml,.geojson,.json" disabled={!!draft || panelEditing} onChange={async e => { const file = e.target.files?.[0]; if (!file) return; setImportError(""); try { if (file.size > 1000000) throw Error("El archivo debe pesar menos de 1 MB"); setImports(parseMapImport(await file.text(), file.name)) } catch (err) { setImportError(err instanceof Error ? err.message : "No se pudo leer el archivo") } e.target.value = "" }}/></label>{importError && <p role="alert" className="text-sm text-destructive">{importError}</p>}{imports.map((item, i) => <Button key={i} variant="ghost" className="mt-1 h-auto w-full whitespace-normal justify-start" onClick={() => { const g = item.geometry; const vertices = g.type === "Point" ? [g.coordinates] : g.type === "Polygon" ? g.coordinates[0].slice(0, -1) : g.coordinates; setDraft({ nombre: item.nombre, tipo: g.type === "Point" ? "otro" : g.type === "LineString" ? "camino" : "potrero", descripcion: "", kind: g.type, vertices, drawing: false }); setFocus({ lat: vertices[0][1], lon: vertices[0][0], zoom: 15, key: Date.now() }); setImports(v => v.filter((_, index) => index !== i)) }}>{item.nombre} · Revisar</Button>)}<p className="mt-2 text-xs text-muted-foreground">Revisá cada figura en el mapa y guardala. Importar no crea lugares automáticamente.</p></details>}
 
@@ -281,14 +285,20 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
     </div>}
 
     {!online && <p role="status" className="absolute bottom-3 left-3 right-16 z-30 rounded-lg bg-amber-100 p-2 text-xs text-amber-950 shadow">Sin conexión. Podés editar el dibujo y guardarlo cuando vuelva Internet.</p>}
-    {!draft && online && <div className="map-bottom-summary absolute bottom-9 left-3 z-20">
-      <Popover><PopoverTrigger asChild><Button className="map-floating max-w-full gap-2 text-xs" size="sm" variant="outline" aria-label="Resumen y referencias del mapa"><Info className="h-4 w-4"/><span>{sectors.length} lugares · {sectors.reduce((n, s) => n + s.bovinos, 0)} bovinos · {sectors.reduce((n, s) => n + s.ovinos, 0)} ovinos</span></Button></PopoverTrigger>
-        <PopoverContent side="top" align="start" className="space-y-2 text-sm">
-          <p>{sectors.filter(s => isParcel(s.tipo) && s.bovinos + s.ovinos > 0).length} parcelas con ganado · {sectors.reduce((n, s) => n + s.pendientes, 0)} tareas pendientes.</p>
-          <p>{sectors.filter(s => s.geometria).length} de {sectors.length} lugares ubicados.</p>
-          <p className="text-xs text-muted-foreground">Imágenes de referencia, no en tiempo real. Superficies aproximadas, no catastrales.</p>
-        </PopoverContent>
-      </Popover>
+    {!draft && online && <div className="map-bottom-summary absolute bottom-9 left-3 z-20 w-[min(360px,calc(100%-88px))]">
+      <ResumenCampo sectors={sectors} onIr={id => { setTabInicial(undefined); setSelected(id); setPanel(true); setShowLocation(false) }}/>
     </div>}
+    {!draft && <div className="map-legend-wrap absolute bottom-9 right-3 z-20"><LeyendaMapa modo={modoColor} sectors={visible}/></div>}
   </div>
+}
+
+/** Estado persistido en localStorage (por dispositivo); si no hay acceso, queda en memoria. */
+function usePreferencia<T>(clave: string, inicial: T): [T, (v: T) => void] {
+  const key = `agromonitor:mapa:${clave}`
+  const [valor, setValor] = useState<T>(inicial)
+  useEffect(() => {
+    try { const raw = localStorage.getItem(key); if (raw !== null) setValor(JSON.parse(raw) as T) } catch { /* sin almacenamiento */ }
+  }, [key])
+  const guardar = (v: T) => { setValor(v); try { localStorage.setItem(key, JSON.stringify(v)) } catch { /* sin almacenamiento */ } }
+  return [valor, guardar]
 }

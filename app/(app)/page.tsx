@@ -5,6 +5,7 @@ import { useTenant } from "@/lib/context/tenant-context"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/dashboard/empty-state"
+import { PriorityAlerts } from "@/components/dashboard/priority-alerts"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import {
@@ -317,6 +318,8 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      <PriorityAlerts establecimientoId={establecimientoActivo.id} />
 
       {stats.paricionesProximas > 0 && (
         <Card className="border-pink-200 bg-pink-50/60">

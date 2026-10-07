@@ -29,6 +29,8 @@ interface Props {
   snap: boolean;
   /** Vista previa de las dos partes al dividir un potrero. */
   preview?: Position[][] | null;
+  /** Límite anterior a mostrar en línea punteada (historial), con su etiqueta. */
+  limiteAnterior?: { vertices: Position[]; etiqueta: string } | null;
   panelRef?: RefObject<HTMLElement | null>;
 }
 
@@ -293,6 +295,12 @@ export default function FieldMap(props: Props) {
       if (ha != null) poly.bindTooltip(`Parte ${i + 1} · ${fmtHa(ha)}`, { permanent: true, direction: "center", className: "map-measure" })
     })
 
+    if (props.limiteAnterior) {
+      const prev = L.polygon(props.limiteAnterior.vertices.map(ll), { color: "#db2777", weight: 3, dashArray: "6 4", fillOpacity: 0.12, interactive: false }).addTo(group)
+      prev.bindTooltip(props.limiteAnterior.etiqueta, { permanent: true, direction: "center", className: "map-measure" })
+      fitVisibleArea(prev.getBounds(), 17)
+    }
+
     const draft = props.draft
     if (!draft) return
     const vertices = draft.vertices, points = vertices.map(ll)
@@ -344,7 +352,7 @@ export default function FieldMap(props: Props) {
         if (vertices.length > minimo && latest.current.draft) latest.current.onVertices(vertices.filter((_, i) => i !== index))
       })
     })
-  }, [props.sectors, props.draft, props.selected, props.modoColor, props.capasOcultas, props.etiquetas, props.satellite, props.preview, zoomActual])
+  }, [props.sectors, props.draft, props.selected, props.modoColor, props.capasOcultas, props.etiquetas, props.satellite, props.preview, props.limiteAnterior, zoomActual])
 
   useEffect(() => {
     const selected = props.sectors.find(s => s.id === props.selected)

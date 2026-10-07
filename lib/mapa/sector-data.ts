@@ -39,15 +39,29 @@ export async function fieldSectors(fieldIds: string[]) {
       WHERE p.egreso IS NOT NULL AND p.egreso <= ${now} AND s.establecimiento_id = ANY(${fieldIds}::uuid[]) GROUP BY 1
     ) t GROUP BY 1` : []
   const ultimaSalida = new Map(salidas.map(r => [r.sector_id, r.ultima]))
+  // Inicio de la ocupación continua actual: la última vez que el lugar pasó de vacío
+  // a ocupado (barrido de intervalos ordenados; un hueco entre intervalos corta la racha).
+  const rachas = fieldIds.length ? await prisma.$queryRaw<{ sector_id: string; inicio: Date }[]>`
+    WITH iv AS (
+      SELECT u.sector_id, u.desde, coalesce(u.hasta, 'infinity'::timestamp) AS hasta
+      FROM ubicacion_hist u JOIN sectores s ON s.id = u.sector_id
+      WHERE s.establecimiento_id = ANY(${fieldIds}::uuid[]) AND u.desde <= ${now}
+    ), o AS (
+      SELECT sector_id, desde, max(hasta) OVER (PARTITION BY sector_id ORDER BY desde ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS previo
+      FROM iv
+    )
+    SELECT sector_id, max(desde) AS inicio FROM o WHERE previo IS NULL OR desde > previo GROUP BY 1` : []
+  const inicioRacha = new Map(rachas.map(r => [r.sector_id, r.inicio]))
   const dias = (d: Date) => Math.max(0, Math.floor((now.getTime() - new Date(d).getTime()) / 86_400_000))
   return sectors.map(s => {
     const parsed = geometrySchema.safeParse(s.geometria), geometria = parsed.success ? parsed.data : null
     const areaMapaHa = areaHa(geometria)
     const carga = cargaDeLugar(porSector.get(s.id) ?? [], s.superficieHa ?? areaMapaHa, s.capacidad)
-    const entrada = carga.animales > 0 ? (s.pastoreosIngreso[0]?.ingreso ?? ocupadoDesde.get(s.id)) : undefined
+    const entrada = carga.animales > 0 ? (inicioRacha.get(s.id) ?? s.pastoreosIngreso[0]?.ingreso ?? ocupadoDesde.get(s.id)) : undefined
     const salida = ultimaSalida.get(s.id)
     return { ...s, registros: undefined, geometria, areaMapaHa, ...carga,
       diasOcupacion: entrada ? dias(entrada) : null,
+      ocupadoDesde: entrada ?? null,
       diasDescanso: carga.animales === 0 && salida ? dias(salida) : null,
       ultimaSalida: salida ?? null,
       bovinos: carga.porEspecie.bovino ?? 0,

@@ -80,3 +80,7 @@
   .map-bottom-summary { bottom: 36px; }
   .map-legend-wrap { bottom: 96px; }
 }
+.map-pick-banner { position: absolute; z-index: 30; top: 76px; left: 50%; transform: translateX(-50%); white-space: nowrap; }
+/* Mientras se elige el destino, la ficha se achica (sin desmontarse) para despejar el mapa */
+.field-workspace[data-picking="true"] .map-floating-panel { height: 56px; opacity: .85; }
+.field-workspace[data-picking="true"] .leaflet-container { cursor: crosshair; }

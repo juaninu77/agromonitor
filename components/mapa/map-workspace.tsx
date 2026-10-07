@@ -10,7 +10,7 @@ import { useTenant } from "@/lib/context/tenant-context"
 import { useMapDraft } from "./use-map-draft"
 import { filterPlaces } from "@/lib/mapa/filters"
 import { SectorPanel } from "./sector-panel"
-import { CapasMapa, LeyendaMapa, ResumenCampo } from "./map-overlays"
+import { CapasMapa, LeyendaMapa, LugaresArchivados, ResumenCampo } from "./map-overlays"
 import { colorDeLugar, type ModoColor } from "@/lib/mapa/capas"
 import { parseMapImport, type ImportedPlace } from "@/lib/mapa/import"
 import { livestockTypes } from "@/lib/mapa/sector-state"
@@ -68,6 +68,8 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
   const [capasOcultas, setCapasOcultas] = usePreferencia<string[]>("capas-ocultas", [])
   const [etiquetas, setEtiquetas] = usePreferencia<boolean>("etiquetas", true)
   const [tabInicial, setTabInicial] = useState<string | undefined>()
+  // Modo "elegir destino en el mapa": el próximo lugar tocado se devuelve a la ficha
+  const [eligiendo, setEligiendo] = useState<((id: string) => void) | null>(null)
   const [imports, setImports] = useState<ImportedPlace[]>([]), [importError, setImportError] = useState("")
   const [undoStack, setUndoStack] = useState<Position[][]>([]), [redoStack, setRedoStack] = useState<Position[][]>([])
   function changeVertices(vertices: Position[], terminar = false) { if (!draft) return; setUndoStack(v => [...v.slice(-49), draft.vertices]); setRedoStack([]); setDraft({ ...draft, vertices, ...(terminar ? { drawing: false } : {}) }) }
@@ -131,6 +133,18 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
   }
   /** Editar un lugar: si ya tiene dibujo se ajusta; si no, se dibuja con la forma de su tipo. */
   const editar = (sector: MapSector) => begin(sector.geometria ? (sector.geometria.type as Forma) : formaPorTipo(sector.tipo), sector)
+  // ?dibujar=1 (desde el Listado): empieza a dibujar el lugar sin ubicar una sola vez
+  const dibujarPedido = useRef(params.get("dibujar") === "1")
+  useEffect(() => {
+    if (!dibujarPedido.current || !canEdit || draft) return
+    const objetivo = sectors.find(s => s.id === selected)
+    if (!objetivo || objetivo.geometria) return
+    dibujarPedido.current = false
+    editar(objetivo)
+    const actual = new URLSearchParams(window.location.search); actual.delete("dibujar")
+    router.replace(`${pathname}?${actual.toString()}`, { scroll: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectors, selected, canEdit])
   /** Cambiar de herramienta reinicia el trazo (se puede deshacer). */
   function cambiarForma(forma: Forma) {
     if (!draft || (draft.forma ?? draft.kind) === forma) return
@@ -171,9 +185,9 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
   if (query.isError) return <div role="alert" className="rounded-xl border p-6"><p>{query.error.message}</p><Button onClick={() => query.refetch()} className="mt-3">Reintentar</Button></div>
   const blocked = !!draft || panelEditing
   const hasFilters = filter !== "todos" || stateFilter !== "todos" || !!placeQuery
-  return <div className="field-workspace" data-expanded={expanded} data-panel={panel} aria-label="Espacio de trabajo del mapa">
+  return <div className="field-workspace" data-expanded={expanded} data-panel={panel} data-picking={eligiendo ? "true" : undefined} aria-label="Espacio de trabajo del mapa">
     <FieldMap sectors={visible} selected={selected} draft={saving ? null : draft} focus={focus} satellite={satellite} fitKey={fitKey}
-      panelRef={panelRef} onSelect={(id, tab) => { if (!panelEditing) { setTabInicial(tab); setSelected(id); setPanel(true); setShowLocation(false) } }}
+      panelRef={panelRef} onSelect={(id, tab) => { if (eligiendo) { eligiendo(id); setEligiendo(null); return } if (!panelEditing) { setTabInicial(tab); setSelected(id); setPanel(true); setShowLocation(false) } }}
       onVertices={changeVertices} modoColor={modoColor} capasOcultas={capasOcultas} etiquetas={etiquetas} onFinish={terminar} snap={snap} preview={corte?.partes ?? null} />
 
     <div className="map-topbar">
@@ -246,7 +260,7 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
           {geometry && !validation.success && <p role="alert" className="text-sm text-destructive">{validation.error.issues[0].message}</p>}
           <div className="flex flex-wrap gap-2"><Button type="submit" disabled={!online || !validation.success || !draft.nombre.trim() || (draft.kind !== "Point" && draft.drawing) || saving}>{saving ? "Guardando…" : "Guardar lugar"}</Button><Button type="button" variant="outline" disabled={saving} onClick={() => setDraft(null)}>Cancelar</Button></div>
           <p className="text-xs text-muted-foreground">Guardar actualiza el campo compartido. Cancelar descarta este borrador.</p>
-        </form> : current ? <SectorPanel key={current.id + (tabInicial ?? "")} initialTab={tabInicial} sector={current} fieldId={fieldId} sectors={sectors} onBack={() => setSelected(null)} onClose={() => { setSelected(null); setPanel(false) }} onEdit={() => editar(current)} onDivide={current.geometria?.type === "Polygon" ? () => dividir(current) : undefined} onEditingChange={setPanelEditing}/> : <div className="flex h-full min-h-0 flex-col">
+        </form> : current ? <SectorPanel key={current.id + (tabInicial ?? "")} initialTab={tabInicial} onElegirEnMapa={elegir => setEligiendo(() => elegir)} sector={current} fieldId={fieldId} sectors={sectors} onBack={() => setSelected(null)} onClose={() => { setSelected(null); setPanel(false) }} onEdit={() => editar(current)} onDivide={current.geometria?.type === "Polygon" ? () => dividir(current) : undefined} onEditingChange={setPanelEditing}/> : <div className="flex h-full min-h-0 flex-col">
           <div className="shrink-0 space-y-3 border-b p-3"><div className="flex items-center justify-between"><h2 className="font-semibold">Lugares del campo</h2><Button size="icon" variant="ghost" aria-label="Cerrar lugares y filtros" onClick={() => setPanel(false)}><X className="h-4 w-4"/></Button></div>
             <Input aria-label="Buscar lugar en el campo" placeholder="Buscar lugar…" value={placeQuery} onChange={e => setPlaceQuery(e.target.value)}/>
             <div className="grid grid-cols-2 gap-2">
@@ -258,6 +272,7 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3">
           <div className="space-y-1" aria-label="Lugares del campo">{visible.map(s => <button key={s.id} type="button" onClick={() => setSelected(s.id)} className="flex w-full items-center gap-3 rounded-lg border border-transparent p-3 text-left text-sm hover:border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span className="h-3 w-3 shrink-0 rounded-full ring-1 ring-border" style={{ backgroundColor: colorDeLugar(s, modoColor, satellite) }}/><span className="min-w-0 flex-1"><span className="block font-medium">{s.nombre}</span><span className="block text-xs text-muted-foreground">{sectorLabel(s.tipo)}{!s.geometria ? " · Sin ubicar" : ""}{s.pendientes ? " · " + s.pendientes + (s.pendientes === 1 ? " tarea" : " tareas") : ""}</span>{livestockTypes.has(s.tipo) && s.animales > 0 && <span className="block text-xs text-muted-foreground">{textoEspecies(s.porEspecie)} · {formatearEv(s.ev)} EV</span>}</span></button>)}</div>
           {!visible.length && <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">{sectors.length ? "No hay lugares que coincidan con estos filtros. Probá otra combinación o limpiá los filtros." : "Todavía no hay lugares. Usá Agregar para dibujar el primero."}</p>}
+          <LugaresArchivados fieldId={fieldId} canEdit={canEdit}/>
           {canEdit && <details className="border-t pt-3"><summary className="cursor-pointer text-sm font-medium">Importar límites de Google Earth</summary><label className="mt-3 block text-xs text-muted-foreground">KML o GeoJSON · máximo 1 MB<Input type="file" accept=".kml,.geojson,.json" disabled={!!draft || panelEditing} onChange={async e => { const file = e.target.files?.[0]; if (!file) return; setImportError(""); try { if (file.size > 1000000) throw Error("El archivo debe pesar menos de 1 MB"); setImports(parseMapImport(await file.text(), file.name)) } catch (err) { setImportError(err instanceof Error ? err.message : "No se pudo leer el archivo") } e.target.value = "" }}/></label>{importError && <p role="alert" className="text-sm text-destructive">{importError}</p>}{imports.map((item, i) => <Button key={i} variant="ghost" className="mt-1 h-auto w-full whitespace-normal justify-start" onClick={() => { const g = item.geometry; const vertices = g.type === "Point" ? [g.coordinates] : g.type === "Polygon" ? g.coordinates[0].slice(0, -1) : g.coordinates; setDraft({ nombre: item.nombre, tipo: g.type === "Point" ? "otro" : g.type === "LineString" ? "camino" : "potrero", descripcion: "", kind: g.type, vertices, drawing: false }); setFocus({ lat: vertices[0][1], lon: vertices[0][0], zoom: 15, key: Date.now() }); setImports(v => v.filter((_, index) => index !== i)) }}>{item.nombre} · Revisar</Button>)}<p className="mt-2 text-xs text-muted-foreground">Revisá cada figura en el mapa y guardala. Importar no crea lugares automáticamente.</p></details>}
 
           </div>
@@ -284,6 +299,10 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
       <p role="status" className="text-[11px]">{storageError ? "No se pudo conservar el borrador. No cierres la página antes de guardar." : recovered ? "Borrador recuperado · pendiente de guardar" : "Borrador conservado en este dispositivo · pendiente de guardar"}</p>
     </div>}
 
+    {eligiendo && <div role="status" className="map-floating map-pick-banner flex items-center gap-3 border-sky-400 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+      <span>Tocá en el mapa el lugar de destino.</span>
+      <Button size="sm" variant="outline" onClick={() => setEligiendo(null)}>Cancelar</Button>
+    </div>}
     {!online && <p role="status" className="absolute bottom-3 left-3 right-16 z-30 rounded-lg bg-amber-100 p-2 text-xs text-amber-950 shadow">Sin conexión. Podés editar el dibujo y guardarlo cuando vuelva Internet.</p>}
     {!draft && online && <div className="map-bottom-summary absolute bottom-9 left-3 z-20 w-[min(360px,calc(100%-88px))]">
       <ResumenCampo sectors={sectors} onIr={id => { setTabInicial(undefined); setSelected(id); setPanel(true); setShowLocation(false) }}/>

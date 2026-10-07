@@ -8,7 +8,7 @@ export async function fieldSectors(fieldIds: string[]) {
     pastoreosIngreso: { where: { ingreso: { lte: now }, egreso: null, lote: { activo: true } }, include: { lote: { select: { id: true, nombre: true, establecimientoId: true, especie: { select: { nombre: true } } } } } },
     mediciones: { orderBy: { fecha: "desc" }, take: 1 },
     registros: { where: { tipo: { in: ["revision_agua", "descanso"] } }, orderBy: [{ fecha: "desc" }, { createdAt: "desc" }], distinct: ["tipo"] },
-    _count: { select: { registros: { where: { tipo: "tarea", estado: "pendiente" } }, movimientosOrigen: true, movimientosDestino: true } },
+    _count: { select: { registros: { where: { tipo: "tarea", estado: "pendiente" } }, tareas: { where: { estado: { in: ["pendiente", "en_progreso"] } } }, movimientosOrigen: true, movimientosDestino: true } },
   } })
   // Ubicaciones actuales agregadas en SQL por lugar, especie y categoría (sin traer el rodeo a memoria)
   const conteos = fieldIds.length ? await prisma.$queryRaw<{ sector_id: string; especie: string; categoria: string | null; cantidad: number; desde: Date }[]>`
@@ -56,7 +56,8 @@ export async function fieldSectors(fieldIds: string[]) {
       ultimaMedicion: s.mediciones[0] ?? null,
       agua: s.registros.find(r => r.tipo === "revision_agua") ?? null,
       descanso: s.registros.find(r => r.tipo === "descanso") ?? null,
-      pendientes: s._count.registros,
+      // Tareas del lugar: las de la ficha y las del módulo Tareas vinculadas al lugar
+      pendientes: s._count.registros + s._count.tareas,
       movimientosRecientes: s._count.movimientosOrigen + s._count.movimientosDestino,
     }
   })

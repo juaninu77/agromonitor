@@ -13,6 +13,7 @@ const tareaUpdateSchema = z.object({
   prioridad: z.enum(["baja", "media", "alta", "urgente"]).optional(),
   fechaLimite: z.string().nullable().optional(),
   asignadoAId: z.string().uuid().nullable().optional(),
+  sectorId: z.string().uuid().nullable().optional(),
   observ: z.string().optional(),
 })
 
@@ -86,6 +87,13 @@ export const PATCH = withAuth(async (request, ctx) => {
     }
 
     const data = parsed.data
+
+    if (data.sectorId) {
+      const sector = await prisma.sector.findFirst({ where: { id: data.sectorId, establecimientoId: existingTarea.establecimientoId, activo: true }, select: { id: true } })
+      if (!sector) {
+        return NextResponse.json({ error: "El lugar no pertenece a este campo" }, { status: 400 })
+      }
+    }
 
     // Si el estado cambia a "completada", registrar la fecha
     const updateData: Record<string, unknown> = { ...data }

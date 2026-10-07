@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { DataTable, type ColumnDef } from "@/components/ui/data-table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -52,6 +54,7 @@ interface Tarea {
   createdAt: string
   asignadoA: { id: string; nombre: string; apellido: string } | null
   establecimiento: { id: string; nombre: string }
+  sector: { id: string; nombre: string; tipo: string } | null
 }
 
 interface Pagination {
@@ -103,6 +106,19 @@ export default function TareasPage() {
   const [filtroTipo, setFiltroTipo] = useState("todos")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // Filtro por lugar (llega desde la ficha del mapa: /tareas?sectorId=)
+  const searchParams = useSearchParams()
+  const sectorFiltro = searchParams.get("sectorId")
+  const [lugares, setLugares] = useState<{ id: string; nombre: string }[]>([])
+  useEffect(() => {
+    if (!establecimientoActivo) return
+    const controller = new AbortController()
+    fetch(`/api/sectores?establecimientoId=${establecimientoActivo.id}`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : { data: [] }))
+      .then((b) => setLugares((b.data ?? []).map((s: { id: string; nombre: string }) => ({ id: s.id, nombre: s.nombre }))))
+      .catch(() => {})
+    return () => controller.abort()
+  }, [establecimientoActivo])
 
   // Estado del formulario de creación
   const [formData, setFormData] = useState({
@@ -112,6 +128,7 @@ export default function TareasPage() {
     prioridad: "media",
     fechaLimite: "",
     observ: "",
+    sectorId: "",
   })
 
   // ============================================
@@ -137,6 +154,9 @@ export default function TareasPage() {
       if (filtroTipo !== "todos") {
         params.set("tipo", filtroTipo)
       }
+      if (sectorFiltro) {
+        params.set("sectorId", sectorFiltro)
+      }
 
       const response = await fetch(`/api/tareas?${params.toString()}`)
       const result = await response.json()
@@ -152,7 +172,7 @@ export default function TareasPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [establecimientoActivo, tabEstado, filtroPrioridad, filtroTipo])
+  }, [establecimientoActivo, tabEstado, filtroPrioridad, filtroTipo, sectorFiltro])
 
   useEffect(() => {
     fetchTareas()
@@ -183,6 +203,7 @@ export default function TareasPage() {
           fechaLimite: formData.fechaLimite || undefined,
           descripcion: formData.descripcion || undefined,
           observ: formData.observ || undefined,
+          sectorId: formData.sectorId || undefined,
         }),
       })
 
@@ -259,6 +280,7 @@ export default function TareasPage() {
       prioridad: "media",
       fechaLimite: "",
       observ: "",
+      sectorId: "",
     })
   }
 
@@ -275,6 +297,11 @@ export default function TareasPage() {
           <p className="font-medium">{row.titulo}</p>
           {row.descripcion && (
             <p className="text-xs text-muted-foreground line-clamp-1">{row.descripcion}</p>
+          )}
+          {row.sector && (
+            <Link href={`/potreros?vista=mapa&sector=${row.sector.id}`} className="text-xs font-medium text-primary underline">
+              {row.sector.nombre} · ver en el mapa
+            </Link>
           )}
         </div>
       ),
@@ -475,6 +502,20 @@ export default function TareasPage() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              {/* Lugar del campo */}
+              <div className="space-y-2">
+                <label htmlFor="tarea-lugar" className="text-sm font-medium">Lugar del campo (opcional)</label>
+                <select
+                  id="tarea-lugar"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={formData.sectorId}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, sectorId: e.target.value }))}
+                >
+                  <option value="">Sin lugar</option>
+                  {lugares.map((l) => <option key={l.id} value={l.id}>{l.nombre}</option>)}
+                </select>
               </div>
 
               {/* Fecha Límite */}

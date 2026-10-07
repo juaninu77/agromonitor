@@ -219,3 +219,48 @@ export function dividirPoligono(contorno: Position[], linea: Position[]): { part
 
   return { partes: [parteA.map(pl.de), parteB.map(pl.de)], corte: corteXY.map(pl.de) }
 }
+
+// ------------------------------------------------------------
+// Superposición entre parcelas
+// ------------------------------------------------------------
+
+/** Cruce propio (interior de ambos segmentos), no en extremos ni colineal. */
+function crucePropio(p: [number, number], p2: [number, number], q: [number, number], q2: [number, number]): boolean {
+  const r = [p2[0] - p[0], p2[1] - p[1]]
+  const s = [q2[0] - q[0], q2[1] - q[1]]
+  const den = r[0] * s[1] - r[1] * s[0]
+  if (Math.abs(den) < 1e-9) return false
+  const qp = [q[0] - p[0], q[1] - p[1]]
+  const t = (qp[0] * s[1] - qp[1] * s[0]) / den
+  const u = (qp[0] * r[1] - qp[1] * r[0]) / den
+  const m = 1e-6
+  return t > m && t < 1 - m && u > m && u < 1 - m
+}
+
+function distanciaABorde(p: [number, number], anillo: [number, number][]): number {
+  let min = Infinity
+  for (let i = 0; i < anillo.length; i++) {
+    const { punto } = proyectarEnSegmento(p, anillo[i], anillo[(i + 1) % anillo.length])
+    min = Math.min(min, Math.hypot(punto[0] - p[0], punto[1] - p[1]))
+  }
+  return min
+}
+
+/**
+ * Dos contornos se superponen si sus bordes se cruzan o si un vértice de uno
+ * queda dentro del otro a más de 1 m del borde. Compartir un lado o una
+ * esquina (potreros vecinos dibujados con el imán) no cuenta.
+ */
+export function seSuperponen(a: Position[], b: Position[]): boolean {
+  if (a.length < 3 || b.length < 3) return false
+  const pl = plano(a[0])
+  const A = a.map(pl.a)
+  const B = b.map(pl.a)
+  for (let i = 0; i < A.length; i++) {
+    for (let j = 0; j < B.length; j++) {
+      if (crucePropio(A[i], A[(i + 1) % A.length], B[j], B[(j + 1) % B.length])) return true
+    }
+  }
+  const adentro = (P: [number, number][], Q: [number, number][]) => P.some((p) => dentro(p, Q) && distanciaABorde(p, Q) > 1)
+  return adentro(A, B) || adentro(B, A)
+}

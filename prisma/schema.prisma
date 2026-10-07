@@ -240,6 +240,7 @@ model Establecimiento {
 // Sector unificado: potrero, corral, manga, feedlot
 model Sector {
   registros        SectorRegistro[]
+  tareas           Tarea[]
   documentos       DocumentoArchivo[]
   stockMovimientos MovimientoStock[]
   reservas         ReservaForraje[]
@@ -1135,8 +1136,13 @@ model Tarea {
   establecimientoId String          @map("establecimiento_id") @db.Uuid
   establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id], onDelete: Cascade)
 
+  // Lugar del campo donde se hace la tarea (opcional; del mismo establecimiento)
+  sectorId String? @map("sector_id") @db.Uuid
+  sector   Sector? @relation(fields: [sectorId, establecimientoId], references: [id, establecimientoId], onDelete: Restrict, onUpdate: NoAction)
+
   @@index([estado])
   @@index([prioridad])
+  @@index([sectorId])
   @@index([asignadoAId])
   @@index([establecimientoId])
   @@index([fechaLimite])

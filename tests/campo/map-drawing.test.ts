@@ -8,6 +8,7 @@ import {
   formatearDistancia,
   perimetroM,
   rectanguloDesde3Puntos,
+  seSuperponen,
 } from "@/lib/mapa/drawing"
 
 // Cuadrado de ~1 km de lado cerca de Sarmiento (Chubut)
@@ -96,5 +97,19 @@ describe("dividir un potrero", () => {
     expect(() => dividirPoligono(cuadrado, adentro)).toThrow(DivisionError)
     const afuera: Position[] = [[lon0 - dLon, lat0 - dLat], [lon0 - dLon * 0.5, lat0 - dLat * 0.2]]
     expect(() => dividirPoligono(cuadrado, afuera)).toThrow(/de lado a lado/)
+  })
+})
+
+describe("superposición de parcelas", () => {
+  const mover = (v: Position[], fx: number, fy: number): Position[] => v.map(([x, y]) => [x + dLon * fx, y + dLat * fy])
+  it("detecta parcelas que se pisan o una dentro de otra", () => {
+    expect(seSuperponen(cuadrado, mover(cuadrado, 0.5, 0.5))).toBe(true)
+    const chico: Position[] = [[lon0 + dLon * 0.2, lat0 + dLat * 0.2], [lon0 + dLon * 0.4, lat0 + dLat * 0.2], [lon0 + dLon * 0.4, lat0 + dLat * 0.4], [lon0 + dLon * 0.2, lat0 + dLat * 0.4]]
+    expect(seSuperponen(cuadrado, chico)).toBe(true)
+  })
+  it("vecinos que comparten un lado o una esquina no se superponen", () => {
+    expect(seSuperponen(cuadrado, mover(cuadrado, 1, 0))).toBe(false)
+    expect(seSuperponen(cuadrado, mover(cuadrado, 1, 1))).toBe(false)
+    expect(seSuperponen(cuadrado, mover(cuadrado, 2, 0))).toBe(false)
   })
 })

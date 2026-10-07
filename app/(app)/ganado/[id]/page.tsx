@@ -1,5 +1,7 @@
 "use client"
 
+import Link from "next/link"
+
 import { useState, useMemo, useCallback } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -153,7 +155,7 @@ interface MovimientoEvent {
 interface UbicacionHist {
   desde: string
   hasta: string | null
-  sector: { nombre: string } | null
+  sector: { id: string; nombre: string } | null
 }
 
 interface LoteHist {
@@ -660,7 +662,16 @@ export default function AnimalDetailPage() {
               value={ultimaPesada?.cc != null ? String(ultimaPesada.cc) : null}
             />
             <InfoRow label="Lote" value={loteActual?.lote?.nombre} />
-            <InfoRow label="Ubicación" value={ubicacionActual?.sector?.nombre} />
+            {ubicacionActual?.sector && !ubicacionActual.hasta ? (
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground shrink-0">Ubicación</span>
+                <Link href={`/potreros?vista=mapa&sector=${ubicacionActual.sector.id}`} className="font-medium text-primary underline text-right truncate" title="Ver el lugar en el mapa de potreros">
+                  {ubicacionActual.sector.nombre}
+                </Link>
+              </div>
+            ) : (
+              <InfoRow label="Ubicación" value={ubicacionActual?.sector?.nombre} />
+            )}
           </CardContent>
         </Card>
 

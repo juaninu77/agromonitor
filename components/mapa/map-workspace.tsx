@@ -13,7 +13,7 @@ import { SectorPanel } from "./sector-panel"
 import { CapasMapa, LeyendaMapa, LugaresArchivados, ResumenCampo } from "./map-overlays"
 import { colorDeLugar, type ModoColor } from "@/lib/mapa/capas"
 import { parseMapImport, type ImportedPlace } from "@/lib/mapa/import"
-import { livestockTypes } from "@/lib/mapa/sector-state"
+import { grazingTypes, livestockTypes } from "@/lib/mapa/sector-state"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
@@ -25,7 +25,7 @@ import { Search, Loader2, LocateFixed, Plus, MoreHorizontal, Maximize, Minimize,
 import { areaHa, geometrySchema, polygonFrom, QUICK_PLACES, SECTOR_TYPES, sectorLabel, type Geometry, type Position } from "@/lib/mapa/geometry"
 import type { MapDraft, MapFocus, MapSector } from "@/lib/mapa/types"
 import { formatearEv, textoEspecies } from "@/lib/mapa/carga"
-import { dividirPoligono, DivisionError, formaPorTipo, formatearDistancia, geometriaDeForma, largoM, perimetroM, type Forma } from "@/lib/mapa/drawing"
+import { dividirPoligono, DivisionError, seSuperponen, formaPorTipo, formatearDistancia, geometriaDeForma, largoM, perimetroM, type Forma } from "@/lib/mapa/drawing"
 
 const FORMAS: { forma: Forma; label: string; icon: typeof Hexagon }[] = [
   { forma: "Polygon", label: "Área libre", icon: Hexagon },
@@ -159,6 +159,13 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
   }
   async function save() {
     if (!draft || !validation.success) return
+    // Aviso (no bloqueo) si una parcela pisa a otra: las superficies se sumarían dos veces
+    const g = validation.data
+    if (g.type === "Polygon" && grazingTypes.has(draft.tipo)) {
+      const pisadas = sectors.filter(s => s.id !== draft.id && grazingTypes.has(s.tipo) && s.geometria?.type === "Polygon"
+        && seSuperponen(g.coordinates[0].slice(0, -1), s.geometria.coordinates[0].slice(0, -1)))
+      if (pisadas.length && !window.confirm(`El dibujo se superpone con ${pisadas.map(s => `«${s.nombre}»`).join(", ")}. Las superficies se contarían dos veces. ¿Guardar igual?`)) return
+    }
     setSaving(true)
     try {
       const payload = { nombre: draft.nombre, tipo: draft.tipo, descripcion: draft.descripcion, geometria: validation.data, ...(draft.id ? { version: draft.version } : { establecimientoId: fieldId }) }

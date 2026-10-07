@@ -4,14 +4,23 @@ import { useEffect, useRef, useState, type RefObject } from "react"
 import * as L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import type { MapDraft, MapSector, MapFocus } from "@/lib/mapa/types"
-import { areaHa, polygonFrom, sectorColor, type Geometry, type Position } from "@/lib/mapa/geometry"
-import { sectorState } from "@/lib/mapa/sector-state"
+import { areaHa, polygonFrom, type Geometry, type Position } from "@/lib/mapa/geometry"
+import { colorDeLugar, grupoDeTipo, indicadorDeModo, type ModoColor } from "@/lib/mapa/capas"
+import { formatearEv, textoEspecies } from "@/lib/mapa/carga"
 import { bindVertexDrag } from "@/lib/mapa/live-edit"
 import { distanciaM, formatearDistancia, proyectarEnSegmento, rectanguloDesde3Puntos } from "@/lib/mapa/drawing"
 
 interface Props {
   sectors: MapSector[]; selected: string | null; draft: MapDraft | null; focus: MapFocus | null;
-  satellite: boolean; colorByState?: boolean; fitKey: number; onSelect: (id: string) => void;
+  satellite: boolean; fitKey: number;
+  /** Selecciona un lugar; `tab` abre la ficha en esa pestaña (p. ej. "animales"). */
+  onSelect: (id: string, tab?: string) => void;
+  /** Modo de color (tipo, ocupación, carga, pasto o días). */
+  modoColor: ModoColor;
+  /** Grupos de capas ocultos. */
+  capasOcultas: string[];
+  /** Etiquetas permanentes con nombre, ganado e indicador. */
+  etiquetas: boolean;
   /** Nuevos vértices; con `terminar` además cierra el trazo en el mismo cambio. */
   onVertices: (vertices: Position[], terminar?: boolean) => void;
   /** Termina el trazo en curso (cerrar contorno, terminar línea o rectángulo). */
@@ -38,11 +47,29 @@ function trazos(g: Geometry | null): { puntos: Position[]; cerrado: boolean }[] 
   return [{ puntos: g.coordinates[0].slice(0, -1), cerrado: true }]
 }
 
-function colorDeSector(sector: MapSector, colorByState: boolean | undefined, satellite: boolean) {
-  if (colorByState) return sectorState(sector).color
-  // El alambrado se ve blanco sobre satélite y oscuro sobre el mapa claro
-  if (sector.tipo === "alambrado") return satellite ? "#f8fafc" : "#334155"
-  return sectorColor(sector.tipo)
+/** Centro visual de una geometría (para la etiqueta). */
+function centro(g: Geometry): L.LatLng {
+  if (g.type === "Point") return L.latLng(g.coordinates[1], g.coordinates[0])
+  if (g.type === "LineString") { const p = g.coordinates[Math.floor(g.coordinates.length / 2)]; return L.latLng(p[1], p[0]) }
+  return L.polygon(g.coordinates[0].map(ll)).getBounds().getCenter()
+}
+
+/** Etiqueta del lugar armada con nodos DOM (los nombres son texto del usuario, nunca HTML). */
+function etiquetaDeLugar(sector: MapSector, modo: ModoColor): HTMLElement {
+  const caja = document.createElement("div"); caja.className = "map-label"
+  const nombre = document.createElement("strong"); nombre.textContent = sector.nombre; caja.append(nombre)
+  const indicador = indicadorDeModo(sector, modo)
+  if (sector.animales > 0) {
+    const ganado = document.createElement("button"); ganado.type = "button"; ganado.className = "map-label-badge"
+    ganado.textContent = `${textoEspecies(sector.porEspecie)} · ${formatearEv(sector.ev)} EV`
+    ganado.title = "Ver el ganado de este lugar"
+    caja.append(ganado)
+  }
+  for (const p of sector.pastoreosIngreso) {
+    const lote = document.createElement("span"); lote.className = "map-label-lote"; lote.textContent = p.lote.nombre; caja.append(lote)
+  }
+  if (indicador) { const ind = document.createElement("span"); ind.className = "map-label-ind"; ind.textContent = indicador; caja.append(ind) }
+  return caja
 }
 
 export default function FieldMap(props: Props) {
@@ -50,7 +77,7 @@ export default function FieldMap(props: Props) {
   const layer = useRef<L.LayerGroup | null>(null), guide = useRef<L.LayerGroup | null>(null)
   const latest = useRef(props), fitted = useRef(false)
   latest.current = props
-  const [tilesFailed, setTilesFailed] = useState(false)
+  const [tilesFailed, setTilesFailed] = useState(false), [zoomActual, setZoomActual] = useState(5)
 
   function fitVisibleArea(bounds: L.LatLngBounds, maxZoom: number) {
     const m = map.current, box = host.current?.getBoundingClientRect()
@@ -143,6 +170,7 @@ export default function FieldMap(props: Props) {
     map.current = m; layer.current = L.layerGroup().addTo(m); guide.current = L.layerGroup().addTo(m)
     L.control.zoom({ position: "topleft", zoomInTitle: "Acercar mapa", zoomOutTitle: "Alejar mapa" }).addTo(m)
     L.control.scale({ imperial: false }).addTo(m)
+    m.on("zoomend", () => setZoomActual(m.getZoom()))
     m.on("click", (event: L.LeafletMouseEvent) => {
       const { draft, onVertices, onFinish } = latest.current
       if (!draft?.drawing) return
@@ -169,7 +197,8 @@ export default function FieldMap(props: Props) {
     m.on("mouseout", () => guide.current?.clearLayers())
     const observer = new ResizeObserver(() => m.invalidateSize())
     observer.observe(host.current)
-    return () => { observer.disconnect(); m.remove(); map.current = null }
+    // Al desmontar (o en el doble montaje de desarrollo) el próximo mapa vuelve a encuadrar
+    return () => { observer.disconnect(); m.remove(); map.current = null; fitted.current = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -194,9 +223,12 @@ export default function FieldMap(props: Props) {
     group.clearLayers()
     if (!props.draft?.drawing) guide.current?.clearLayers()
     const bounds = L.latLngBounds([])
+    const zoom = m.getZoom()
+    const candidatas: { sector: MapSector; geometria: Geometry; shape: L.GeoJSON }[] = []
     for (const sector of props.sectors) {
       if (!sector.geometria || props.draft?.id === sector.id) continue
-      const color = colorDeSector(sector, props.colorByState, props.satellite)
+      if (props.capasOcultas.includes(grupoDeTipo(sector.tipo)) && sector.id !== props.selected) continue
+      const color = colorDeLugar(sector, props.modoColor, props.satellite)
       const esAlambrado = sector.tipo === "alambrado"
       const shape = L.geoJSON(sector.geometria, {
         interactive: !props.draft,
@@ -207,10 +239,48 @@ export default function FieldMap(props: Props) {
         },
         pointToLayer: (_f, point) => L.circleMarker(point, { radius: 9, color: "white", weight: 2, fillColor: color, fillOpacity: 1, interactive: !props.draft }),
       }).addTo(group)
-      const label = document.createElement("span"); label.textContent = sector.nombre
-      shape.bindTooltip(label, { sticky: true })
       shape.on("click", () => { if (!latest.current.draft) latest.current.onSelect(sector.id) })
       bounds.extend(shape.getBounds())
+      // Etiqueta permanente si el área se ve con tamaño suficiente en pantalla (o desde zoom 16
+      // para puntos y líneas); siempre para el lugar elegido.
+      const caja = sector.geometria.type === "Polygon" ? shape.getBounds() : null
+      const tamano = caja ? m.latLngToContainerPoint(caja.getNorthEast()).subtract(m.latLngToContainerPoint(caja.getSouthWest())) : null
+      const visibleEnPantalla = tamano ? Math.abs(tamano.x) >= 28 && Math.abs(tamano.y) >= 18 : zoom >= 16
+      const mostrar = props.etiquetas && (visibleEnPantalla || sector.id === props.selected)
+      if (mostrar) candidatas.push({ sector, geometria: sector.geometria, shape })
+      else {
+        const label = document.createElement("span"); label.textContent = sector.nombre
+        shape.bindTooltip(label, { sticky: true })
+      }
+    }
+    // Etiquetas sin superponerse: primero el lugar elegido, después los que tienen ganado y los más grandes.
+    // Las que no entran quedan como tooltip al pasar el mouse.
+    candidatas.sort((a, b) =>
+      Number(b.sector.id === props.selected) - Number(a.sector.id === props.selected) ||
+      b.sector.animales - a.sector.animales || (b.sector.areaMapaHa ?? 0) - (a.sector.areaMapaHa ?? 0))
+    const ocupadas: { x1: number; y1: number; x2: number; y2: number }[] = []
+    for (const { sector, geometria, shape } of candidatas) {
+      const el = etiquetaDeLugar(sector, props.modoColor)
+      const punto = geometria.type === "Point"
+      if (punto) el.classList.add("map-label-punto")
+      const c = m.latLngToContainerPoint(centro(geometria))
+      const textos = [sector.nombre, ...(sector.animales > 0 ? [`${textoEspecies(sector.porEspecie)} · ${formatearEv(sector.ev)} EV`] : [])]
+      const ancho = Math.max(...textos.map(t => t.length * 6.6)) + 18
+      const alto = 18 + (sector.animales > 0 ? 18 : 0) + sector.pastoreosIngreso.length * 15 + (indicadorDeModo(sector, props.modoColor) ? 15 : 0)
+      const r = punto ? { x1: c.x + 10, y1: c.y - alto / 2, x2: c.x + 14 + ancho, y2: c.y + alto / 2 } : { x1: c.x - ancho / 2, y1: c.y - alto / 2, x2: c.x + ancho / 2, y2: c.y + alto / 2 }
+      const choca = ocupadas.some(o => r.x1 < o.x2 + 4 && r.x2 + 4 > o.x1 && r.y1 < o.y2 + 2 && r.y2 + 2 > o.y1)
+      if (choca && sector.id !== props.selected) {
+        const label = document.createElement("span"); label.textContent = sector.nombre
+        shape.bindTooltip(label, { sticky: true })
+        continue
+      }
+      ocupadas.push(r)
+      const marca = L.marker(centro(geometria), { interactive: !props.draft, keyboard: false, icon: L.divIcon({ className: "map-label-icon", html: el, iconSize: undefined }) }).addTo(group)
+      marca.on("click", (e: L.LeafletMouseEvent) => {
+        if (latest.current.draft) return
+        const enGanado = (e.originalEvent.target as HTMLElement | null)?.closest(".map-label-badge")
+        latest.current.onSelect(sector.id, enGanado ? "animales" : undefined)
+      })
     }
     // Solo un borrador recuperado (ya trazado) centra el mapa: mientras se dibuja, el mapa no se mueve
     if (!fitted.current && props.draft?.vertices.length && !props.draft.drawing) { fitVisibleArea(L.latLngBounds(props.draft.vertices.map(ll)), 17); fitted.current = true }
@@ -274,7 +344,7 @@ export default function FieldMap(props: Props) {
         if (vertices.length > minimo && latest.current.draft) latest.current.onVertices(vertices.filter((_, i) => i !== index))
       })
     })
-  }, [props.sectors, props.draft, props.selected, props.colorByState, props.satellite, props.preview])
+  }, [props.sectors, props.draft, props.selected, props.modoColor, props.capasOcultas, props.etiquetas, props.satellite, props.preview, zoomActual])
 
   useEffect(() => {
     const selected = props.sectors.find(s => s.id === props.selected)

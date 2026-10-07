@@ -12,6 +12,7 @@ const tareaSchema = z.object({
   fechaLimite: z.string().optional(),
   asignadoAId: z.string().uuid().optional(),
   establecimientoId: z.string().uuid(),
+  sectorId: z.string().uuid().nullish(),
   observ: z.string().optional(),
 })
 
@@ -27,6 +28,8 @@ export const GET = withAuth(async (request, ctx) => {
     const tipo = searchParams.get("tipo")
     const asignadoAId = searchParams.get("asignadoAId")
     const establecimientoId = searchParams.get("establecimientoId")
+    const sectorId = searchParams.get("sectorId")
+    const abiertas = searchParams.get("abiertas") === "1"
 
     const page = parseInt(searchParams.get("page") || "1")
     const limit = parseInt(searchParams.get("limit") || "25")
@@ -59,6 +62,8 @@ export const GET = withAuth(async (request, ctx) => {
     if (prioridad) where.prioridad = prioridad
     if (tipo) where.tipo = tipo
     if (asignadoAId) where.asignadoAId = asignadoAId
+    if (sectorId && z.string().uuid().safeParse(sectorId).success) where.sectorId = sectorId
+    if (abiertas) where.estado = { in: ["pendiente", "en_progreso"] }
 
     // Ordenamiento
     const validOrderFields: Record<string, unknown> = {
@@ -81,6 +86,7 @@ export const GET = withAuth(async (request, ctx) => {
         establecimiento: {
           select: { id: true, nombre: true },
         },
+        sector: { select: { id: true, nombre: true, tipo: true } },
       },
       orderBy: orderByClause as any,
       skip,
@@ -136,8 +142,17 @@ export const POST = withAuth(async (request, ctx) => {
       )
     }
 
+    // El lugar debe ser del mismo campo y estar activo
+    if (data.sectorId) {
+      const sector = await prisma.sector.findFirst({ where: { id: data.sectorId, establecimientoId: data.establecimientoId, activo: true }, select: { id: true } })
+      if (!sector) {
+        return NextResponse.json({ error: "El lugar no pertenece a este campo" }, { status: 400 })
+      }
+    }
+
     const tarea = await prisma.tarea.create({
       data: {
+        sectorId: data.sectorId ?? null,
         titulo: data.titulo,
         descripcion: data.descripcion,
         tipo: data.tipo,

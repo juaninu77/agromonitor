@@ -123,5 +123,7 @@ export const bajaSchema = z.object({
   facturaNumero: texto(60),
   observ: texto(500),
   clienteId: uuidOpcional,
+  /** Cuenta donde se cobra la venta: genera el ingreso en Finanzas. */
+  cuentaId: uuidOpcional,
 })
 export type BajaInput = z.output<typeof bajaSchema>

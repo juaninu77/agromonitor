@@ -305,6 +305,7 @@ export const DELETE = withAuth(
       // Solo donde el usuario es admin/encargado de la org dueña del animal
       const { baja, animal } = await registrarBaja(parsed.data, {
         establecimientoIds: ctx.establecimientoIdsConRol(["admin", "encargado"]),
+        userId: ctx.userId,
         organizacionIds: ctx.organizacionIds,
       })
 

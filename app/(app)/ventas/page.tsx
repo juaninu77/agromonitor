@@ -216,6 +216,7 @@ const EMPTY_BAJA_FORM = {
   dtaNumero: "",
   facturaNumero: "",
   clienteId: "",
+  cuentaId: "",
   observ: "",
 }
 
@@ -296,6 +297,19 @@ export default function VentasPage() {
     staleTime: 30_000,
   })
 
+  // Cuentas en pesos del campo, para registrar el cobro de la venta en Finanzas
+  const cuentasQuery = useQuery({
+    queryKey: ["finanzas", "cuentas", estId, "ars-activas"],
+    queryFn: async () => {
+      const res = await fetch(`/api/finanzas/cuentas?establecimientoId=${estId}&activas=1`)
+      if (!res.ok) return []
+      const data = await res.json()
+      return (data.data as { id: string; nombre: string; moneda: string }[]).filter((c) => c.moneda === "ARS")
+    },
+    enabled: !!estId,
+    staleTime: 60_000,
+  })
+
   const clientesQuery = useQuery({
     queryKey: ["ventas", "clientes", orgId],
     queryFn: () => {
@@ -359,13 +373,15 @@ export default function VentasPage() {
   // ─── Mutations ───────────────────────────────────────
 
   const bajaMutation = useMutation({
-    mutationFn: (data: typeof bajaForm) => postJSON("/api/ventas/bajas", data),
+    mutationFn: (data: typeof bajaForm) =>
+      postJSON("/api/ventas/bajas", { ...data, cuentaId: data.motivo === "venta" ? data.cuentaId : "" }),
     onSuccess: () => {
       toast.success("Baja registrada correctamente")
       setBajaDialogOpen(false)
       setBajaForm({ ...EMPTY_BAJA_FORM })
       queryClient.invalidateQueries({ queryKey: ["ventas", "bajas"] })
       queryClient.invalidateQueries({ queryKey: ["ganado"] })
+      queryClient.invalidateQueries({ queryKey: ["finanzas"] })
     },
     onError: (err: Error) => toast.error(err.message),
   })
@@ -1264,6 +1280,28 @@ export default function VentasPage() {
                 />
               </div>
             </div>
+
+            {bajaForm.motivo === "venta" && (cuentasQuery.data?.length ?? 0) > 0 && (
+              <div className="grid gap-2">
+                <Label htmlFor="baja-cuenta">Cobrado en (registra el ingreso en Finanzas)</Label>
+                <Select
+                  value={bajaForm.cuentaId || "ninguna"}
+                  onValueChange={(v) => setBajaForm((prev) => ({ ...prev, cuentaId: v === "ninguna" ? "" : v }))}
+                >
+                  <SelectTrigger id="baja-cuenta">
+                    <SelectValue placeholder="No registrar cobro" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ninguna">No registrar cobro todavía</SelectItem>
+                    {cuentasQuery.data!.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">

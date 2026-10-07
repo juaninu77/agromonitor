@@ -9,12 +9,15 @@ const mocks = vi.hoisted(() => ({
     animalLoteHist: { updateMany: vi.fn() },
     ubicacionHist: { updateMany: vi.fn() },
     animal: { update: vi.fn() },
+    movimientoFinanciero: { create: vi.fn() },
   },
+  cuenta: vi.fn(),
 }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     animal: { findFirst: mocks.animal },
     cliente: { findFirst: mocks.cliente },
+    cuentaFinanciera: { findFirst: mocks.cuenta },
     evtPesada: { count: mocks.pesadasPosteriores },
     $transaction: (cb: (tx: unknown) => unknown) => cb(mocks.tx),
   },
@@ -63,5 +66,48 @@ describe("registrarBaja", () => {
     await registrarBaja({ animalId, motivo: "descarte", fecha }, ctx)
     expect(mocks.tx.evtPesada.create).not.toHaveBeenCalled()
     expect(mocks.tx.animal.update).toHaveBeenCalledWith({ where: { id: animalId }, data: { estadoVital: "baja" } })
+  })
+  describe("cobro de la venta en Finanzas", () => {
+    const cuentaId = "00000000-0000-4000-8000-0000000000c1"
+    it("crea el ingreso vinculado a la baja en la cuenta elegida", async () => {
+      mocks.cuenta.mockResolvedValue({ activa: true, moneda: "ARS" })
+      mocks.cliente.mockResolvedValue({ id: "c1", nombre: "Frigorífico Sur" })
+      await registrarBaja(
+        { animalId, motivo: "venta", fecha, precioTotal: 1250000.5, cuentaId, clienteId: "00000000-0000-4000-8000-0000000000aa" },
+        { ...ctx, userId: "u1" },
+      )
+      expect(mocks.cuenta).toHaveBeenCalledWith(expect.objectContaining({ where: { id: cuentaId, establecimientoId: "est1" } }))
+      expect(mocks.tx.movimientoFinanciero.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          establecimientoId: "est1",
+          cuentaId,
+          tipo: "ingreso",
+          categoria: "venta_hacienda",
+          importe: "1250000.50",
+          bajaId: "baja1",
+          contraparte: "Frigorífico Sur",
+          creadoPorId: "u1",
+        }),
+      })
+    })
+    it("sin cuenta no crea movimiento", async () => {
+      await registrarBaja({ animalId, motivo: "venta", fecha, precioTotal: 1000 }, ctx)
+      expect(mocks.tx.movimientoFinanciero.create).not.toHaveBeenCalled()
+    })
+    it("rechaza la cuenta si no es una venta con precio", async () => {
+      await expect(registrarBaja({ animalId, motivo: "muerte", fecha, cuentaId }, ctx)).rejects.toMatchObject({ status: 400 })
+      await expect(registrarBaja({ animalId, motivo: "venta", fecha, cuentaId }, ctx)).rejects.toMatchObject({ status: 400 })
+      expect(mocks.tx.evtBaja.create).not.toHaveBeenCalled()
+    })
+    it("rechaza cuentas de otro campo, desactivadas o en dólares", async () => {
+      const venta = { animalId, motivo: "venta" as const, fecha, precioTotal: 1000, cuentaId }
+      mocks.cuenta.mockResolvedValueOnce(null)
+      await expect(registrarBaja(venta, ctx)).rejects.toThrow(/no pertenece/)
+      mocks.cuenta.mockResolvedValueOnce({ activa: false, moneda: "ARS" })
+      await expect(registrarBaja(venta, ctx)).rejects.toThrow(/desactivada/)
+      mocks.cuenta.mockResolvedValueOnce({ activa: true, moneda: "USD" })
+      await expect(registrarBaja(venta, ctx)).rejects.toThrow(/ARS/)
+      expect(mocks.tx.evtBaja.create).not.toHaveBeenCalled()
+    })
   })
 })

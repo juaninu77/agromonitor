@@ -4,14 +4,17 @@ import { prisma } from "@/lib/prisma"
 import type { AuthContext } from "@/lib/api/with-auth"
 import { mapField, MapError } from "./api"
 import { livestockTypes, isParcel } from "./sector-state"
+import { conClave } from "./idempotencia"
 const schema = z.object({
   destinoSectorId: z.string().uuid(), origenSectorId: z.string().uuid().optional(),
   animalIds: z.array(z.string().uuid()).min(1).max(500).optional(), loteId: z.string().uuid().optional(),
   motivo: z.string().trim().max(1000).default("Movimiento registrado desde Potreros"),
+  // Generada en el dispositivo: un reenvío desde la cola sin conexión no mueve dos veces
+  clave: z.string().uuid().optional(),
 }).refine(v => Boolean(v.animalIds) !== Boolean(v.loteId), "Elegí animales o un grupo completo")
 export async function moveAnimals(raw: unknown, ctx: AuthContext) {
   const v = schema.parse(raw)
-  return prisma.$transaction(async tx => {
+  return prisma.$transaction(async tx => conClave(tx, { clave: v.clave, usuarioId: ctx.userId, ruta: "mapa/movimientos" }, async () => {
     const destination = await tx.sector.findFirst({ where: { id: v.destinoSectorId, establecimientoId: { in: ctx.establecimientoIds }, activo: true } })
     if (!destination) throw new MapError("Destino no encontrado", 404)
     mapField(ctx, destination.establecimientoId, true)
@@ -34,7 +37,7 @@ export async function moveAnimals(raw: unknown, ctx: AuthContext) {
     const pasture = await actualizarPastoreos(tx, movingIds, destination, group?.id ?? null, now, v.motivo)
     await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[destination.establecimientoId], tabla: "movimientos_potrero", rowPk: destination.id, accion: "INSERT", detalle: { cantidad: moving.length, animalIds: movingIds, grupoId: group?.id ?? null } } })
     return { id: pasture?.id ?? destination.id, moved: moving.length, destino: destination.nombre }
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000 })
+  }), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000 })
 }
 
 /** Animales activos del lote ubicados ahora en el lugar. */

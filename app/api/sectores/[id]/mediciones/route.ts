@@ -3,6 +3,7 @@ import { mapBody, mapField, mapResult, MapError } from "@/lib/mapa/api"
 import { isParcel } from "@/lib/mapa/sector-state"
 import { fechaSchema } from "@/lib/administracion/validation"
 import { NextResponse } from "next/server"
+import { conClave } from "@/lib/mapa/idempotencia"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
 import { sectorDelTenant } from "@/lib/api/tenant"
@@ -60,10 +61,10 @@ export const POST = withAuth(async (request, ctx) => mapResult(async () => {
   if (!sector) throw new MapError("Sector no encontrado",404)
   mapField(ctx, sector.establecimientoId, true)
   if (!isParcel(sector.tipo)) throw new MapError("Las mediciones de pasto se registran en parcelas")
-  const v = z.object({ fecha: fechaSchema, alturaPastoCm: number(1000), msKgHa: number(100000), coberturaPct: number(100), observ: z.string().trim().max(3000).optional() }).refine(v => v.alturaPastoCm !== null || v.msKgHa !== null || v.coberturaPct !== null, "Ingresá al menos una medición").parse(await mapBody(request))
-  const row = await prisma.$transaction(async tx => {
+  const { clave, ...v } = z.object({ clave: z.string().uuid().optional(), fecha: fechaSchema, alturaPastoCm: number(1000), msKgHa: number(100000), coberturaPct: number(100), observ: z.string().trim().max(3000).optional() }).refine(v => v.alturaPastoCm !== null || v.msKgHa !== null || v.coberturaPct !== null, "Ingresá al menos una medición").parse(await mapBody(request))
+  const row = await prisma.$transaction(async tx => conClave(tx, { clave, usuarioId: ctx.userId, ruta: `sectores/${id}/mediciones` }, async () => {
     const r = await tx.medicionPotrero.create({ data: { ...v, fecha: new Date(v.fecha + "T00:00:00Z"), sectorId: id } })
     await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[sector.establecimientoId], tabla: "mediciones_potrero", rowPk: r.id, accion: "INSERT" } }); return r
-  })
+  }))
   return NextResponse.json({ success: true, data: row }, { status: 201 })
 }))

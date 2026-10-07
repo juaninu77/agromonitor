@@ -83,6 +83,7 @@ interface Movimiento {
   fecha: string
   createdAt: string
   producto: { id: string; nombre: string; tipo: string }
+  ubicacion: { id: string; nombre: string } | null
   loteProducto: { id: string; nroLote: string; vencimiento: string | null } | null
 }
 
@@ -112,6 +113,9 @@ export default function InventarioPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [tipoFilter, setTipoFilter] = useState<string>("todos")
   const [movTipoFilter, setMovTipoFilter] = useState<string>("todos")
+  // Ubicación: "todas", un galpón del mapa o "sin-asignar"
+  const [ubicacionFilter, setUbicacionFilter] = useState<string>("todas")
+  const [ubicaciones, setUbicaciones] = useState<{ id: string; nombre: string; campo: string }[]>([])
   const [movPage, setMovPage] = useState(1)
 
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -125,6 +129,7 @@ export default function InventarioPage() {
       const params = new URLSearchParams()
       if (tipoFilter && tipoFilter !== "todos") params.set("tipo", tipoFilter)
       if (searchTerm) params.set("search", searchTerm)
+      if (ubicacionFilter !== "todas") params.set("ubicacion", ubicacionFilter)
 
       const res = await fetch(`/api/inventario?${params.toString()}`)
       const json = await res.json()
@@ -133,13 +138,14 @@ export default function InventarioPage() {
         setProductos(json.data)
         setResumen(json.resumen)
         setTiposDisponibles(json.tiposDisponibles)
+        setUbicaciones(json.ubicaciones ?? [])
       }
     } catch (err) {
       console.error("Error al cargar inventario:", err)
     } finally {
       setLoadingStock(false)
     }
-  }, [tipoFilter, searchTerm])
+  }, [tipoFilter, searchTerm, ubicacionFilter])
 
   // ---- Fetch movimientos ----
 
@@ -151,6 +157,7 @@ export default function InventarioPage() {
       params.set("limit", "15")
       if (movTipoFilter && movTipoFilter !== "todos")
         params.set("tipo", movTipoFilter)
+      if (ubicacionFilter !== "todas") params.set("ubicacion", ubicacionFilter)
 
       const res = await fetch(`/api/inventario/movimientos?${params.toString()}`)
       const json = await res.json()
@@ -164,7 +171,7 @@ export default function InventarioPage() {
     } finally {
       setLoadingMov(false)
     }
-  }, [movPage, movTipoFilter])
+  }, [movPage, movTipoFilter, ubicacionFilter])
 
   useEffect(() => {
     fetchInventario()
@@ -364,6 +371,13 @@ export default function InventarioPage() {
           {row.tipo === "salida" ? "-" : row.tipo === "entrada" ? "+" : "±"}
           {row.cantidad}
         </span>
+      ),
+    },
+    {
+      id: "ubicacion",
+      header: "Ubicación",
+      accessorFn: (row) => (
+        <span className="text-sm">{row.ubicacion?.nombre ?? <span className="text-muted-foreground">Sin galpón</span>}</span>
       ),
     },
     {
@@ -603,6 +617,18 @@ export default function InventarioPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={ubicacionFilter} onValueChange={(val) => { setUbicacionFilter(val); setMovPage(1) }}>
+              <SelectTrigger className="w-full sm:w-[220px]" aria-label="Ubicación">
+                <SelectValue placeholder="Ubicación" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas las ubicaciones</SelectItem>
+                {ubicaciones.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>{u.nombre} · {u.campo}</SelectItem>
+                ))}
+                <SelectItem value="sin-asignar">Sin galpón asignado</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <DataTable
@@ -626,6 +652,18 @@ export default function InventarioPage() {
                 <SelectItem value="entrada">Entradas</SelectItem>
                 <SelectItem value="salida">Salidas</SelectItem>
                 <SelectItem value="ajuste">Ajustes</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={ubicacionFilter} onValueChange={(val) => { setUbicacionFilter(val); setMovPage(1) }}>
+              <SelectTrigger className="w-full sm:w-[220px]" aria-label="Ubicación">
+                <SelectValue placeholder="Ubicación" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas las ubicaciones</SelectItem>
+                {ubicaciones.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>{u.nombre} · {u.campo}</SelectItem>
+                ))}
+                <SelectItem value="sin-asignar">Sin galpón asignado</SelectItem>
               </SelectContent>
             </Select>
           </div>

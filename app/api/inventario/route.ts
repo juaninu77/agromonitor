@@ -3,6 +3,7 @@ import { scopeOrganizacion } from "@/lib/api/tenant"
 import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 import { decimalToNumber } from "@/lib/api/serialize"
+import { filtroUbicacion } from "@/lib/inventario/ubicacion"
 
 const STOCK_BAJO_UMBRAL = 10
 const DIAS_VENCIMIENTO_ALERTA = 30
@@ -12,6 +13,8 @@ export const GET = withAuth(async (request, ctx) => {
     const searchParams = request.nextUrl.searchParams
     const tipoFilter = searchParams.get("tipo")
     const searchFilter = searchParams.get("search")
+    // Ubicación: el stock se calcula solo con los movimientos de ese galpón (o sin galpón)
+    const ubicacion = filtroUbicacion(searchParams.get("ubicacion"), ctx.establecimientoIds)
 
     const whereProducto: Record<string, unknown> = {
       ...scopeOrganizacion(ctx.organizacionIds),
@@ -35,7 +38,7 @@ export const GET = withAuth(async (request, ctx) => {
         lotes: {
           orderBy: { vencimiento: "asc" },
         },
-        movimientosStock: true,
+        movimientosStock: ubicacion ? { where: ubicacion as never } : true,
       },
       orderBy: { nombre: "asc" },
     })
@@ -44,7 +47,7 @@ export const GET = withAuth(async (request, ctx) => {
     const limiteVencimiento = new Date()
     limiteVencimiento.setDate(hoy.getDate() + DIAS_VENCIMIENTO_ALERTA)
 
-    const productosConStock = productos.map((producto) => {
+    const productosConStock = productos.filter((p) => !ubicacion || p.movimientosStock.length > 0).map((producto) => {
       let stockTotal = 0
       for (const mov of producto.movimientosStock) {
         if (mov.tipo === "entrada") {
@@ -101,6 +104,12 @@ export const GET = withAuth(async (request, ctx) => {
       (p) => p.tieneVencimientoProximo
     )
 
+    const ubicaciones = await prisma.sector.findMany({
+      where: { establecimientoId: { in: ctx.establecimientoIds }, tipo: "galpon", activo: true },
+      select: { id: true, nombre: true, establecimiento: { select: { nombre: true } } },
+      orderBy: { nombre: "asc" },
+    })
+
     const tiposUnicos = [
       ...new Set(productos.map((p) => p.tipo)),
     ].sort()
@@ -116,6 +125,7 @@ export const GET = withAuth(async (request, ctx) => {
         diasAlertaVencimiento: DIAS_VENCIMIENTO_ALERTA,
       },
       tiposDisponibles: tiposUnicos,
+      ubicaciones: ubicaciones.map((u) => ({ id: u.id, nombre: u.nombre, campo: u.establecimiento.nombre })),
     })
   } catch (error) {
     console.error("Error al obtener inventario:", error)

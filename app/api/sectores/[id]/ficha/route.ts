@@ -3,6 +3,7 @@ import { z } from "zod"
 import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 import { mapBody, mapField, mapResult, MapError } from "@/lib/mapa/api"
+import { totalesPorUnidad } from "@/lib/campo/forrajes"
 const input = z.object({ clave: z.string().uuid(), tipo: z.enum(["nota", "tarea", "revision_agua", "descanso", "labor"]), detalle: z.string().trim().min(1).max(3000), estado: z.string() }).superRefine((v, ctx) => {
   const allowed: Record<string, string[]> = { nota: ["registrado"], tarea: ["pendiente"], revision_agua: ["disponible", "sin_agua", "requiere_revision"], descanso: ["inicio", "fin"], labor: ["registrado"] }
   if (!allowed[v.tipo].includes(v.estado)) ctx.addIssue({ code: "custom", message: "Estado incompatible con el registro" })
@@ -27,9 +28,24 @@ export const GET = withAuth(async (request, ctx) => mapResult(async () => {
     s.tipo === "galpon" ? prisma.producto.findMany({ where: { organizacionId: ctx.organizacionDeEstablecimiento[s.establecimientoId] }, select: { id: true, nombre: true }, orderBy: { nombre: "asc" } }) : [],
     s.tipo === "galpon" ? prisma.movimientoStock.findMany({ where: { sectorId: s.id }, include: { producto: { select: { nombre: true } } }, orderBy: { fecha: "desc" } }) : [],
   ])
+  // Forraje trazable: lo producido por las campañas de la parcela, lo consumido en ella y el movimiento del galpón
+  const unidad = { reserva: { select: { unidad: true, nombre: true } } }
+  const [cosechas, consumos, movsGalpon] = await Promise.all([
+    cultivos.length ? prisma.movimientoForraje.findMany({ where: { concepto: "cosecha", cultivoId: { in: cultivos.map((c) => c.id) } }, include: unidad, orderBy: { fecha: "desc" } }) : [],
+    prisma.movimientoForraje.findMany({ where: { sectorId: s.id, tipo: "salida" }, include: { ...unidad, lote: { select: { nombre: true } } }, orderBy: [{ fecha: "desc" }, { createdAt: "desc" }], take: 200 }),
+    s.tipo === "galpon" ? prisma.movimientoForraje.findMany({ where: { reserva: { depositoId: s.id } }, include: unidad, orderBy: [{ fecha: "desc" }, { createdAt: "desc" }], take: 10 }) : [],
+  ])
+  const linea = (m: (typeof consumos)[number] | (typeof cosechas)[number]) => ({ id: m.id, fecha: m.fecha, tipo: m.tipo, concepto: m.concepto, cantidad: m.cantidad.toString(), unidad: m.reserva.unidad, reserva: m.reserva.nombre, motivo: m.motivo, lote: "lote" in m ? m.lote?.nombre ?? null : null })
+  const forraje = {
+    producido: totalesPorUnidad(cosechas.map((c) => ({ cantidad: c.cantidad, unidad: c.reserva.unidad }))),
+    cosechasPorCultivo: Object.fromEntries(cultivos.map((c) => [c.id, totalesPorUnidad(cosechas.filter((m) => m.cultivoId === c.id).map((m) => ({ cantidad: m.cantidad, unidad: m.reserva.unidad })))])),
+    consumido: totalesPorUnidad(consumos.map((c) => ({ cantidad: c.cantidad, unidad: c.reserva.unidad }))),
+    consumos: consumos.slice(0, 10).map(linea),
+    movimientosGalpon: movsGalpon.map(linea),
+  }
   const existencias = new Map<string, { id: string; nombre: string; cantidad: number }>()
   for (const m of stock) { const item = existencias.get(m.productoId) ?? { id: m.productoId, nombre: m.producto.nombre, cantidad: 0 }; item.cantidad += (m.tipo === "salida" ? -1 : 1) * m.cantidad; existencias.set(m.productoId, item) }
-  return NextResponse.json({ registros, totalRegistros, page, animales, cultivos, documentos, grupos, movimientos, reservas, productos, existencias: [...existencias.values()], puedeEditar: ctx.establecimientoIdsConRol(["admin", "encargado"]).includes(s.establecimientoId) }, { headers: { "Cache-Control": "private, no-store" } })
+  return NextResponse.json({ registros, totalRegistros, page, animales, cultivos, documentos, grupos, movimientos, reservas, productos, existencias: [...existencias.values()], forraje, puedeEditar: ctx.establecimientoIdsConRol(["admin", "encargado"]).includes(s.establecimientoId) }, { headers: { "Cache-Control": "private, no-store" } })
 }))
 export const POST = withAuth(async (request, ctx) => mapResult(async () => {
   const s = await sector(ctx.params.id, ctx.establecimientoIds); mapField(ctx, s.establecimientoId, true)

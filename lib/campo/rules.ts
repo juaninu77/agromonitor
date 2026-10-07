@@ -24,8 +24,30 @@ export const cultivoSchema = z.object({ ...base, sectorId:uuid, forrajeId:uuid, 
 export const cierreCultivoSchema = z.object({ ...base, cultivoId:uuid, version:z.number().int().positive(), hasta:fechaSchema }).strict()
 export const reservaSchema = z.object({ ...base, depositoId:z.string().uuid().nullable().optional(), forrajeId:uuid, cultivoId:z.union([uuid,z.literal("")]).nullish().transform(v=>v||null), nombre:text,
   unidad:z.enum(["fardos","rollos","kg"]), ubicacion:text, minimo:nonNegative }).strict()
-export const movimientoSchema = z.object({ ...base, reservaId:uuid, clave:uuid, tipo:z.enum(["entrada","salida"]), cantidad:nonNegative.refine(v=>Number(v)>0,"La cantidad debe ser mayor a cero"),
-  fecha:fechaSchema, motivo:z.string().trim().min(1).max(2000) }).strict().refine(v=>v.fecha<=today(),{message:"Un movimiento realizado no puede tener fecha futura",path:["fecha"]})
+const cantidad = nonNegative.refine(v=>Number(v)>0,"La cantidad debe ser mayor a cero")
+const optionalUuid = z.union([uuid,z.literal("")]).nullish().transform(v=>v||null)
+const noFutura = { message:"Un movimiento realizado no puede tener fecha futura", path:["fecha"] }
+/** Conceptos de un movimiento de forraje según su tipo (cosecha y transferencia tienen operación propia). */
+export const CONCEPTOS_FORRAJE = { entrada:["compra","ajuste"], salida:["consumo","venta","ajuste"] } as const
+export const CONCEPTO_FORRAJE_LABEL: Record<string,string> = { cosecha:"Cosecha", compra:"Compra", ajuste:"Ajuste", consumo:"Consumo", venta:"Venta", transferencia:"Transferencia" }
+export const movimientoSchema = z.object({ ...base, reservaId:uuid, clave:uuid, tipo:z.enum(["entrada","salida"]), cantidad,
+  fecha:fechaSchema, motivo:z.string().trim().max(2000).default(""),
+  concepto:z.enum(["compra","ajuste","consumo","venta"]).nullish().transform(v=>v??null),
+  // Destino de un consumo: potrero o corral donde se dio y grupo alimentado
+  sectorId:optionalUuid, loteId:optionalUuid }).strict()
+  .refine(v=>v.fecha<=today(),noFutura)
+  .refine(v=>!v.concepto||(CONCEPTOS_FORRAJE[v.tipo] as readonly string[]).includes(v.concepto),{message:"El concepto no corresponde al tipo de movimiento",path:["concepto"]})
+  .refine(v=>(!v.sectorId&&!v.loteId)||(v.tipo==="salida"&&v.concepto==="consumo"),{message:"El potrero y el grupo se indican solo en un consumo",path:["sectorId"]})
+  .refine(v=>!!v.motivo||!!v.concepto,{message:"Indicá el motivo o el concepto",path:["motivo"]})
+/** Cosecha de una campaña: entra a una reserva existente o a una nueva (con su galpón). */
+export const cosechaSchema = z.object({ ...base, clave:uuid, cultivoId:uuid, cantidad, fecha:fechaSchema, motivo:z.string().trim().max(2000).default(""),
+  reservaId:optionalUuid, depositoId:optionalUuid, nombre:z.string().trim().max(180).nullish().transform(v=>v||null),
+  unidad:z.enum(["fardos","rollos","kg"]).nullish().transform(v=>v??null), minimo:nonNegative.default("0") }).strict()
+  .refine(v=>v.fecha<=today(),noFutura)
+  .refine(v=>!!v.reservaId||(!!v.nombre&&!!v.unidad),{message:"Elegí una reserva o indicá nombre y unidad de la nueva",path:["reservaId"]})
+/** Transferencia de forraje entre galpones: una salida y una entrada atómicas. */
+export const transferenciaForrajeSchema = z.object({ ...base, clave:uuid, reservaId:uuid, depositoDestinoId:uuid, cantidad, fecha:fechaSchema,
+  motivo:z.string().trim().max(2000).default("") }).strict().refine(v=>v.fecha<=today(),noFutura)
 
 export function estadoServicio(e: { lectura: string | number; unidad:string; proximoServicioFecha?:string|null; proximoServicioLectura?:string|number|null }, fecha=today()) {
   const limite = e.proximoServicioLectura == null ? null : Number(e.proximoServicioLectura)

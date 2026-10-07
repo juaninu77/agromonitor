@@ -4,10 +4,10 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { withAuth, type AuthContext } from "@/lib/api/with-auth"
 import * as rules from "./rules"
+import { InputError, registrarCosecha, registrarMovimiento, totalesPorUnidad, transferirForraje } from "./forrajes"
 
-class InputError extends Error { constructor(message:string,public status=400){super(message)} }
 const iso=(v:string|null|undefined)=>v?new Date(`${v}T00:00:00Z`):null
-const modules=z.enum(["flota","lecturas","servicios","cultivos","cierre-cultivo","reservas","movimientos","catalogos"])
+const modules=z.enum(["flota","lecturas","servicios","cultivos","cierre-cultivo","reservas","movimientos","cosechas","transferencias","catalogos"])
 function campo(ctx:AuthContext,id:string,write=false){
   const ids=write?ctx.establecimientoIdsConRol(["admin","encargado"]):ctx.establecimientoIds
   if(!ids.includes(id))throw new InputError("No tenés permisos para este campo",403)
@@ -25,8 +25,10 @@ export const GET = withAuth(async(request,ctx)=>handle(async()=>{
   const pagination={take:25,skip:(page-1)*25}
   if(modulo==="catalogos")return NextResponse.json({
     forrajes:await prisma.forraje.findMany({orderBy:{nombre:"asc"},select:{id:true,nombre:true}}),
-    sectores:await prisma.sector.findMany({where:{establecimientoId:id,activo:true},orderBy:{nombre:"asc"},select:{id:true,nombre:true,superficieHa:true}}),
+    sectores:await prisma.sector.findMany({where:{establecimientoId:id,activo:true},orderBy:{nombre:"asc"},select:{id:true,nombre:true,superficieHa:true,tipo:true}}),
+    lotes:await prisma.lote.findMany({where:{establecimientoId:id,activo:true},orderBy:{nombre:"asc"},select:{id:true,nombre:true}}),
     depositos:await prisma.sector.findMany({where:{establecimientoId:id,activo:true,tipo:"galpon"},select:{id:true,nombre:true}}),
+    reservas:await prisma.reservaForraje.findMany({where:{establecimientoId:id},orderBy:{nombre:"asc"},take:500,select:{id:true,nombre:true,forrajeId:true,unidad:true,deposito:{select:{nombre:true}}}}),
     puedeEditar:ctx.establecimientoIdsConRol(["admin","encargado"]).includes(id),
   })
   if(modulo==="flota"){
@@ -36,12 +38,17 @@ export const GET = withAuth(async(request,ctx)=>handle(async()=>{
   }
   if(modulo==="cultivos"){
     const where={sector:{establecimientoId:id},...(sectorId?{sectorId}:{}),...(q?{forraje:{nombre:{contains:q,mode:"insensitive" as const}}}:{})}
-    const [data,total]=await Promise.all([prisma.sectorForraje.findMany({where,include:{sector:{select:{nombre:true}},forraje:{select:{nombre:true}}},...pagination,orderBy:{desde:"desc"}}),prisma.sectorForraje.count({where})])
+    const [rows,total]=await Promise.all([prisma.sectorForraje.findMany({where,include:{sector:{select:{nombre:true}},forraje:{select:{nombre:true}}},...pagination,orderBy:{desde:"desc"}}),prisma.sectorForraje.count({where})])
+    const cosechas=await prisma.movimientoForraje.findMany({where:{cultivoId:{in:rows.map(r=>r.id)},concepto:"cosecha"},select:{cultivoId:true,cantidad:true,reserva:{select:{unidad:true}}}})
+    const data=rows.map(r=>({...r,cosechado:totalesPorUnidad(cosechas.filter(c=>c.cultivoId===r.id).map(c=>({cantidad:c.cantidad,unidad:c.reserva.unidad})))}))
     return NextResponse.json({data,total,page})
   }
   if(modulo==="reservas"){
-    const where={establecimientoId:id,...(sectorId?{depositoId:sectorId}:{}),...(q?{nombre:{contains:q,mode:"insensitive" as const}}:{})}
-    const [data,total]=await Promise.all([prisma.reservaForraje.findMany({where,include:{forraje:{select:{nombre:true}},movimientos:{take:10,orderBy:{createdAt:"desc"}}},...pagination,orderBy:{nombre:"asc"}}),prisma.reservaForraje.count({where})])
+    // Ubicación: un galpón (sectorId o ubicacion=<id>) o "sin-asignar" (reservas sin galpón)
+    const ubicacion=request.nextUrl.searchParams.get("ubicacion")
+    const deposito=ubicacion==="sin-asignar"?{depositoId:null}:ubicacion?{depositoId:z.string().uuid().parse(ubicacion)}:sectorId?{depositoId:sectorId}:{}
+    const where={establecimientoId:id,...deposito,...(q?{nombre:{contains:q,mode:"insensitive" as const}}:{})}
+    const [data,total]=await Promise.all([prisma.reservaForraje.findMany({where,include:{forraje:{select:{nombre:true}},deposito:{select:{nombre:true}},cultivo:{select:{desde:true,sector:{select:{nombre:true}}}},movimientos:{take:10,orderBy:[{fecha:"desc"},{createdAt:"desc"}],include:{sector:{select:{nombre:true}},lote:{select:{nombre:true}},cultivo:{select:{sector:{select:{nombre:true}}}}}}},...pagination,orderBy:{nombre:"asc"}}),prisma.reservaForraje.count({where})])
     return NextResponse.json({data,total,page})
   }
   throw new InputError("Ruta no encontrada",404)
@@ -103,21 +110,9 @@ export const POST=withAuth(async(request,ctx)=>handle(async()=>{
       if(depositoId&&!await tx.sector.findFirst({where:{id:depositoId,establecimientoId:id,tipo:"galpon",activo:true}}))throw new InputError("Depósito no encontrado en este campo")
       const row=await tx.reservaForraje.create({data:{...v,depositoId}});await audit(tx,ctx,id,row.id,"reservas_forraje");return row
     }
-    if(modulo==="movimientos"){
-      const v=rules.movimientoSchema.parse(raw)
-      const reserva=await tx.reservaForraje.findFirst({where:{id:v.reservaId,establecimientoId:id}})
-      if(!reserva)throw new InputError("Reserva no encontrada",404)
-      if(reserva.unidad!=="kg"&&!new Prisma.Decimal(v.cantidad).isInteger())throw new InputError("Fardos y rollos se registran en unidades enteras")
-      const prior=await tx.movimientoForraje.findUnique({where:{clave:v.clave}})
-      if(prior){
-        if(prior.reservaId!==v.reservaId||prior.tipo!==v.tipo||!prior.cantidad.equals(v.cantidad)||prior.fecha.toISOString().slice(0,10)!==v.fecha||prior.motivo!==v.motivo)throw new InputError("La clave de operación ya fue utilizada con otros datos",409)
-        return prior
-      }
-      const changed=await tx.reservaForraje.updateMany({where:{id:v.reservaId,establecimientoId:id,...(v.tipo==="salida"?{stock:{gte:v.cantidad}}:{})},data:{stock:v.tipo==="entrada"?{increment:v.cantidad}:{decrement:v.cantidad}}})
-      if(!changed.count)throw new InputError("Stock insuficiente: no se registró la salida",409)
-      const row=await tx.movimientoForraje.create({data:{reservaId:v.reservaId,clave:v.clave,tipo:v.tipo,cantidad:v.cantidad,fecha:iso(v.fecha)!,motivo:v.motivo}})
-      await audit(tx,ctx,id,row.id,"movimientos_forraje");return row
-    }
+    if(modulo==="movimientos")return registrarMovimiento(tx,ctx,id,raw)
+    if(modulo==="cosechas")return registrarCosecha(tx,ctx,id,raw)
+    if(modulo==="transferencias")return transferirForraje(tx,ctx,id,raw)
     throw new InputError("Operación no encontrada",404)
   },{timeout:15000})
   return NextResponse.json({data:result},{status:201})

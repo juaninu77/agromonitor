@@ -4,6 +4,7 @@ import { logAudit } from "@/lib/api/audit-log"
 import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 import { parsePagination } from "@/lib/api/pagination"
+import { filtroUbicacion } from "@/lib/inventario/ubicacion"
 
 const movimientoSchema = z.object({
   productoId: z.string().uuid("ID de producto inválido"),
@@ -44,6 +45,9 @@ export const GET = withAuth(async (request, ctx) => {
       where.tipo = tipo
     }
 
+    const ubicacion = filtroUbicacion(searchParams.get("ubicacion"), ctx.establecimientoIds)
+    if (ubicacion) Object.assign(where, ubicacion)
+
     if (fechaDesde || fechaHasta) {
       where.fecha = {}
       if (fechaDesde) {
@@ -64,6 +68,7 @@ export const GET = withAuth(async (request, ctx) => {
           loteProducto: {
             select: { id: true, nroLote: true, vencimiento: true },
           },
+          sector: { select: { id: true, nombre: true } },
         },
         orderBy: { fecha: "desc" },
         skip,
@@ -84,6 +89,7 @@ export const GET = withAuth(async (request, ctx) => {
         fecha: m.fecha.toISOString(),
         createdAt: m.createdAt.toISOString(),
         producto: m.producto,
+        ubicacion: m.sector,
         loteProducto: m.loteProducto
           ? {
               ...m.loteProducto,

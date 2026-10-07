@@ -1,6 +1,8 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { AlertTriangle, ChevronDown, ChevronUp, Droplets, Gauge, Sprout } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -165,5 +167,55 @@ export function ResumenCampo({ sectors, onIr }: { sectors: MapSector[]; onIr: (i
         </div>
       )}
     </section>
+  )
+}
+
+interface Archivado { id: string; nombre: string; tipo: string; version: number; updatedAt: string }
+
+/** Lugares archivados del campo, con opción de restaurarlos (solo quien puede editar). */
+export function LugaresArchivados({ fieldId, canEdit }: { fieldId: string; canEdit: boolean }) {
+  const client = useQueryClient()
+  const [abierto, setAbierto] = useState(false)
+  const [restaurando, setRestaurando] = useState<string | null>(null)
+  const query = useQuery<Archivado[]>({
+    queryKey: ["sectores-archivados", fieldId],
+    enabled: abierto,
+    queryFn: async () => {
+      const r = await fetch(`/api/sectores/archivados?establecimientoId=${fieldId}`)
+      const b = await r.json()
+      if (!r.ok) throw new Error(b.error ?? "No se pudieron cargar los archivados")
+      return b.data
+    },
+  })
+  async function restaurar(a: Archivado) {
+    setRestaurando(a.id)
+    try {
+      const r = await fetch(`/api/sectores/${a.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: a.version, activo: true }) })
+      const b = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(b.error ?? "No se pudo restaurar")
+      await Promise.all(["mapa", "sectores", "sectores-archivados"].map((k) => client.invalidateQueries({ queryKey: [k] })))
+      toast.success(`«${a.nombre}» restaurado`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo restaurar")
+    } finally {
+      setRestaurando(null)
+    }
+  }
+  return (
+    <details className="border-t pt-3" onToggle={(e) => setAbierto((e.target as HTMLDetailsElement).open)}>
+      <summary className="cursor-pointer text-sm font-medium">Lugares archivados</summary>
+      {query.isPending && abierto ? <p className="mt-2 text-xs text-muted-foreground">Cargando…</p> : query.isError ? <p role="alert" className="mt-2 text-sm text-destructive">{query.error.message}</p> : !query.data?.length ? (
+        <p className="mt-2 text-xs text-muted-foreground">No hay lugares archivados.</p>
+      ) : (
+        <ul className="mt-2 space-y-1">
+          {query.data.map((a) => (
+            <li key={a.id} className="flex items-center justify-between gap-2 text-sm">
+              <span className="min-w-0 truncate">{a.nombre} <span className="text-xs text-muted-foreground">· {sectorLabel(a.tipo)}</span></span>
+              {canEdit && <Button size="sm" variant="outline" disabled={restaurando === a.id} onClick={() => restaurar(a)}>{restaurando === a.id ? "Restaurando…" : "Restaurar"}</Button>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
   )
 }

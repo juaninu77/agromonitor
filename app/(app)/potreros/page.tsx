@@ -371,7 +371,7 @@ function PotrerosWorkspace() {
               onAsignar={() => openAsignarLote(sector.id)}
               onEditar={() => openEditSector(sector)}
               canEdit={canEdit}
-              onVer={() => router.replace(`/potreros?vista=mapa&sector=${sector.id}`, { scroll: false })}
+              onVer={() => router.replace(`/potreros?vista=mapa&sector=${sector.id}${!sector.geometria && canEdit ? "&dibujar=1" : ""}`, { scroll: false })}
             />
           ))}
         </div>
@@ -454,7 +454,7 @@ function SectorCard({ sector, onMedir, onAsignar, onEditar, onVer, canEdit }: { 
     <p className="text-xs text-muted-foreground">{waterLabel(sector.agua)}{sector.agua ? ` · ${new Date(sector.agua.fecha).toLocaleDateString("es-AR")}` : ""}</p>
     {sector.pendientes > 0 && <p className="text-sm text-amber-700">{sector.pendientes} tareas pendientes</p>}
     {sector.ultimaMedicion && <p className="text-xs text-muted-foreground">Última medición: {sector.ultimaMedicion.fecha.slice(0,10)} · {sector.ultimaMedicion.alturaPastoCm ?? "—"} cm</p>}
-    <div className="flex flex-wrap gap-2 border-t pt-3"><Button size="sm" variant="outline" onClick={onVer}>Ver en mapa</Button>{isParcel(sector.tipo) && <Button size="sm" variant="outline" onClick={onMedir} disabled={!canEdit}>Medir pasto</Button>}{livestockTypes.has(sector.tipo) && <Button size="sm" onClick={onAsignar} disabled={!canEdit}>Ingresar grupo</Button>}</div>
+    <div className="flex flex-wrap gap-2 border-t pt-3"><Button size="sm" variant={sector.geometria ? "outline" : "default"} onClick={onVer}>{sector.geometria ? "Ver en mapa" : canEdit ? "Dibujar en el mapa" : "Sin ubicar en el mapa"}</Button>{isParcel(sector.tipo) && <Button size="sm" variant="outline" onClick={onMedir} disabled={!canEdit}>Medir pasto</Button>}{livestockTypes.has(sector.tipo) && <Button size="sm" onClick={onAsignar} disabled={!canEdit}>Ingresar grupo</Button>}</div>
   </CardContent></Card>
 }
 

@@ -57,4 +57,4 @@ export const sectorSchema = z.object({
   tieneAgua: z.boolean().optional(), tieneSombra: z.boolean().optional(), tieneBalanza: z.boolean().optional(),
   geometria: geometrySchema.nullable().optional(),
 })
-export const sectorPatchSchema = sectorSchema.partial().extend({ version: z.number().int().positive() })
+export const sectorPatchSchema = sectorSchema.partial().extend({ version: z.number().int().positive(), activo: z.boolean().optional() })

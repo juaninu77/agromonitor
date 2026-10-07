@@ -65,18 +65,8 @@ export const POST = withAuth(async (request, ctx) => {
       )
     }
 
-    // Verificar rol de la membresía (solo propietario o administrador pueden crear establecimientos)
-    const membresia = await prisma.membresia.findUnique({
-      where: {
-        usuarioId_organizacionId: {
-          usuarioId: ctx.userId,
-          organizacionId,
-        },
-        esActivo: true,
-      },
-    })
-
-    if (!membresia || !["propietario", "administrador"].includes(membresia.rol)) {
+    // Solo el administrador de la organización (propietario/administrador/admin) crea campos
+    if (!ctx.organizacionIdsConRol(["admin"]).includes(organizacionId)) {
       return NextResponse.json(
         { error: "No tienes permisos para crear establecimientos" },
         { status: 403 }

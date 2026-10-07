@@ -3,7 +3,7 @@ import { useEffect, useState } from "react"
 import { useSession } from "next-auth/react"
 import { z } from "zod"
 import type { MapDraft } from "@/lib/mapa/types"
-const schema = z.object({ id: z.string().uuid().optional(), version: z.number().int().positive().optional(), nombre: z.string().max(120), tipo: z.string().max(40), descripcion: z.string().max(3000), kind: z.enum(["Point", "Polygon", "LineString"]), drawing: z.boolean(), vertices: z.array(z.tuple([z.number().finite().min(-180).max(180), z.number().finite().min(-85).max(85)])).max(500) })
+const schema = z.object({ id: z.string().uuid().optional(), version: z.number().int().positive().optional(), nombre: z.string().max(120), tipo: z.string().max(40), descripcion: z.string().max(3000), kind: z.enum(["Point", "Polygon", "LineString"]), drawing: z.boolean(), forma: z.enum(["Polygon", "Rectangle", "LineString", "Point"]).optional(), dividir: z.object({ id: z.string().uuid(), version: z.number().int().positive(), nombre: z.string().max(120) }).optional(), vertices: z.array(z.tuple([z.number().finite().min(-180).max(180), z.number().finite().min(-85).max(85)])).max(500) })
 export function useMapDraft(fieldId: string) {
   const { data: session } = useSession()
   const key = session?.user?.id ? `agromonitor:map-draft:${session.user.id}:${fieldId}` : ""

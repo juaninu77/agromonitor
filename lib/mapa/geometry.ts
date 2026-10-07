@@ -13,7 +13,7 @@ export type Position = [number, number]
 export const geometrySchema = shape.superRefine((value, ctx) => {
   if (value.type === "Point") return
   if (value.type === "LineString") {
-    if (new Set(value.coordinates.map(p => p.join(","))).size < 2) ctx.addIssue({ code: "custom", message: "El camino necesita dos puntos distintos" })
+    if (new Set(value.coordinates.map(p => p.join(","))).size < 2) ctx.addIssue({ code: "custom", message: "La línea necesita dos puntos distintos" })
     return
   }
   const ring = value.coordinates[0], vertices = ring.slice(0, -1)
@@ -37,7 +37,8 @@ export const SECTOR_TYPES = [
   ["corral", "Corral", "#bb6d23"], ["manga", "Manga", "#4665a8"],
   ["feedlot", "Feedlot", "#b25d2d"], ["embarcadero", "Embarcadero", "#856345"],
   ["enfermeria", "Enfermería", "#bc4b60"], ["casa", "Casa / puesto", "#6455a0"],
-  ["camino", "Camino", "#d97706"], ["tranquera", "Tranquera", "#e11d48"], ["limite", "Límite del campo", "#475569"],
+  ["camino", "Camino", "#d97706"], ["alambrado", "Alambrado / división", "#f8fafc"], ["tranquera", "Tranquera", "#e11d48"],
+  ["limite", "Límite del campo", "#475569"],
   ["otro", "Otro sector", "#64748b"],
 ] as const
 export const sectorLabel = (type: string) => SECTOR_TYPES.find(t => t[0] === type)?.[1] ?? type

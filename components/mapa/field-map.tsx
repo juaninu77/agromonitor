@@ -4,20 +4,54 @@ import { useEffect, useRef, useState, type RefObject } from "react"
 import * as L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import type { MapDraft, MapSector, MapFocus } from "@/lib/mapa/types"
-import { sectorColor, type Position } from "@/lib/mapa/geometry"
+import { areaHa, polygonFrom, sectorColor, type Geometry, type Position } from "@/lib/mapa/geometry"
 import { sectorState } from "@/lib/mapa/sector-state"
 import { bindVertexDrag } from "@/lib/mapa/live-edit"
+import { distanciaM, formatearDistancia, proyectarEnSegmento, rectanguloDesde3Puntos } from "@/lib/mapa/drawing"
 
 interface Props {
   sectors: MapSector[]; selected: string | null; draft: MapDraft | null; focus: MapFocus | null;
-  satellite: boolean; colorByState?: boolean; fitKey: number; onSelect: (id: string) => void; onVertices: (vertices: Position[]) => void;
+  satellite: boolean; colorByState?: boolean; fitKey: number; onSelect: (id: string) => void;
+  /** Nuevos vértices; con `terminar` además cierra el trazo en el mismo cambio. */
+  onVertices: (vertices: Position[], terminar?: boolean) => void;
+  /** Termina el trazo en curso (cerrar contorno, terminar línea o rectángulo). */
+  onFinish: () => void;
+  /** Imán: acercar clics a vértices y bordes existentes. */
+  snap: boolean;
+  /** Vista previa de las dos partes al dividir un potrero. */
+  preview?: Position[][] | null;
   panelRef?: RefObject<HTMLElement | null>;
 }
+
+// Distancias del imán en píxeles de pantalla (independientes del zoom)
+const IMAN_VERTICE_PX = 14, IMAN_BORDE_PX = 10, CERRAR_PX = 16, DUPLICADO_PX = 4
+const COLOR_BORRADOR = "#f59e0b", COLOR_IMAN = "#0ea5e9"
+const COLORES_PREVIA = ["#0ea5e9", "#a855f7"]
+const ll = ([lon, lat]: Position): L.LatLngTuple => [lat, lon]
+const fmtHa = (ha: number) => `${ha.toLocaleString("es-AR", { maximumFractionDigits: 2 })} ha`
+
+/** Anillos y líneas de una geometría, para el imán. */
+function trazos(g: Geometry | null): { puntos: Position[]; cerrado: boolean }[] {
+  if (!g) return []
+  if (g.type === "Point") return [{ puntos: [g.coordinates], cerrado: false }]
+  if (g.type === "LineString") return [{ puntos: g.coordinates, cerrado: false }]
+  return [{ puntos: g.coordinates[0].slice(0, -1), cerrado: true }]
+}
+
+function colorDeSector(sector: MapSector, colorByState: boolean | undefined, satellite: boolean) {
+  if (colorByState) return sectorState(sector).color
+  // El alambrado se ve blanco sobre satélite y oscuro sobre el mapa claro
+  if (sector.tipo === "alambrado") return satellite ? "#f8fafc" : "#334155"
+  return sectorColor(sector.tipo)
+}
+
 export default function FieldMap(props: Props) {
   const host = useRef<HTMLDivElement>(null), map = useRef<L.Map | null>(null)
-  const layer = useRef<L.LayerGroup | null>(null), latest = useRef(props), fitted = useRef(false)
+  const layer = useRef<L.LayerGroup | null>(null), guide = useRef<L.LayerGroup | null>(null)
+  const latest = useRef(props), fitted = useRef(false)
   latest.current = props
   const [tilesFailed, setTilesFailed] = useState(false)
+
   function fitVisibleArea(bounds: L.LatLngBounds, maxZoom: number) {
     const m = map.current, box = host.current?.getBoundingClientRect()
     if (!m || !box) return
@@ -31,22 +65,114 @@ export default function FieldMap(props: Props) {
       maxZoom,
     })
   }
+
+  /** Distancia en píxeles entre dos posiciones en la vista actual. */
+  function px(a: Position, b: Position) {
+    const m = map.current!
+    return m.latLngToContainerPoint(ll(a)).distanceTo(m.latLngToContainerPoint(ll(b)))
+  }
+
+  /**
+   * Acerca un punto al vértice más cercano (prioridad) o al borde más cercano
+   * de los lugares dibujados y del propio borrador.
+   */
+  function imantar(latlng: L.LatLng, excluirIndice?: number): { p: Position; iman: "vertice" | "borde" | null } {
+    const m = map.current, { draft, snap, sectors } = latest.current
+    const crudo: Position = [latlng.wrap().lng, latlng.lat]
+    if (!m || !snap) return { p: crudo, iman: null }
+    const c = m.latLngToContainerPoint(latlng)
+    const lineas: { puntos: Position[]; cerrado: boolean }[] = []
+    for (const s of sectors) if (s.id !== draft?.id) lineas.push(...trazos(s.geometria))
+    if (draft) {
+      const propios = draft.vertices.filter((_, i) => i !== excluirIndice)
+      if (propios.length) lineas.push({ puntos: propios, cerrado: false })
+    }
+    let mejor: Position | null = null, dMejor = IMAN_VERTICE_PX
+    for (const t of lineas) for (const v of t.puntos) {
+      const d = c.distanceTo(m.latLngToContainerPoint(ll(v)))
+      if (d < dMejor) { dMejor = d; mejor = v }
+    }
+    if (mejor) return { p: mejor, iman: "vertice" }
+    dMejor = IMAN_BORDE_PX
+    let enBorde: L.Point | null = null
+    for (const t of lineas) {
+      const n = t.puntos.length, lados = t.cerrado ? n : n - 1
+      for (let i = 0; i < lados; i++) {
+        const a = m.latLngToContainerPoint(ll(t.puntos[i])), b = m.latLngToContainerPoint(ll(t.puntos[(i + 1) % n]))
+        const { punto } = proyectarEnSegmento([c.x, c.y], [a.x, a.y], [b.x, b.y])
+        const d = Math.hypot(punto[0] - c.x, punto[1] - c.y)
+        if (d < dMejor) { dMejor = d; enBorde = L.point(punto[0], punto[1]) }
+      }
+    }
+    if (enBorde) { const q = m.containerPointToLatLng(enBorde); return { p: [q.lng, q.lat], iman: "borde" } }
+    return { p: crudo, iman: null }
+  }
+
+  /** Línea elástica, rectángulo en curso y medida junto al cursor. */
+  function dibujarGuia(latlng: L.LatLng) {
+    const g = guide.current, draft = latest.current.draft
+    g?.clearLayers()
+    if (!g || !draft?.drawing || draft.kind === "Point") return
+    const { p, iman } = imantar(latlng)
+    const v = draft.vertices, forma = draft.forma ?? draft.kind
+    let texto = ""
+    if (forma === "Rectangle" && v.length === 2) {
+      const r = rectanguloDesde3Puntos(v[0], v[1], p)
+      if (r) {
+        L.polygon(r.map(ll), { color: COLOR_BORRADOR, weight: 2, dashArray: "6 6", fillOpacity: 0.15, interactive: false }).addTo(g)
+        texto = `${formatearDistancia(distanciaM(r[0], r[1]))} × ${formatearDistancia(distanciaM(r[1], r[2]))} · ${fmtHa(areaHa(polygonFrom(r))!)}`
+      }
+    } else if (v.length) {
+      const ultimo = v[v.length - 1]
+      L.polyline([ll(ultimo), ll(p)], { color: COLOR_BORRADOR, weight: 2, dashArray: "6 6", interactive: false }).addTo(g)
+      texto = formatearDistancia(distanciaM(ultimo, p))
+      if (draft.kind === "Polygon" && v.length >= 2) {
+        L.polyline([ll(p), ll(v[0])], { color: COLOR_BORRADOR, weight: 1, dashArray: "2 6", opacity: 0.7, interactive: false }).addTo(g)
+        if (v.length >= 3 && px(p, v[0]) < CERRAR_PX) texto = "Cerrar contorno"
+      }
+    }
+    const cursor = L.circleMarker(ll(p), {
+      radius: iman ? 7 : 4, color: iman ? COLOR_IMAN : COLOR_BORRADOR, weight: 2, fillColor: "#fff", fillOpacity: 1, interactive: false,
+    }).addTo(g)
+    if (texto) cursor.bindTooltip(texto, { permanent: true, direction: "right", offset: [10, 0], className: "map-measure" }).openTooltip()
+  }
+
   useEffect(() => {
     if (!host.current) return
     const m = L.map(host.current, { center: [-42, -67], zoom: 5, minZoom: 3, maxZoom: 20, doubleClickZoom: false, zoomControl: false })
-    map.current = m; layer.current = L.layerGroup().addTo(m)
+    map.current = m; layer.current = L.layerGroup().addTo(m); guide.current = L.layerGroup().addTo(m)
     L.control.zoom({ position: "topleft", zoomInTitle: "Acercar mapa", zoomOutTitle: "Alejar mapa" }).addTo(m)
     L.control.scale({ imperial: false }).addTo(m)
     m.on("click", (event: L.LeafletMouseEvent) => {
-      const { draft, onVertices } = latest.current
+      const { draft, onVertices, onFinish } = latest.current
       if (!draft?.drawing) return
-      const p: Position = [event.latlng.wrap().lng, event.latlng.lat]
-      onVertices(draft.kind === "Point" ? [p] : draft.vertices.length < 500 ? [...draft.vertices, p] : draft.vertices)
+      const { p } = imantar(event.latlng)
+      if (draft.kind === "Point") { onVertices([p]); return }
+      const v = draft.vertices, forma = draft.forma ?? draft.kind
+      // El segundo clic de un doble clic no agrega un vértice repetido
+      if (v.length && px(p, v[v.length - 1]) < DUPLICADO_PX) return
+      if (forma === "Rectangle") {
+        if (v.length < 2) { onVertices([...v, p]); return }
+        const r = rectanguloDesde3Puntos(v[0], v[1], p)
+        if (r) { onVertices(r, true); guide.current?.clearLayers() }
+        return
+      }
+      if (draft.kind === "Polygon" && v.length >= 3 && px(p, v[0]) < CERRAR_PX) { onFinish(); guide.current?.clearLayers(); return }
+      onVertices(v.length < 500 ? [...v, p] : v)
     })
+    m.on("dblclick", () => {
+      const { draft, onFinish } = latest.current
+      if (!draft?.drawing || draft.kind === "Point" || draft.forma === "Rectangle") return
+      if (draft.vertices.length >= (draft.kind === "LineString" ? 2 : 3)) { onFinish(); guide.current?.clearLayers() }
+    })
+    m.on("mousemove", (e: L.LeafletMouseEvent) => dibujarGuia(e.latlng))
+    m.on("mouseout", () => guide.current?.clearLayers())
     const observer = new ResizeObserver(() => m.invalidateSize())
     observer.observe(host.current)
     return () => { observer.disconnect(); m.remove(); map.current = null }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
   useEffect(() => {
     if (!map.current) return
     setTilesFailed(false)
@@ -61,17 +187,24 @@ export default function FieldMap(props: Props) {
     tile.on("tileerror", () => setTilesFailed(true)); tile.addTo(map.current)
     return () => { tile.remove() }
   }, [props.satellite])
+
   useEffect(() => {
     const m = map.current, group = layer.current
     if (!m || !group) return
     group.clearLayers()
+    if (!props.draft?.drawing) guide.current?.clearLayers()
     const bounds = L.latLngBounds([])
     for (const sector of props.sectors) {
       if (!sector.geometria || props.draft?.id === sector.id) continue
-      const color = props.colorByState ? sectorState(sector).color : sectorColor(sector.tipo)
+      const color = colorDeSector(sector, props.colorByState, props.satellite)
+      const esAlambrado = sector.tipo === "alambrado"
       const shape = L.geoJSON(sector.geometria, {
         interactive: !props.draft,
-        style: { color, weight: sector.id === props.selected ? 4 : 2, fillOpacity: sector.id === props.selected ? 0.4 : 0.2 },
+        style: {
+          color, weight: sector.id === props.selected ? 4 : esAlambrado ? 3 : 2,
+          dashArray: esAlambrado ? "8 5" : undefined,
+          fillOpacity: sector.id === props.selected ? 0.4 : 0.2,
+        },
         pointToLayer: (_f, point) => L.circleMarker(point, { radius: 9, color: "white", weight: 2, fillColor: color, fillOpacity: 1, interactive: !props.draft }),
       }).addTo(group)
       const label = document.createElement("span"); label.textContent = sector.nombre
@@ -79,37 +212,87 @@ export default function FieldMap(props: Props) {
       shape.on("click", () => { if (!latest.current.draft) latest.current.onSelect(sector.id) })
       bounds.extend(shape.getBounds())
     }
-    if (!fitted.current && props.draft?.vertices.length) { const draftBounds = L.latLngBounds(props.draft.vertices.map(([lon, lat]) => [lat, lon])); fitVisibleArea(draftBounds, 17); fitted.current = true }
+    // Solo un borrador recuperado (ya trazado) centra el mapa: mientras se dibuja, el mapa no se mueve
+    if (!fitted.current && props.draft?.vertices.length && !props.draft.drawing) { fitVisibleArea(L.latLngBounds(props.draft.vertices.map(ll)), 17); fitted.current = true }
     if (!fitted.current && bounds.isValid()) { fitVisibleArea(bounds, 16); fitted.current = true }
+
+    // Vista previa de la división: las dos partes con su superficie
+    props.preview?.forEach((parte, i) => {
+      const poly = L.polygon(parte.map(ll), { color: COLORES_PREVIA[i % 2], weight: 2, fillOpacity: 0.35, interactive: false }).addTo(group)
+      const ha = areaHa(polygonFrom(parte))
+      if (ha != null) poly.bindTooltip(`Parte ${i + 1} · ${fmtHa(ha)}`, { permanent: true, direction: "center", className: "map-measure" })
+    })
+
     const draft = props.draft
     if (!draft) return
-    const vertices = draft.vertices, points: L.LatLngTuple[] = vertices.map(([lon, lat]) => [lat, lon])
-    const outline = draft.kind === "Polygon" && vertices.length >= 3
-      ? L.polygon(points, { interactive: false, color: "#f59e0b", dashArray: draft.drawing ? "6 6" : undefined, weight: 3, fillOpacity: 0.2 }).addTo(group)
-      : points.length > 1 ? L.polyline(points, { color: "#f59e0b", interactive: false }).addTo(group) : null
+    const vertices = draft.vertices, points = vertices.map(ll)
+    const cerrado = draft.kind === "Polygon" && vertices.length >= 3 && !(draft.drawing && draft.forma === "Rectangle")
+    const outline = cerrado
+      ? L.polygon(points, { interactive: false, color: COLOR_BORRADOR, dashArray: draft.drawing ? "6 6" : undefined, weight: 3, fillOpacity: 0.2 }).addTo(group)
+      : points.length > 1 ? L.polyline(points, { color: COLOR_BORRADOR, weight: 3, interactive: false }).addTo(group) : null
+
+    // Medida de cada lado y punto medio para insertar vértices (al editar)
+    const lados = draft.kind === "Point" ? 0 : cerrado ? vertices.length : vertices.length - 1
+    const editando = !draft.drawing
+    for (let i = 0; i < lados && vertices.length <= 200; i++) {
+      const a = vertices[i], b = vertices[(i + 1) % vertices.length]
+      const medio: Position = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+      const marca = L.marker(ll(medio), {
+        draggable: editando, interactive: editando, keyboard: false,
+        title: editando ? "Arrastrá o tocá para agregar un vértice" : undefined,
+        icon: L.divIcon({ className: editando ? "map-midpoint" : "map-midpoint map-midpoint-quiet", html: "<span>+</span>", iconSize: [18, 18], iconAnchor: [9, 9] }),
+      }).addTo(group)
+      if (vertices.length <= 24) {
+        marca.bindTooltip(formatearDistancia(distanciaM(a, b)), { permanent: true, direction: "top", offset: [0, -8], className: "map-edge-label" })
+      }
+      if (editando) {
+        const insertar = (p: Position) => { if (latest.current.draft) latest.current.onVertices([...vertices.slice(0, i + 1), p, ...vertices.slice(i + 1)]) }
+        marca.on("click", () => insertar(medio))
+        marca.on("dragend", () => { const q = marca.getLatLng(); insertar([q.lng, q.lat]) })
+      }
+    }
+
     points.forEach((point, index) => {
-      const marker = L.marker(point, { draggable: true, keyboard: true, title: `Vértice ${index + 1}`, icon: L.divIcon({ className: "map-vertex", html: `<span>${index + 1}</span>`, iconSize: [26, 26], iconAnchor: [13, 13] }) }).addTo(group)
+      const primero = index === 0 && draft.drawing && draft.kind === "Polygon" && draft.forma !== "Rectangle" && vertices.length >= 3
+      const marker = L.marker(point, {
+        draggable: true, keyboard: true,
+        title: primero ? "Tocá para cerrar el contorno" : `Vértice ${index + 1}${editando && vertices.length > (draft.kind === "Polygon" ? 3 : 2) ? " · clic derecho o mantener presionado para quitar" : ""}`,
+        icon: L.divIcon({ className: primero ? "map-vertex map-vertex-close" : "map-vertex", html: `<span>${index + 1}</span>`, iconSize: [26, 26], iconAnchor: [13, 13] }),
+      }).addTo(group)
+      if (primero) marker.on("click", () => { latest.current.onFinish(); guide.current?.clearLayers() })
+      // Imán también al arrastrar un vértice
+      marker.on("drag", () => {
+        const { p, iman } = imantar(marker.getLatLng(), index)
+        if (iman) marker.setLatLng(ll(p))
+      })
       bindVertexDrag(marker, index, vertices,
-        next => outline?.setLatLngs(next.map(([lon, lat]) => [lat, lon])),
+        next => outline?.setLatLngs(next.map(ll)),
         next => { if (latest.current.draft) latest.current.onVertices(next) })
+      marker.on("contextmenu", (e: L.LeafletMouseEvent) => {
+        L.DomEvent.preventDefault(e.originalEvent)
+        const minimo = draft.kind === "Polygon" ? 3 : draft.kind === "LineString" ? 2 : 1
+        if (vertices.length > minimo && latest.current.draft) latest.current.onVertices(vertices.filter((_, i) => i !== index))
+      })
     })
-  }, [props.sectors, props.draft, props.selected, props.colorByState])
+  }, [props.sectors, props.draft, props.selected, props.colorByState, props.satellite, props.preview])
+
   useEffect(() => {
     const selected = props.sectors.find(s => s.id === props.selected)
     if (selected?.geometria) fitVisibleArea(L.geoJSON(selected.geometria).getBounds(), 17)
     // Selection changes center the map; background refreshes must not move a drawing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.selected])
-  useEffect(() => { if (props.focus) map.current?.setView([props.focus.lat, props.focus.lon], props.focus.zoom) }, [props.focus])
+  useEffect(() => { if (props.focus) { map.current?.setView([props.focus.lat, props.focus.lon], props.focus.zoom); fitted.current = true } }, [props.focus])
   useEffect(() => {
     if (!props.fitKey) return
     const bounds = L.latLngBounds([])
     for (const sector of latest.current.sectors) if (sector.geometria) bounds.extend(L.geoJSON(sector.geometria).getBounds())
     if (bounds.isValid()) fitVisibleArea(bounds, 16)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.fitKey])
   // Leaflet adds classes to its host; keep that className stable when resizing.
   return <div className="relative isolate h-full min-h-0 overflow-hidden rounded-xl border bg-muted">
-    <div ref={host} role="region" aria-label="Mapa del campo. Usá los controles para dibujar áreas o marcar instalaciones." className="h-full w-full font-sans" />
+    <div ref={host} role="region" aria-label="Mapa del campo. Usá los controles para dibujar áreas, líneas o marcar instalaciones." className="h-full w-full font-sans" data-drawing={props.draft?.drawing ? "true" : undefined} />
     {tilesFailed && <p role="status" className="absolute bottom-8 left-3 right-3 z-[500] rounded-md bg-background/95 p-2 text-xs shadow">Algunas imágenes no cargaron. Probá otra vista o acercamiento. Tus sectores siguen guardados.</p>}
   </div>
 }

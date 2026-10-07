@@ -19,9 +19,23 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Search, Loader2, LocateFixed, Plus, MoreHorizontal, Maximize, Minimize, ListFilter, Layers, Info, ArrowLeft, X, Undo2, Redo2 } from "lucide-react"
+import { Search, Loader2, LocateFixed, Plus, MoreHorizontal, Maximize, Minimize, ListFilter, Layers, Info, ArrowLeft, X, Undo2, Redo2, Magnet, Hexagon, RectangleHorizontal, Spline, MapPin } from "lucide-react"
 import { areaHa, geometrySchema, polygonFrom, QUICK_PLACES, SECTOR_TYPES, sectorColor, sectorLabel, type Geometry, type Position } from "@/lib/mapa/geometry"
 import type { MapDraft, MapFocus, MapSector } from "@/lib/mapa/types"
+import { dividirPoligono, DivisionError, formaPorTipo, formatearDistancia, geometriaDeForma, largoM, perimetroM, type Forma } from "@/lib/mapa/drawing"
+
+const FORMAS: { forma: Forma; label: string; icon: typeof Hexagon }[] = [
+  { forma: "Polygon", label: "Área libre", icon: Hexagon },
+  { forma: "Rectangle", label: "Rectángulo", icon: RectangleHorizontal },
+  { forma: "LineString", label: "Línea", icon: Spline },
+  { forma: "Point", label: "Punto", icon: MapPin },
+]
+const AYUDA: Record<Forma, string> = {
+  Polygon: "Tocá cada esquina. Para cerrar, tocá el vértice 1, hacé doble clic o usá Terminar.",
+  Rectangle: "Marcá un lado con dos clics y el tercer clic define el ancho.",
+  LineString: "Tocá cada punto de la línea. Doble clic o Terminar para cortar.",
+  Point: "Tocá el mapa o arrastrá el punto.",
+}
 
 const FieldMap = dynamic(() => import("./field-map"), { ssr: false, loading: () => <div className="flex h-full min-h-0 items-center justify-center rounded-xl bg-muted"><Loader2 className="mr-2 animate-spin" />Cargando mapa…</div> })
 const selectClass = "h-10 w-full rounded-md border bg-background px-3 text-sm"
@@ -40,11 +54,13 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
   const [colorByState, setColorByState] = useState(false), [placeQuery, setPlaceQuery] = useState("")
   const [imports, setImports] = useState<ImportedPlace[]>([]), [importError, setImportError] = useState("")
   const [undoStack, setUndoStack] = useState<Position[][]>([]), [redoStack, setRedoStack] = useState<Position[][]>([])
-  function changeVertices(vertices: Position[]) { if (!draft) return; setUndoStack(v => [...v.slice(-49), draft.vertices]); setRedoStack([]); setDraft({ ...draft, vertices }) }
+  function changeVertices(vertices: Position[], terminar = false) { if (!draft) return; setUndoStack(v => [...v.slice(-49), draft.vertices]); setRedoStack([]); setDraft({ ...draft, vertices, ...(terminar ? { drawing: false } : {}) }) }
   function undo() { if (!draft || !undoStack.length) return; setRedoStack(v => [...v, draft.vertices]); setDraft({ ...draft, vertices: undoStack[undoStack.length - 1] }); setUndoStack(v => v.slice(0, -1)) }
   function redo() { if (!draft || !redoStack.length) return; setUndoStack(v => [...v, draft.vertices]); setDraft({ ...draft, vertices: redoStack[redoStack.length - 1] }); setRedoStack(v => v.slice(0, -1)) }
   const [focus, setFocus] = useState<MapFocus | null>(null), [satellite, setSatellite] = useState(true)
   const [fitKey, setFitKey] = useState(0)
+  const [snap, setSnap] = useState(true)
+  const [division, setDivision] = useState({ nombreOriginal: "", nombreNuevo: "", guardarAlambrado: true })
   const [filter, setFilter] = useState("todos"), [stateFilter, setStateFilter] = useState("todos"), [search, setSearch] = useState(""), [searching, setSearching] = useState(false)
   const [places, setPlaces] = useState<{ id: string; nombre: string; lat: number; lon: number }[]>([])
   const [saving, setSaving] = useState(false), [coordinates, setCoordinates] = useState(""), [showLocation, setShowLocation] = useState(false)
@@ -56,11 +72,60 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
   const visible = useMemo(() => filterPlaces(sectors, { type: filter, state: stateFilter, query: placeQuery }), [sectors, filter, stateFilter, placeQuery])
   const current = sectors.find(s => s.id === selected), geometry = draftGeometry(draft)
   const validation = geometrySchema.safeParse(geometry)
+  const puedeTerminar = !!draft && draft.kind !== "Point" && draft.vertices.length >= (draft.kind === "LineString" ? 2 : 3)
+  function terminar() { if (draft && puedeTerminar) setDraft({ ...draft, drawing: false }) }
+  const objetivo = draft?.dividir ? sectors.find(s => s.id === draft.dividir!.id) : undefined
+  const corte = useMemo(() => {
+    if (!draft?.dividir || draft.drawing || draft.vertices.length < 2 || objetivo?.geometria?.type !== "Polygon") return null
+    try { return { partes: dividirPoligono(objetivo.geometria.coordinates[0].slice(0, -1), draft.vertices).partes, error: "" } }
+    catch (e) { return { partes: null, error: e instanceof DivisionError ? e.message : "No se pudo dividir con esa línea" } }
+  }, [draft, objetivo])
+  const medida = !draft || draft.vertices.length < 2 ? "" : draft.kind === "Polygon" && draft.vertices.length >= 3
+    ? `${validation.success && geometry?.type === "Polygon" ? fmt(areaHa(geometry)!) + " ha · " : ""}perímetro ${formatearDistancia(perimetroM(draft.vertices))}`
+    : draft.kind !== "Point" ? `largo ${formatearDistancia(largoM(draft.vertices))}` : ""
+  // Atajos mientras se dibuja: Enter termina, Retroceso quita el último punto
+  useEffect(() => {
+    if (!draft?.drawing) return
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return
+      if (e.key === "Enter" && puedeTerminar) { e.preventDefault(); setDraft({ ...draft, drawing: false }) }
+      if ((e.key === "Backspace" || e.key === "Delete") && draft.vertices.length) { e.preventDefault(); changeVertices(draft.vertices.slice(0, -1)) }
+    }
+    window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, puedeTerminar])
+  async function guardarDivision() {
+    if (!draft?.dividir) return
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/sectores/${draft.dividir.id}/dividir`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: draft.dividir.version, linea: draft.vertices, nombreOriginal: division.nombreOriginal, nombreNuevo: division.nombreNuevo, guardarAlambrado: division.guardarAlambrado }) })
+      const json = await response.json(); if (!response.ok) throw new Error(json.error ?? "No se pudo dividir")
+      await Promise.all([client.invalidateQueries({ queryKey: ["mapa", fieldId] }), client.invalidateQueries({ queryKey: ["sectores", fieldId] })])
+      setUndoStack([]); setRedoStack([]); setSelected(json.data.original.id); setDraft(null)
+      toast.success(`Listo: ${json.data.original.nombre} (${fmt(json.data.original.ha)} ha) y ${json.data.nuevo.nombre} (${fmt(json.data.nuevo.ha)} ha)`)
+    } catch (error) { toast.error(error instanceof Error ? error.message : "No se pudo dividir") } finally { setSaving(false) }
+  }
   function locate(lat: number, lon: number, zoom = 13) { setFocus({ lat, lon, zoom, key: Date.now() }); setShowLocation(false) }
-  function begin(kind: MapDraft["kind"], sector?: MapSector, tipo?: string) {
+  function begin(forma: Forma, sector?: MapSector, tipo?: string) {
     setPanel(true); setShowLocation(false); setUndoStack([]); setRedoStack([])
-    setDraft({ id: sector?.id, version: sector?.version, nombre: sector?.nombre ?? "", tipo: sector?.tipo ?? tipo ?? (kind === "Polygon" ? "potrero" : kind === "LineString" ? "camino" : "galpon"), descripcion: sector?.descripcion ?? "", kind,
+    setDraft({ id: sector?.id, version: sector?.version, nombre: sector?.nombre ?? "", tipo: sector?.tipo ?? tipo ?? "potrero", descripcion: sector?.descripcion ?? "", kind: geometriaDeForma(forma), forma,
       vertices: sector?.geometria?.type === "Point" ? [sector.geometria.coordinates] : sector?.geometria?.type === "Polygon" ? sector.geometria.coordinates[0].slice(0, -1) : sector?.geometria?.type === "LineString" ? sector.geometria.coordinates : [], drawing: !sector?.geometria })
+  }
+  /** Editar un lugar: si ya tiene dibujo se ajusta; si no, se dibuja con la forma de su tipo. */
+  const editar = (sector: MapSector) => begin(sector.geometria ? (sector.geometria.type as Forma) : formaPorTipo(sector.tipo), sector)
+  /** Cambiar de herramienta reinicia el trazo (se puede deshacer). */
+  function cambiarForma(forma: Forma) {
+    if (!draft || (draft.forma ?? draft.kind) === forma) return
+    if (draft.vertices.length) { setUndoStack(v => [...v.slice(-49), draft.vertices]); setRedoStack([]) }
+    setDraft({ ...draft, forma, kind: geometriaDeForma(forma), vertices: [], drawing: true })
+  }
+  function dividir(sector: MapSector) {
+    if (sector.geometria?.type !== "Polygon") return
+    setPanel(true); setShowLocation(false); setUndoStack([]); setRedoStack([])
+    setDivision({ nombreOriginal: sector.nombre, nombreNuevo: `${sector.nombre} 2`.slice(0, 120), guardarAlambrado: true })
+    setDraft({ nombre: "", tipo: "alambrado", descripcion: "", kind: "LineString", forma: "LineString", vertices: [], drawing: true, dividir: { id: sector.id, version: sector.version, nombre: sector.nombre } })
   }
   async function save() {
     if (!draft || !validation.success) return
@@ -93,7 +158,7 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
   return <div className="field-workspace" data-expanded={expanded} data-panel={panel} aria-label="Espacio de trabajo del mapa">
     <FieldMap sectors={visible} selected={selected} draft={saving ? null : draft} focus={focus} satellite={satellite} fitKey={fitKey}
       panelRef={panelRef} onSelect={id => { if (!panelEditing) { setSelected(id); setPanel(true); setShowLocation(false) } }}
-      onVertices={changeVertices} colorByState={colorByState} />
+      onVertices={changeVertices} colorByState={colorByState} onFinish={terminar} snap={snap} preview={corte?.partes ?? null} />
 
     <div className="map-topbar">
       <div className="map-floating flex min-w-0 max-w-full items-center gap-1 py-1 pl-1 pr-3">
@@ -106,7 +171,7 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
           <ListFilter className="mr-1 h-4 w-4"/>Lugares{hasFilters ? " · " + visible.length : ""}
         </Button>
         {canEdit && <DropdownMenu><DropdownMenuTrigger asChild><Button size="sm" disabled={blocked}><Plus className="h-4 w-4"/><span className="ml-1">Agregar</span></Button></DropdownMenuTrigger><DropdownMenuContent align="start">
-          {SECTOR_TYPES.map(([type, label]) => <DropdownMenuItem key={type} onSelect={() => begin(type === "camino" ? "LineString" : ["potrero", "cultivo", "limite"].includes(type) ? "Polygon" : "Point", undefined, type)}>{label}</DropdownMenuItem>)}
+          {SECTOR_TYPES.map(([type, label]) => <DropdownMenuItem key={type} onSelect={() => begin(formaPorTipo(type), undefined, type)}>{label}</DropdownMenuItem>)}
         </DropdownMenuContent></DropdownMenu>}
         <Button variant="ghost" size="icon" aria-label="Ubicar campo" title="Ubicar campo" aria-expanded={showLocation} disabled={blocked}
           onClick={() => { setShowLocation(v => !v); setPanel(false); setSelected(null) }}><Search className="h-4 w-4"/></Button>
@@ -145,16 +210,30 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
     </section>}
 
     {panel && <aside ref={panelRef} id="map-place-panel" className="map-floating map-floating-panel" aria-label={current && !draft ? "Ficha del lugar seleccionado" : "Lugares y filtros"}>
-        {draft ? <form onSubmit={e => { e.preventDefault(); void save() }} className="h-full space-y-3 overflow-y-auto p-4">
+        {draft?.dividir ? <form onSubmit={e => { e.preventDefault(); void guardarDivision() }} className="h-full space-y-3 overflow-y-auto p-4">
+          <div className="flex items-center justify-between gap-2"><h2 className="font-semibold">Dividir {draft.dividir.nombre}</h2><Button type="button" size="icon" variant="ghost" aria-label="Ocultar datos de la división" onClick={() => setPanel(false)}><X className="h-4 w-4"/></Button></div>
+          <p className="text-sm text-muted-foreground">Dibujá el alambrado nuevo cruzando el lugar de lado a lado (empezá y terminá afuera, o usá el imán sobre el borde). La parte más grande conserva el nombre, el ganado y el historial.</p>
+          {draft.drawing && <p role="status" className="rounded-md bg-muted p-2 text-sm">{draft.vertices.length < 2 ? "Marcá al menos dos puntos." : "Terminá la línea para ver las dos partes."}</p>}
+          {corte?.error && <p role="alert" className="text-sm text-destructive">{corte.error}</p>}
+          {corte?.partes && <>
+            <ul className="space-y-1 text-sm">{corte.partes.map((parte, i) => <li key={i} className="flex items-center gap-2"><span className="h-3 w-3 rounded-sm" style={{ backgroundColor: i === 0 ? "#0ea5e9" : "#a855f7" }} aria-hidden/>Parte {i + 1}: <strong>{fmt(areaHa(polygonFrom(parte))!)} ha</strong></li>)}</ul>
+            <div className="space-y-1"><Label htmlFor="div-original">Nombre de la parte más grande</Label><Input id="div-original" value={division.nombreOriginal} maxLength={120} required disabled={saving} onChange={e => setDivision({ ...division, nombreOriginal: e.target.value })}/></div>
+            <div className="space-y-1"><Label htmlFor="div-nuevo">Nombre de la parte nueva</Label><Input id="div-nuevo" value={division.nombreNuevo} maxLength={120} required disabled={saving} onChange={e => setDivision({ ...division, nombreNuevo: e.target.value })}/></div>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={division.guardarAlambrado} disabled={saving} onChange={e => setDivision({ ...division, guardarAlambrado: e.target.checked })}/>Guardar la línea como alambrado ({formatearDistancia(largoM(draft.vertices))} dibujados)</label>
+          </>}
+          <div className="flex flex-wrap gap-2"><Button type="submit" disabled={!online || !corte?.partes || !division.nombreOriginal.trim() || !division.nombreNuevo.trim() || saving}>{saving ? "Dividiendo…" : "Dividir"}</Button><Button type="button" variant="outline" disabled={saving} onClick={() => setDraft(null)}>Cancelar</Button></div>
+          <p className="text-xs text-muted-foreground">Si el lugar tenía superficie declarada, cada parte pasa a la superficie medida en el mapa.</p>
+        </form> : draft ? <form onSubmit={e => { e.preventDefault(); void save() }} className="h-full space-y-3 overflow-y-auto p-4">
           <div className="flex items-center justify-between gap-2"><h2 className="font-semibold">{draft.id ? "Editar lugar" : "Nuevo lugar"}</h2><Button type="button" size="icon" variant="ghost" aria-label="Ocultar datos del dibujo" onClick={() => setPanel(false)}><X className="h-4 w-4"/></Button></div>
-          <div className="space-y-1"><Label htmlFor="map-name">Nombre</Label><Input id="map-name" value={draft.nombre} onChange={e => setDraft({ ...draft, nombre: e.target.value })} required maxLength={120} disabled={saving} placeholder="Ej. Potrero norte o Galpón de fardos" /></div>
-          <div className="space-y-1"><Label htmlFor="map-type">Tipo de lugar</Label><select id="map-type" className={selectClass} value={draft.tipo} onChange={e => setDraft({ ...draft, tipo: e.target.value })} disabled={saving}>{SECTOR_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+          <div className="space-y-1"><Label htmlFor="map-name">Nombre</Label><Input id="map-name" value={draft.nombre} onChange={e => setDraft({ ...draft, nombre: e.target.value })} required maxLength={120} disabled={saving} placeholder="Ej. Corral 3, Potrero norte o Alambrado del bajo" /></div>
+          <div className="space-y-1"><Label htmlFor="map-type">Tipo de lugar</Label><select id="map-type" className={selectClass} value={draft.tipo} disabled={saving}
+            onChange={e => { const tipo = e.target.value, forma = formaPorTipo(tipo); setDraft({ ...draft, tipo, ...(draft.id || draft.vertices.length ? {} : { forma, kind: geometriaDeForma(forma) }) }) }}>{SECTOR_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
           <div className="space-y-1"><Label htmlFor="map-notes">Descripción / qué hay aquí</Label><Textarea id="map-notes" value={draft.descripcion} onChange={e => setDraft({ ...draft, descripcion: e.target.value })} disabled={saving} maxLength={3000} placeholder="Ej. Alfalfa, herramientas y suministros" /></div>
-          {geometry?.type === "Polygon" && validation.success && <p className="text-sm">Área dibujada: <strong>{fmt(areaHa(geometry)!)} ha</strong></p>}
+          {medida && validation.success && <p className="text-sm">Medidas del dibujo: <strong>{medida}</strong></p>}
           {geometry && !validation.success && <p role="alert" className="text-sm text-destructive">{validation.error.issues[0].message}</p>}
           <div className="flex flex-wrap gap-2"><Button type="submit" disabled={!online || !validation.success || !draft.nombre.trim() || (draft.kind !== "Point" && draft.drawing) || saving}>{saving ? "Guardando…" : "Guardar lugar"}</Button><Button type="button" variant="outline" disabled={saving} onClick={() => setDraft(null)}>Cancelar</Button></div>
           <p className="text-xs text-muted-foreground">Guardar actualiza el campo compartido. Cancelar descarta este borrador.</p>
-        </form> : current ? <SectorPanel key={current.id} sector={current} fieldId={fieldId} sectors={sectors} onBack={() => setSelected(null)} onClose={() => { setSelected(null); setPanel(false) }} onEdit={() => begin(current.geometria?.type ?? (["potrero", "cultivo", "limite"].includes(current.tipo) ? "Polygon" : current.tipo === "camino" ? "LineString" : "Point"), current)} onEditingChange={setPanelEditing}/> : <div className="flex h-full min-h-0 flex-col">
+        </form> : current ? <SectorPanel key={current.id} sector={current} fieldId={fieldId} sectors={sectors} onBack={() => setSelected(null)} onClose={() => { setSelected(null); setPanel(false) }} onEdit={() => editar(current)} onDivide={current.geometria?.type === "Polygon" ? () => dividir(current) : undefined} onEditingChange={setPanelEditing}/> : <div className="flex h-full min-h-0 flex-col">
           <div className="shrink-0 space-y-3 border-b p-3"><div className="flex items-center justify-between"><h2 className="font-semibold">Lugares del campo</h2><Button size="icon" variant="ghost" aria-label="Cerrar lugares y filtros" onClick={() => setPanel(false)}><X className="h-4 w-4"/></Button></div>
             <Input aria-label="Buscar lugar en el campo" placeholder="Buscar lugar…" value={placeQuery} onChange={e => setPlaceQuery(e.target.value)}/>
             <div className="grid grid-cols-2 gap-2">
@@ -164,7 +243,7 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>{visible.length} de {sectors.length} lugares</span>{(filter !== "todos" || stateFilter !== "todos" || placeQuery) && <button type="button" className="font-medium text-primary underline" onClick={() => { setFilter("todos"); setStateFilter("todos"); setPlaceQuery("") }}>Limpiar filtros</button>}</div>
           </div>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3">
-          <div className="space-y-1" aria-label="Lugares del campo">{visible.map(s => <button key={s.id} type="button" onClick={() => setSelected(s.id)} className="flex w-full items-center gap-3 rounded-lg border border-transparent p-3 text-left text-sm hover:border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: colorByState ? sectorState(s).color : sectorColor(s.tipo) }}/><span className="min-w-0 flex-1"><span className="block font-medium">{s.nombre}</span><span className="block text-xs text-muted-foreground">{sectorLabel(s.tipo)}{!s.geometria ? " · Sin ubicar" : ""}{s.pendientes ? " · " + s.pendientes + (s.pendientes === 1 ? " tarea" : " tareas") : ""}</span>{livestockTypes.has(s.tipo) && s.bovinos + s.ovinos > 0 && <span className="block text-xs text-muted-foreground">{s.bovinos} bovinos · {s.ovinos} ovinos</span>}</span></button>)}</div>
+          <div className="space-y-1" aria-label="Lugares del campo">{visible.map(s => <button key={s.id} type="button" onClick={() => setSelected(s.id)} className="flex w-full items-center gap-3 rounded-lg border border-transparent p-3 text-left text-sm hover:border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span className="h-3 w-3 shrink-0 rounded-full ring-1 ring-border" style={{ backgroundColor: colorByState ? sectorState(s).color : sectorColor(s.tipo) }}/><span className="min-w-0 flex-1"><span className="block font-medium">{s.nombre}</span><span className="block text-xs text-muted-foreground">{sectorLabel(s.tipo)}{!s.geometria ? " · Sin ubicar" : ""}{s.pendientes ? " · " + s.pendientes + (s.pendientes === 1 ? " tarea" : " tareas") : ""}</span>{livestockTypes.has(s.tipo) && s.bovinos + s.ovinos > 0 && <span className="block text-xs text-muted-foreground">{s.bovinos} bovinos · {s.ovinos} ovinos</span>}</span></button>)}</div>
           {!visible.length && <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">{sectors.length ? "No hay lugares que coincidan con estos filtros. Probá otra combinación o limpiá los filtros." : "Todavía no hay lugares. Usá Agregar para dibujar el primero."}</p>}
           {canEdit && <details className="border-t pt-3"><summary className="cursor-pointer text-sm font-medium">Importar límites de Google Earth</summary><label className="mt-3 block text-xs text-muted-foreground">KML o GeoJSON · máximo 1 MB<Input type="file" accept=".kml,.geojson,.json" disabled={!!draft || panelEditing} onChange={async e => { const file = e.target.files?.[0]; if (!file) return; setImportError(""); try { if (file.size > 1000000) throw Error("El archivo debe pesar menos de 1 MB"); setImports(parseMapImport(await file.text(), file.name)) } catch (err) { setImportError(err instanceof Error ? err.message : "No se pudo leer el archivo") } e.target.value = "" }}/></label>{importError && <p role="alert" className="text-sm text-destructive">{importError}</p>}{imports.map((item, i) => <Button key={i} variant="ghost" className="mt-1 h-auto w-full whitespace-normal justify-start" onClick={() => { const g = item.geometry; const vertices = g.type === "Point" ? [g.coordinates] : g.type === "Polygon" ? g.coordinates[0].slice(0, -1) : g.coordinates; setDraft({ nombre: item.nombre, tipo: g.type === "Point" ? "otro" : g.type === "LineString" ? "camino" : "potrero", descripcion: "", kind: g.type, vertices, drawing: false }); setFocus({ lat: vertices[0][1], lon: vertices[0][0], zoom: 15, key: Date.now() }); setImports(v => v.filter((_, index) => index !== i)) }}>{item.nombre} · Revisar</Button>)}<p className="mt-2 text-xs text-muted-foreground">Revisá cada figura en el mapa y guardala. Importar no crea lugares automáticamente.</p></details>}
 
@@ -173,13 +252,22 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
     </aside>}
 
     {draft && <div className="map-floating map-drawing-controls space-y-2 border-amber-400 bg-amber-50 p-3 text-amber-950">
-      <p role="status" className="text-xs">{draft.kind === "Point" ? "Tocá el mapa o arrastrá el punto." : draft.drawing ? "Marcá las esquinas y terminá el contorno." : "Arrastrá los vértices para ajustar el límite."}</p>
+      <p role="status" className="text-xs">{draft.dividir
+        ? draft.drawing ? "Dibujá la línea de la división cruzando el lugar. Doble clic o Terminar línea para cortar." : "Revisá las dos partes y confirmá en el panel."
+        : draft.drawing || draft.kind === "Point" ? AYUDA[draft.forma ?? draft.kind]
+        : "Arrastrá los vértices. Tocá un + para agregar uno; clic derecho o mantener presionado un vértice para quitarlo."}</p>
+      {!draft.dividir && (draft.drawing || !draft.id) && <div className="flex flex-wrap gap-1" role="group" aria-label="Herramienta de dibujo">
+        {FORMAS.map(({ forma, label, icon: Icono }) => <Button key={forma} type="button" size="sm" className="h-8 px-2 text-xs" variant={(draft.forma ?? draft.kind) === forma ? "default" : "outline"} aria-pressed={(draft.forma ?? draft.kind) === forma} disabled={saving} onClick={() => cambiarForma(forma)}><Icono className="mr-1 h-3.5 w-3.5" aria-hidden/>{label}</Button>)}
+      </div>}
       <div className="flex flex-wrap items-center gap-1">
-        {draft.kind !== "Point" && draft.drawing && <Button size="sm" disabled={draft.vertices.length < (draft.kind === "LineString" ? 2 : 3) || saving} onClick={() => setDraft({ ...draft, drawing: false })}>Terminar contorno</Button>}
+        {draft.kind !== "Point" && draft.drawing && draft.forma !== "Rectangle" && <Button size="sm" disabled={!puedeTerminar || saving} onClick={terminar}>{draft.kind === "LineString" ? "Terminar línea" : "Cerrar contorno"}</Button>}
+        {draft.kind !== "Point" && !draft.drawing && draft.forma !== "Rectangle" && <Button size="sm" variant="outline" disabled={saving} onClick={() => setDraft({ ...draft, drawing: true })}>Seguir dibujando</Button>}
         <Button size="icon" variant="outline" aria-label="Deshacer cambio del dibujo" title="Deshacer" disabled={!undoStack.length || saving} onClick={undo}><Undo2 className="h-4 w-4"/></Button>
         <Button size="icon" variant="outline" aria-label="Rehacer cambio del dibujo" title="Rehacer" disabled={!redoStack.length || saving} onClick={redo}><Redo2 className="h-4 w-4"/></Button>
-        <Button size="sm" variant="outline" aria-expanded={panel} onClick={() => setPanel(v => !v)}>{panel ? "Ocultar datos" : "Datos y guardado"}</Button>
+        <Button size="icon" variant={snap ? "default" : "outline"} aria-pressed={snap} aria-label="Imán: pegar a vértices y bordes existentes" title={snap ? "Imán activado: pega a vértices y bordes" : "Imán desactivado"} onClick={() => setSnap(v => !v)}><Magnet className="h-4 w-4"/></Button>
+        <Button size="sm" variant="outline" aria-expanded={panel} onClick={() => setPanel(v => !v)}>{panel ? "Ocultar datos" : draft.dividir ? "Datos de la división" : "Datos y guardado"}</Button>
       </div>
+      {medida && <p className="text-xs font-semibold tabular-nums">{medida}</p>}
       <p role="status" className="text-[11px]">{storageError ? "No se pudo conservar el borrador. No cierres la página antes de guardar." : recovered ? "Borrador recuperado · pendiente de guardar" : "Borrador conservado en este dispositivo · pendiente de guardar"}</p>
     </div>}
 

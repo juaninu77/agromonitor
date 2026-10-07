@@ -12,6 +12,10 @@ export interface MapSector {
 export interface MapDraft {
   id?: string; version?: number; nombre: string; tipo: string; descripcion: string;
   kind: "Point" | "Polygon" | "LineString"; vertices: Position[]; drawing: boolean;
+  /** Herramienta de dibujo; "Rectangle" se guarda como Polygon. */
+  forma?: "Polygon" | "Rectangle" | "LineString" | "Point";
+  /** Si está, la línea dibujada divide ese potrero en dos. */
+  dividir?: { id: string; version: number; nombre: string };
 }
 export interface MapFocus { lat: number; lon: number; zoom: number; key: number }
 

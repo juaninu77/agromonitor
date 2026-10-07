@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react"
 import Link from "next/link"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Pencil, X } from "lucide-react"
+import { ArrowLeft, Pencil, Scissors, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -24,7 +24,7 @@ const date = (s: string) => new Date(s).toLocaleDateString("es-AR", { timeZone: 
 const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" })
 const labels: Record<string, string> = { nota: "Nota", tarea: "Tarea", revision_agua: "Revisión de agua", descanso: "Descanso", labor: "Labor / cosecha", medicion: "Medición de pasto", pendiente: "Pendiente", completada: "Completada", registrado: "Registrado", disponible: "Agua disponible", sin_agua: "Sin agua", requiere_revision: "Requiere revisión", inicio: "Inicio", fin: "Fin" }
 type Action = "record" | "move" | "group" | "crop" | "stock" | "document"
-export function SectorPanel({ sector, fieldId, sectors, onBack, onClose, onEdit, onEditingChange }: { sector: MapSector; fieldId: string; sectors: MapSector[]; onBack: () => void; onClose?: () => void; onEdit: () => void; onEditingChange: (editing: boolean) => void }) {
+export function SectorPanel({ sector, fieldId, sectors, onBack, onClose, onEdit, onDivide, onEditingChange }: { sector: MapSector; fieldId: string; sectors: MapSector[]; onBack: () => void; onClose?: () => void; onEdit: () => void; onDivide?: () => void; onEditingChange: (editing: boolean) => void }) {
   const client = useQueryClient(), [tab, setTab] = useState("resumen"), [page, setPage] = useState(1)
   const [action, setAction] = useState<Action | null>(null), [animalSearch, setAnimalSearch] = useState("")
   const scroll = useRef<HTMLDivElement>(null), heading = useRef<HTMLHeadingElement>(null)
@@ -61,7 +61,7 @@ export function SectorPanel({ sector, fieldId, sectors, onBack, onClose, onEdit,
   const tabs = [["resumen", "Resumen"], ...(livestockTypes.has(sector.tipo) ? [["animales", "Ganado"]] : []), ["actividad", "Actividad"], ...(isParcel(sector.tipo) ? [["cultivos", "Cultivos"]] : []), ...(sector.tipo === "galpon" ? [["stock", "Existencias"]] : []), ...(canEdit ? [["documentos", "Archivos"]] : []) ]
   return <section aria-label={`Ficha de ${sector.nombre}`} className="flex h-full min-h-0 flex-col">
     <header className="shrink-0 space-y-3 border-b p-4">
-      {!action && <div className="flex items-center justify-between gap-2"><Button size="sm" variant="ghost" className="-ml-2" disabled={saving || !!action} onClick={onBack}><ArrowLeft className="mr-1 h-4 w-4"/>Volver a lugares</Button><div className="flex items-center">{canEdit && <Button size="icon" variant="ghost" aria-label="Editar límites del lugar" title="Editar límites" disabled={saving || !!action} onClick={onEdit}><Pencil className="h-4 w-4"/></Button>}{onClose && <Button size="icon" variant="ghost" aria-label="Cerrar ficha del lugar" onClick={onClose} disabled={saving}><X className="h-4 w-4"/></Button>}</div></div>}
+      {!action && <div className="flex items-center justify-between gap-2"><Button size="sm" variant="ghost" className="-ml-2" disabled={saving || !!action} onClick={onBack}><ArrowLeft className="mr-1 h-4 w-4"/>Volver a lugares</Button><div className="flex items-center">{canEdit && <Button size="icon" variant="ghost" aria-label="Editar límites del lugar" title="Editar límites" disabled={saving || !!action} onClick={onEdit}><Pencil className="h-4 w-4"/></Button>}{canEdit && onDivide && <Button size="icon" variant="ghost" aria-label="Dividir con un alambrado" title="Dividir con un alambrado" disabled={saving || !!action} onClick={onDivide}><Scissors className="h-4 w-4"/></Button>}{onClose && <Button size="icon" variant="ghost" aria-label="Cerrar ficha del lugar" onClick={onClose} disabled={saving}><X className="h-4 w-4"/></Button>}</div></div>}
       <div><h2 ref={heading} tabIndex={-1} className="text-lg font-semibold leading-tight focus:outline-none">{sector.nombre}</h2><p className="mt-1 text-sm text-muted-foreground">{sectorState(sector).label}{livestockTypes.has(sector.tipo) ? ` · ${sector.bovinos} bovinos · ${sector.ovinos} ovinos` : ""}</p></div>
       {canEdit && !action && <div className="flex flex-wrap gap-2">
         {livestockTypes.has(sector.tipo) && <Button size="sm" onClick={() => startAction("move", "animales")}>Mover animales</Button>}

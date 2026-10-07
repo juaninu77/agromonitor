@@ -101,6 +101,17 @@ BEGIN
       CHECK (tipo IN ('entrada', 'salida', 'ajuste')) NOT VALID;
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'movimientos_forraje_concepto_chk') THEN
+    ALTER TABLE movimientos_forraje ADD CONSTRAINT movimientos_forraje_concepto_chk
+      CHECK (concepto IS NULL OR (tipo = 'entrada' AND concepto IN ('cosecha', 'compra', 'ajuste', 'transferencia'))
+                              OR (tipo = 'salida' AND concepto IN ('consumo', 'venta', 'ajuste', 'transferencia'))) NOT VALID;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'movimientos_forraje_cultivo_chk') THEN
+    ALTER TABLE movimientos_forraje ADD CONSTRAINT movimientos_forraje_cultivo_chk
+      CHECK (cultivo_id IS NULL OR concepto = 'cosecha') NOT VALID;
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sesiones_manga_estado_chk') THEN
     ALTER TABLE sesiones_manga ADD CONSTRAINT sesiones_manga_estado_chk
       CHECK (estado IN ('activa', 'pausada', 'finalizada')) NOT VALID;

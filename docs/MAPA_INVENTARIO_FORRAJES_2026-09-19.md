@@ -59,3 +59,17 @@ El parámetro actual sectorId filtra la parcela en Cultivos y el galpón en Rese
 Se cambia la presentación del mapa y se agregan accesos entre vistas existentes. No se agregan tablas, migraciones ni movimientos de existencias. La información guardada conserva sus permisos y relaciones.
 
 El encuadre considera el espacio cubierto por la ficha, usando las opciones de padding de [Leaflet fitBounds](https://leafletjs.com/reference.html#map-fitbounds). Los controles de zoom siguen siendo los [controles de Leaflet](https://leafletjs.com/reference.html#control-zoom).
+
+## Implementado (issue #45, tanda 3)
+
+- **Esquema** (migración aditiva `20261008120000_forraje_trazable`): `movimientos_forraje` suma `concepto` (cosecha, compra, consumo, venta, transferencia, ajuste; CHECK coherente con el tipo), `cultivo_id` (campaña de una cosecha), `sector_id` y `lote_id` (potrero y grupo de un consumo) y `transferencia_id` (las dos patas de una transferencia).
+- **Servicio** `lib/campo/forrajes.ts`, usado por `POST /api/campo/{movimientos,cosechas,transferencias}`:
+  - `registrarCosecha`: entrada vinculada a la campaña. Va a una reserva existente del mismo forraje o crea una nueva con saldo cero y su galpón. No cierra la campaña: una pastura admite varios cortes.
+  - `registrarMovimiento`: entrada o salida con concepto. Un consumo puede indicar el potrero o corral y el grupo alimentado, siempre del mismo campo.
+  - `transferirForraje`: salida y entrada atómicas entre galpones. En el destino suma a una reserva del mismo forraje y unidad, preferentemente de la misma campaña, o crea una. El total no cambia.
+  - Todas las operaciones usan clave idempotente: un reintento devuelve la operación original y otros datos con la misma clave dan 409. El saldo nunca queda negativo y las unidades no se convierten entre sí.
+- **Interfaz**:
+  - Las campañas tienen «Registrar cosecha», también desde la ficha del mapa con `?cosechar=`, y muestran lo cosechado.
+  - Las reservas tienen «Transferir», concepto, potrero y grupo en las salidas, y el filtro de ubicación Galpón / Sin galpón.
+  - La ficha de la parcela muestra lo cosechado y lo consumido en ella; la ficha del galpón, sus últimos movimientos de forraje.
+  - Inventario general filtra por ubicación (galpón o «Sin galpón asignado») y muestra la ubicación de cada movimiento.

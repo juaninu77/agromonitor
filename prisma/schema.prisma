@@ -244,21 +244,22 @@ model Sector {
   documentos       DocumentoArchivo[]
   stockMovimientos MovimientoStock[]
   reservas         ReservaForraje[]
+  consumosForraje  MovimientoForraje[]
   geometria        Json? // GeoJSON WGS84: Point o Polygon; no altera la superficie declarada.
-  version          Int                @default(1)
-  id               String             @id @default(uuid()) @db.Uuid
+  version          Int                 @default(1)
+  id               String              @id @default(uuid()) @db.Uuid
   nombre           String
   tipo             String // 'potrero' | 'corral' | 'manga' | 'feedlot' | 'embarcadero' | 'enfermeria' | 'otro'
-  superficieHa     Float?             @map("superficie_ha")
+  superficieHa     Float?              @map("superficie_ha")
   uso              String? // 'pastoreo' | 'encierre' | 'manejo' | 'engorde'
   capacidad        Int? // Cantidad de animales
-  tieneAgua        Boolean            @default(false) @map("tiene_agua")
-  tieneSombra      Boolean            @default(false) @map("tiene_sombra")
-  tieneBalanza     Boolean            @default(false) @map("tiene_balanza")
+  tieneAgua        Boolean             @default(false) @map("tiene_agua")
+  tieneSombra      Boolean             @default(false) @map("tiene_sombra")
+  tieneBalanza     Boolean             @default(false) @map("tiene_balanza")
   descripcion      String?
-  activo           Boolean            @default(true)
-  createdAt        DateTime           @default(now()) @map("created_at")
-  updatedAt        DateTime           @updatedAt @map("updated_at")
+  activo           Boolean             @default(true)
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
 
   establecimientoId String          @map("establecimiento_id") @db.Uuid
   establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id], onDelete: Cascade)
@@ -306,14 +307,15 @@ model Forraje {
 
 // Qué forraje hay en cada sector y desde cuándo
 model SectorForraje {
-  superficieHa        Float?           @map("superficie_ha")
-  estado              String           @default("implantado")
-  version             Int              @default(1)
+  superficieHa        Float?              @map("superficie_ha")
+  estado              String              @default("implantado")
+  version             Int                 @default(1)
   reservas            ReservaForraje[]
-  id                  String           @id @default(uuid()) @db.Uuid
-  desde               DateTime         @db.Date
-  hasta               DateTime?        @db.Date
-  densidadSiembraKgHa Float?           @map("densidad_siembra_kg_ha")
+  cosechas            MovimientoForraje[]
+  id                  String              @id @default(uuid()) @db.Uuid
+  desde               DateTime            @db.Date
+  hasta               DateTime?           @db.Date
+  densidadSiembraKgHa Float?              @map("densidad_siembra_kg_ha")
   notas               String?
 
   sectorId String @map("sector_id") @db.Uuid
@@ -376,6 +378,7 @@ model Lote {
   eventosMovimiento   EvtMovimiento[]
   eventosAlimentacion EvtAlimentacion[]
   eventosPastoreo     EvtPastoreo[]
+  consumosForraje     MovimientoForraje[]
 
   // Toradas (servicio)
   toradas Torada[]
@@ -1451,7 +1454,23 @@ model MovimientoForraje {
   motivo    String
   createdAt DateTime       @default(now()) @map("created_at")
 
+  // Trazabilidad: qué fue (cosecha, compra, consumo, venta, transferencia, ajuste),
+  // de qué campaña salió, en qué potrero se consumió, qué grupo lo comió y, en una
+  // transferencia entre galpones, la otra pata (comparten transferenciaId).
+  concepto        String?
+  cultivoId       String?        @map("cultivo_id") @db.Uuid
+  cultivo         SectorForraje? @relation(fields: [cultivoId], references: [id], onDelete: Restrict)
+  sectorId        String?        @map("sector_id") @db.Uuid
+  sector          Sector?        @relation(fields: [sectorId], references: [id], onDelete: Restrict)
+  loteId          String?        @map("lote_id") @db.Uuid
+  lote            Lote?          @relation(fields: [loteId], references: [id], onDelete: Restrict)
+  transferenciaId String?        @map("transferencia_id") @db.Uuid
+
   @@index([reservaId, fecha])
+  @@index([cultivoId])
+  @@index([sectorId, fecha])
+  @@index([loteId])
+  @@index([transferenciaId])
   @@map("movimientos_forraje")
 }
 

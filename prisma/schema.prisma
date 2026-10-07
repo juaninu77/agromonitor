@@ -220,16 +220,18 @@ model Establecimiento {
   organizacionId String       @map("organizacion_id") @db.Uuid
   organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
 
-  sectores             Sector[]
-  lotes                Lote[]
-  tareas               Tarea[]
-  sesionesManga        SesionManga[]
-  animales             Animal[]
-  documentosTransito   DocumentoTransito[]
-  activosPatrimoniales ActivoPatrimonial[]
-  comprobantes         Comprobante[]
-  tramites             Tramite[]
-  documentosArchivo    DocumentoArchivo[]
+  sectores               Sector[]
+  lotes                  Lote[]
+  tareas                 Tarea[]
+  sesionesManga          SesionManga[]
+  animales               Animal[]
+  documentosTransito     DocumentoTransito[]
+  activosPatrimoniales   ActivoPatrimonial[]
+  comprobantes           Comprobante[]
+  cuentasFinancieras     CuentaFinanciera[]
+  movimientosFinancieros MovimientoFinanciero[]
+  tramites               Tramite[]
+  documentosArchivo      DocumentoArchivo[]
 
   @@unique([organizacionId, nombre])
   @@map("establecimientos")
@@ -237,25 +239,25 @@ model Establecimiento {
 
 // Sector unificado: potrero, corral, manga, feedlot
 model Sector {
-  registros SectorRegistro[]
-  documentos DocumentoArchivo[]
+  registros        SectorRegistro[]
+  documentos       DocumentoArchivo[]
   stockMovimientos MovimientoStock[]
-  reservas ReservaForraje[]
-  geometria    Json?    // GeoJSON WGS84: Point o Polygon; no altera la superficie declarada.
-  version      Int      @default(1)
-  id           String   @id @default(uuid()) @db.Uuid
-  nombre       String
-  tipo         String // 'potrero' | 'corral' | 'manga' | 'feedlot' | 'embarcadero' | 'enfermeria' | 'otro'
-  superficieHa Float?   @map("superficie_ha")
-  uso          String? // 'pastoreo' | 'encierre' | 'manejo' | 'engorde'
-  capacidad    Int? // Cantidad de animales
-  tieneAgua    Boolean  @default(false) @map("tiene_agua")
-  tieneSombra  Boolean  @default(false) @map("tiene_sombra")
-  tieneBalanza Boolean  @default(false) @map("tiene_balanza")
-  descripcion  String?
-  activo       Boolean  @default(true)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  reservas         ReservaForraje[]
+  geometria        Json? // GeoJSON WGS84: Point o Polygon; no altera la superficie declarada.
+  version          Int                @default(1)
+  id               String             @id @default(uuid()) @db.Uuid
+  nombre           String
+  tipo             String // 'potrero' | 'corral' | 'manga' | 'feedlot' | 'embarcadero' | 'enfermeria' | 'otro'
+  superficieHa     Float?             @map("superficie_ha")
+  uso              String? // 'pastoreo' | 'encierre' | 'manejo' | 'engorde'
+  capacidad        Int? // Cantidad de animales
+  tieneAgua        Boolean            @default(false) @map("tiene_agua")
+  tieneSombra      Boolean            @default(false) @map("tiene_sombra")
+  tieneBalanza     Boolean            @default(false) @map("tiene_balanza")
+  descripcion      String?
+  activo           Boolean            @default(true)
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
 
   establecimientoId String          @map("establecimiento_id") @db.Uuid
   establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id], onDelete: Cascade)
@@ -583,6 +585,7 @@ model Animal {
   // Lecturas en manga
   sesionMangaItems SesionMangaItem[]
 
+  @@unique([establecimientoId, caravanaVisual])
   @@index([especieId])
   @@index([estadoVital])
   @@index([cuig])
@@ -592,7 +595,6 @@ model Animal {
   @@index([categoriaId])
   @@index([proveedorId])
   @@index([establecimientoId, estadoVital])
-  @@unique([establecimientoId, caravanaVisual])
   @@map("animales")
 }
 
@@ -926,6 +928,8 @@ model EvtBaja {
   clienteId String?  @map("cliente_id") @db.Uuid
   cliente   Cliente? @relation(fields: [clienteId], references: [id])
 
+  movimientoFinanciero MovimientoFinanciero?
+
   @@index([fecha])
   @@index([motivo])
   @@index([clienteId])
@@ -1166,9 +1170,9 @@ model Notificacion {
 // ============================================
 
 model MovimientoStock {
-  sectorId String? @map("sector_id") @db.Uuid
-  sector Sector? @relation(fields: [sectorId], references: [id], onDelete: Restrict)
-  clave String? @unique @db.Uuid
+  sectorId  String?  @map("sector_id") @db.Uuid
+  sector    Sector?  @relation(fields: [sectorId], references: [id], onDelete: Restrict)
+  clave     String?  @unique @db.Uuid
   id        String   @id @default(uuid()) @db.Uuid
   tipo      String // 'entrada' | 'salida' | 'ajuste'
   cantidad  Float
@@ -1283,25 +1287,26 @@ model ActivoPatrimonial {
 }
 
 model Comprobante {
-  id                String             @id @default(uuid()) @db.Uuid
-  establecimientoId String             @map("establecimiento_id") @db.Uuid
-  establecimiento   Establecimiento    @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
-  titulo            String
-  tipo              String
-  referencia        String
-  contraparte       String
-  cuit              String?
-  fecha             DateTime           @db.Date
-  vencimiento       DateTime?          @db.Date
-  importe           Decimal            @db.Decimal(14, 2)
-  moneda            String             @default("ARS")
-  sentido           String
-  estado            String             @default("pendiente")
-  notas             String?
-  version           Int                @default(1)
-  createdAt         DateTime           @default(now()) @map("created_at")
-  updatedAt         DateTime           @updatedAt @map("updated_at")
-  documentos        DocumentoArchivo[]
+  id                     String                 @id @default(uuid()) @db.Uuid
+  establecimientoId      String                 @map("establecimiento_id") @db.Uuid
+  establecimiento        Establecimiento        @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
+  titulo                 String
+  tipo                   String
+  referencia             String
+  contraparte            String
+  cuit                   String?
+  fecha                  DateTime               @db.Date
+  vencimiento            DateTime?              @db.Date
+  importe                Decimal                @db.Decimal(14, 2)
+  moneda                 String                 @default("ARS")
+  sentido                String
+  estado                 String                 @default("pendiente")
+  notas                  String?
+  version                Int                    @default(1)
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+  documentos             DocumentoArchivo[]
+  movimientosFinancieros MovimientoFinanciero[]
 
   @@unique([id, establecimientoId])
   @@unique([establecimientoId, tipo, referencia, contraparte, sentido])
@@ -1331,8 +1336,8 @@ model Tramite {
 }
 
 model DocumentoArchivo {
-  sectorId String? @map("sector_id") @db.Uuid
-  sector Sector? @relation(fields: [sectorId, establecimientoId], references: [id, establecimientoId], onDelete: Restrict, onUpdate: NoAction)
+  sectorId          String?            @map("sector_id") @db.Uuid
+  sector            Sector?            @relation(fields: [sectorId, establecimientoId], references: [id, establecimientoId], onDelete: Restrict, onUpdate: NoAction)
   id                String             @id @default(uuid()) @db.Uuid
   establecimientoId String             @map("establecimiento_id") @db.Uuid
   establecimiento   Establecimiento    @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
@@ -1408,8 +1413,8 @@ model MantenimientoFlota {
 }
 
 model ReservaForraje {
-  depositoId String? @map("deposito_id") @db.Uuid
-  deposito Sector? @relation(fields: [depositoId], references: [id], onDelete: Restrict)
+  depositoId        String?             @map("deposito_id") @db.Uuid
+  deposito          Sector?             @relation(fields: [depositoId], references: [id], onDelete: Restrict)
   id                String              @id @default(uuid()) @db.Uuid
   establecimientoId String              @map("establecimiento_id") @db.Uuid
   establecimiento   Establecimiento     @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
@@ -1445,18 +1450,80 @@ model MovimientoForraje {
 }
 
 model SectorRegistro {
-  id String @id @default(uuid()) @db.Uuid
-  clave String @unique @db.Uuid
-  sectorId String @map("sector_id") @db.Uuid
-  sector Sector @relation(fields: [sectorId], references: [id], onDelete: Restrict)
-  tipo String
-  detalle String
-  estado String
-  fecha DateTime @default(now())
+  id         String    @id @default(uuid()) @db.Uuid
+  clave      String    @unique @db.Uuid
+  sectorId   String    @map("sector_id") @db.Uuid
+  sector     Sector    @relation(fields: [sectorId], references: [id], onDelete: Restrict)
+  tipo       String
+  detalle    String
+  estado     String
+  fecha      DateTime  @default(now())
   resueltoAt DateTime? @map("resuelto_at")
-  version Int @default(1)
-  createdAt DateTime @default(now()) @map("created_at")
+  version    Int       @default(1)
+  createdAt  DateTime  @default(now()) @map("created_at")
 
   @@index([sectorId, fecha])
   @@map("sector_registros")
+}
+
+// ============================================
+// FINANZAS
+// ============================================
+
+// Caja, cuenta bancaria, billetera virtual o tarjeta de un campo. El saldo no
+// se guarda: es saldoInicial + ingresos - egresos de sus movimientos.
+model CuentaFinanciera {
+  id                String                 @id @default(uuid()) @db.Uuid
+  establecimientoId String                 @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento        @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
+  nombre            String
+  tipo              String // 'caja' | 'banco' | 'billetera' | 'tarjeta' | 'otro'
+  moneda            String                 @default("ARS") // 'ARS' | 'USD'
+  banco             String?
+  numero            String?
+  saldoInicial      Decimal                @default(0) @map("saldo_inicial") @db.Decimal(14, 2)
+  activa            Boolean                @default(true)
+  notas             String?
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+  movimientos       MovimientoFinanciero[]
+
+  @@unique([id, establecimientoId])
+  @@unique([establecimientoId, nombre])
+  @@map("cuentas_financieras")
+}
+
+// Ingreso o egreso de dinero en una cuenta. Una transferencia entre cuentas
+// son dos movimientos (egreso + ingreso) con el mismo transferenciaId y
+// categoría 'transferencia', que no cuentan en el resultado.
+model MovimientoFinanciero {
+  id                String           @id @default(uuid()) @db.Uuid
+  establecimientoId String           @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento  @relation(fields: [establecimientoId], references: [id], onDelete: Restrict)
+  cuentaId          String           @map("cuenta_id") @db.Uuid
+  cuenta            CuentaFinanciera @relation(fields: [cuentaId, establecimientoId], references: [id, establecimientoId], onDelete: Restrict, onUpdate: NoAction)
+  tipo              String // 'ingreso' | 'egreso'
+  categoria         String
+  subcategoria      String?
+  fecha             DateTime         @db.Date
+  importe           Decimal          @db.Decimal(14, 2)
+  descripcion       String
+  contraparte       String?
+  cuit              String?
+  medioPago         String?          @map("medio_pago")
+  notas             String?
+  comprobanteId     String?          @map("comprobante_id") @db.Uuid
+  comprobante       Comprobante?     @relation(fields: [comprobanteId, establecimientoId], references: [id, establecimientoId], onDelete: Restrict, onUpdate: NoAction)
+  bajaId            String?          @unique @map("baja_id") @db.Uuid
+  baja              EvtBaja?         @relation(fields: [bajaId], references: [id], onDelete: SetNull)
+  transferenciaId   String?          @map("transferencia_id") @db.Uuid
+  creadoPorId       String?          @map("creado_por_id") @db.Uuid
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  @@index([establecimientoId, fecha])
+  @@index([cuentaId, fecha])
+  @@index([transferenciaId])
+  @@index([comprobanteId])
+  @@map("movimientos_financieros")
 }

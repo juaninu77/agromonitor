@@ -21,6 +21,8 @@ interface ContextoBaja {
   establecimientoIds: string[]
   /** Organizaciones accesibles, para validar el cliente de una venta. */
   organizacionIds: string[]
+  /** Usuario que registra (queda como autor del ingreso en Finanzas). */
+  userId?: string
 }
 
 /**
@@ -38,12 +40,28 @@ export async function registrarBaja(input: BajaInput, ctx: ContextoBaja) {
     throw new BajaError("El animal ya tiene una baja registrada o no está activo", 400)
   }
 
+  let cliente: { id: string; nombre: string } | null = null
   if (input.clienteId) {
-    const cliente = await prisma.cliente.findFirst({
+    cliente = await prisma.cliente.findFirst({
       where: { id: input.clienteId, organizacionId: { in: ctx.organizacionIds } },
-      select: { id: true },
+      select: { id: true, nombre: true },
     })
     if (!cliente) throw new BajaError("El cliente no pertenece a tu organización", 403)
+  }
+
+  // Cobro de la venta: la cuenta debe ser del mismo campo, estar activa y en pesos
+  // (el precio de la baja está en ARS).
+  if (input.cuentaId) {
+    if (input.motivo !== "venta" || !input.precioTotal || input.precioTotal <= 0) {
+      throw new BajaError("La cuenta de cobro solo aplica a ventas con precio total", 400)
+    }
+    const cuenta = await prisma.cuentaFinanciera.findFirst({
+      where: { id: input.cuentaId, establecimientoId: animal.establecimientoId ?? undefined },
+      select: { activa: true, moneda: true },
+    })
+    if (!cuenta || !animal.establecimientoId) throw new BajaError("La cuenta de cobro no pertenece al campo del animal", 400)
+    if (!cuenta.activa) throw new BajaError("La cuenta de cobro está desactivada", 400)
+    if (cuenta.moneda !== "ARS") throw new BajaError("El precio de la venta está en pesos: elegí una cuenta en ARS", 400)
   }
 
   // No se puede dar de baja antes de un evento ya registrado
@@ -85,6 +103,24 @@ export async function registrarBaja(input: BajaInput, ctx: ContextoBaja) {
     await tx.ubicacionHist.updateMany({ where: { animalId: animal.id, hasta: null }, data: { hasta: input.fecha } })
 
     await tx.animal.update({ where: { id: animal.id }, data: { estadoVital } })
+
+    // La venta cobrada queda como ingreso en Finanzas, vinculado a la baja
+    if (input.cuentaId && animal.establecimientoId && input.precioTotal) {
+      await tx.movimientoFinanciero.create({
+        data: {
+          establecimientoId: animal.establecimientoId,
+          cuentaId: input.cuentaId,
+          tipo: "ingreso",
+          categoria: "venta_hacienda",
+          fecha: input.fecha,
+          importe: input.precioTotal.toFixed(2),
+          descripcion: `Venta animal ${animal.caravanaVisual ?? animal.id.slice(0, 8)}`,
+          contraparte: cliente?.nombre ?? null,
+          bajaId: baja.id,
+          creadoPorId: ctx.userId ?? null,
+        },
+      })
+    }
 
     return { baja, animal: { ...animal, estadoVital } }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted })

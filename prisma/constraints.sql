@@ -167,3 +167,34 @@ BEGIN
   CREATE INDEX IF NOT EXISTS animales_cuig_trgm_idx            ON animales USING gin (cuig gin_trgm_ops);
   CREATE INDEX IF NOT EXISTS animales_otro_id_trgm_idx         ON animales USING gin (otro_id gin_trgm_ops);
 END $$;
+
+-- --------------------------------------------
+-- 7) Finanzas: dominios de cuentas y movimientos, importes positivos y
+--    nombre de cuenta único por campo sin distinguir mayúsculas.
+--    Las tablas son nuevas, así que los CHECK se crean validados.
+-- --------------------------------------------
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cuentas_financieras_tipo_chk') THEN
+    ALTER TABLE cuentas_financieras ADD CONSTRAINT cuentas_financieras_tipo_chk
+      CHECK (tipo IN ('caja','banco','billetera','tarjeta','otro'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cuentas_financieras_moneda_chk') THEN
+    ALTER TABLE cuentas_financieras ADD CONSTRAINT cuentas_financieras_moneda_chk
+      CHECK (moneda IN ('ARS','USD'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'movimientos_financieros_tipo_chk') THEN
+    ALTER TABLE movimientos_financieros ADD CONSTRAINT movimientos_financieros_tipo_chk
+      CHECK (tipo IN ('ingreso','egreso'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'movimientos_financieros_importe_chk') THEN
+    ALTER TABLE movimientos_financieros ADD CONSTRAINT movimientos_financieros_importe_chk
+      CHECK (importe > 0);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'movimientos_financieros_transferencia_chk') THEN
+    ALTER TABLE movimientos_financieros ADD CONSTRAINT movimientos_financieros_transferencia_chk
+      CHECK ((categoria = 'transferencia') = (transferencia_id IS NOT NULL));
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS cuentas_financieras_nombre_unico
+  ON cuentas_financieras (establecimiento_id, lower(nombre));

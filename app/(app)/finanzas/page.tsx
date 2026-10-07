@@ -1,4 +1,5 @@
-import { redirect } from "next/navigation"
+import { FinanzasPanel } from "@/components/finanzas/finanzas-panel"
+
 export default function FinanzasPage() {
-  redirect("/administracion?modulo=comprobantes")
+  return <FinanzasPanel />
 }

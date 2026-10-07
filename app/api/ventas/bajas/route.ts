@@ -78,6 +78,7 @@ export const POST = withAuth(
 
       const { baja, animal } = await registrarBaja(parsed.data, {
         establecimientoIds: ctx.establecimientoIdsConRol(["admin", "encargado"]),
+        userId: ctx.userId,
         organizacionIds: ctx.organizacionIds,
       })
 
@@ -91,6 +92,7 @@ export const POST = withAuth(
           motivo: parsed.data.motivo,
           estadoVital: animal.estadoVital,
           precioTotal: parsed.data.precioTotal ?? null,
+          cuentaId: parsed.data.cuentaId ?? null,
         },
         organizacionId: animal.establecimientoId
           ? ctx.organizacionDeEstablecimiento[animal.establecimientoId]

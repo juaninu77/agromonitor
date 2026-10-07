@@ -1552,3 +1552,17 @@ model MovimientoFinanciero {
   @@index([comprobanteId])
   @@map("movimientos_financieros")
 }
+
+// Operaciones enviadas desde la cola sin conexión del mapa (movimientos de
+// animales, mediciones): la clave la genera el dispositivo y hace idempotente
+// el reenvío. Guarda el resultado para devolver lo mismo en un reintento.
+model OperacionIdempotente {
+  clave     String   @id @db.Uuid
+  usuarioId String   @map("usuario_id") @db.Uuid
+  ruta      String
+  resultado Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("operaciones_idempotentes")
+}

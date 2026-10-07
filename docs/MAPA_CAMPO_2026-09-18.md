@@ -55,3 +55,12 @@ El mapa necesita conexión para las imágenes y para guardar. Las figuras admiti
 3. Importar KML/GeoJSON de Google Earth o de un agrimensor, con vista previa antes de crear sectores.
 4. Agregar caminos, tranqueras y límites generales del campo como capas independientes.
 5. Incorporar historial de cambios de límites y mediciones con fecha.
+
+## Carga sin conexión (issue #45, tanda 4)
+
+Desde la ficha de un lugar, tres operaciones se pueden cargar sin señal: **mover animales o ingresar un grupo**, **registrar actividad** (nota, tarea, agua, descanso, labor) y **medir pasto**. Se guardan en el dispositivo (IndexedDB `agromonitor-mapa`) y la ficha avisa «quedó guardado en este dispositivo».
+
+- **Envío automático**: se envían solas en el orden en que se cargaron cuando vuelve la conexión, al abrir el mapa y cada minuto mientras queden pendientes.
+- **Idempotencia**: cada operación lleva una clave generada en el dispositivo. El servidor la registra (`operaciones_idempotentes`, o la columna `clave` de los registros), así que un reenvío devuelve el mismo resultado sin duplicar.
+- **Conflictos**: un rechazo del servidor queda en «Revisar» con el motivo y las opciones Reintentar o Descartar. Ocurre, por ejemplo, cuando otro equipo ya movió esos animales y la ubicación cambió. Un error del servidor o una sesión vencida no generan conflicto: la operación sigue pendiente.
+- **Sigue requiriendo conexión**: dibujar o editar límites (el borrador sí se conserva en el dispositivo), traslados entre campos, stock, archivos, siembras y cosechas.

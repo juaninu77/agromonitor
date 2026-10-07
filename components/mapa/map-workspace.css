@@ -80,6 +80,13 @@
   .map-bottom-summary { bottom: 36px; }
   .map-legend-wrap { bottom: 96px; }
 }
+/* Registros cargados sin conexión: debajo de la barra superior */
+.map-offline-queue { position: absolute; z-index: 30; top: 76px; left: 12px; max-width: min(440px, calc(100% - 76px)); border-color: rgb(251 191 36); background: rgb(255 251 235); color: rgb(69 26 3); }
+.field-workspace[data-panel="true"] .map-offline-queue { max-width: min(440px, calc(100% - 480px)); }
+@media (max-width: 767px) {
+  .map-offline-queue { top: 224px; }
+  .field-workspace[data-panel="true"] .map-offline-queue { display: none; }
+}
 .map-pick-banner { position: absolute; z-index: 30; top: 76px; left: 50%; transform: translateX(-50%); white-space: nowrap; }
 /* Mientras se elige el destino, la ficha se achica (sin desmontarse) para despejar el mapa */
 .field-workspace[data-picking="true"] .map-floating-panel { height: 56px; opacity: .85; }

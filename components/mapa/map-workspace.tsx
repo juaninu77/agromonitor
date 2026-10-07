@@ -11,6 +11,7 @@ import { useMapDraft } from "./use-map-draft"
 import { filterPlaces } from "@/lib/mapa/filters"
 import { SectorPanel } from "./sector-panel"
 import { CapasMapa, LeyendaMapa, LugaresArchivados, ResumenCampo } from "./map-overlays"
+import { ColaMapa } from "./cola-mapa"
 import { colorDeLugar, type ModoColor } from "@/lib/mapa/capas"
 import { importarArchivoMapa, type ImportedPlace } from "@/lib/mapa/import"
 import { grazingTypes, livestockTypes } from "@/lib/mapa/sector-state"
@@ -312,7 +313,8 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
       <span>Tocá en el mapa el lugar de destino.</span>
       <Button size="sm" variant="outline" onClick={() => setEligiendo(null)}>Cancelar</Button>
     </div>}
-    {!online && <p role="status" className="absolute bottom-3 left-3 right-16 z-30 rounded-lg bg-amber-100 p-2 text-xs text-amber-950 shadow">Sin conexión. Podés editar el dibujo y guardarlo cuando vuelva Internet.</p>}
+    {!online && draft && <p role="status" className="absolute bottom-3 left-3 right-16 z-30 rounded-lg bg-amber-100 p-2 text-xs text-amber-950 shadow">Sin conexión. Podés editar el dibujo y guardarlo cuando vuelva Internet.</p>}
+    {!draft && <ColaMapa online={online}/>}
     {!draft && online && <div className="map-bottom-summary absolute bottom-9 left-3 z-20 w-[min(360px,calc(100%-88px))]">
       <ResumenCampo sectors={sectors} onIr={id => { setTabInicial(undefined); setSelected(id); setPanel(true); setShowLocation(false) }}/>
     </div>}

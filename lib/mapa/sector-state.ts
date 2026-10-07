@@ -1,8 +1,9 @@
 export const grazingTypes = new Set(["potrero", "cultivo"])
 export const livestockTypes = new Set(["potrero", "cultivo", "corral", "manga", "feedlot", "enfermeria", "embarcadero"])
 export const isParcel = (type: string) => grazingTypes.has(type)
-export function sectorState(s: { tipo: string; bovinos: number; ovinos: number; forrajes: unknown[]; descanso?: { estado: string } | null }) {
-  if (s.bovinos + s.ovinos > 0) return { key: "ocupado", label: "Con ganado", color: "#2563eb" }
+export const animalesDe = (s: { bovinos: number; ovinos: number; animales?: number }) => s.animales ?? s.bovinos + s.ovinos
+export function sectorState(s: { tipo: string; bovinos: number; ovinos: number; animales?: number; forrajes: unknown[]; descanso?: { estado: string } | null }) {
+  if (animalesDe(s) > 0) return { key: "ocupado", label: "Con ganado", color: "#2563eb" }
   if (s.descanso?.estado === "inicio") return { key: "descanso", label: "En descanso", color: "#8b5cf6" }
   if (s.forrajes.length) return { key: "cultivado", label: "Con cultivo", color: "#b7791f" }
   if (isParcel(s.tipo)) return { key: "sin-ganado", label: "Sin ganado registrado", color: "#64748b" }

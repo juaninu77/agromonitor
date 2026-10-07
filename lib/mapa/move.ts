@@ -31,10 +31,46 @@ export async function moveAnimals(raw: unknown, ctx: AuthContext) {
     await tx.ubicacionHist.updateMany({ where: { animalId: { in: movingIds }, hasta: null }, data: { hasta: now } })
     await tx.ubicacionHist.createMany({ data: movingIds.map(animalId => ({ animalId, sectorId: destination.id, desde: now, motivo: v.motivo })) })
     await tx.evtMovimiento.createMany({ data: moving.map(a => ({ animalId: a.id, origenSectorId: a.ubicacionHist[0]?.sectorId ?? null, destinoSectorId: destination.id, fecha: now, motivo: v.motivo, cantidadAnimales: 1 })) })
-    const groups = await tx.animalLoteHist.findMany({ where: { animalId: { in: movingIds }, hasta: null }, select: { loteId: true } })
-    await tx.evtPastoreo.updateMany({ where: { loteId: { in: [...new Set(groups.map(g => g.loteId))] }, egreso: null }, data: { egreso: now } })
-    const pasture = group && isParcel(destination.tipo) ? await tx.evtPastoreo.create({ data: { sectorId: destination.id, loteId: group.id, ingreso: now, animalesPromedio: ids.length, observ: v.motivo } }) : null
+    const pasture = await actualizarPastoreos(tx, movingIds, destination, group?.id ?? null, now, v.motivo)
     await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[destination.establecimientoId], tabla: "movimientos_potrero", rowPk: destination.id, accion: "INSERT", detalle: { cantidad: moving.length, animalIds: movingIds, grupoId: group?.id ?? null } } })
     return { id: pasture?.id ?? destination.id, moved: moving.length, destino: destination.nombre }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000 })
+}
+
+/** Animales activos del lote ubicados ahora en el lugar. */
+const enLugar = (tx: Prisma.TransactionClient, loteId: string, sectorId: string) =>
+  tx.ubicacionHist.count({ where: { sectorId, hasta: null, animal: { estadoVital: "activo", loteHist: { some: { loteId, hasta: null } } } } })
+
+/**
+ * Mantiene la rotación coherente con las ubicaciones:
+ * - un pastoreo abierto se cierra solo cuando su lote ya no tiene animales en ese lugar;
+ * - se abre uno nuevo cuando todo el lote (elegido como grupo o animal por animal)
+ *   queda en la parcela destino y no había uno abierto ahí.
+ */
+export async function actualizarPastoreos(
+  tx: Prisma.TransactionClient,
+  movingIds: string[],
+  destination: { id: string; tipo: string; establecimientoId: string },
+  grupoId: string | null,
+  now: Date,
+  motivo: string,
+) {
+  const memberships = await tx.animalLoteHist.findMany({ where: { animalId: { in: movingIds }, hasta: null }, select: { loteId: true } })
+  const loteIds = [...new Set([...memberships.map(m => m.loteId), ...(grupoId ? [grupoId] : [])])]
+  if (!loteIds.length) return null
+  const abiertos = await tx.evtPastoreo.findMany({ where: { loteId: { in: loteIds }, egreso: null }, select: { id: true, loteId: true, sectorId: true } })
+  const cerrar: string[] = []
+  for (const p of abiertos) if (p.sectorId !== destination.id && await enLugar(tx, p.loteId, p.sectorId) === 0) cerrar.push(p.id)
+  if (cerrar.length) await tx.evtPastoreo.updateMany({ where: { id: { in: cerrar } }, data: { egreso: now } })
+  if (!isParcel(destination.tipo)) return null
+  let creado: { id: string } | null = null
+  for (const loteId of loteIds) {
+    if (abiertos.some(p => p.loteId === loteId && p.sectorId === destination.id)) continue
+    const miembros = await tx.animalLoteHist.count({ where: { loteId, hasta: null, animal: { estadoVital: "activo", establecimientoId: destination.establecimientoId } } })
+    const presentes = await enLugar(tx, loteId, destination.id)
+    if (miembros > 0 && presentes === miembros) {
+      creado = await tx.evtPastoreo.create({ data: { sectorId: destination.id, loteId, ingreso: now, animalesPromedio: presentes, observ: motivo } })
+    }
+  }
+  return creado
 }

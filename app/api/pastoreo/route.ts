@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client"
+import { z } from "zod"
 import { mapBody, mapResult, MapError } from "@/lib/mapa/api"
 import { moveAnimals } from "@/lib/mapa/move"
 import { NextResponse } from "next/server"
@@ -11,8 +13,8 @@ export const GET = withAuth(async (request, ctx) => {
     const establecimientoId = searchParams.get("establecimientoId")
     const sectorId = searchParams.get("sectorId")
     const activos = searchParams.get("activos")
-    const page = parseInt(searchParams.get("page") || "1")
-    const limit = parseInt(searchParams.get("limit") || "50")
+    const page = z.coerce.number().int().min(1).max(100000).catch(1).parse(searchParams.get("page") ?? 1)
+    const limit = z.coerce.number().int().min(1).max(200).catch(50).parse(searchParams.get("limit") ?? 50)
     const skip = (page - 1) * limit
 
     if (establecimientoId && !ctx.establecimientoIds.includes(establecimientoId)) {
@@ -22,7 +24,7 @@ export const GET = withAuth(async (request, ctx) => {
       )
     }
 
-    const where: Record<string, unknown> = {
+    const where: Prisma.EvtPastoreoWhereInput = {
       lote: { establecimientoId: { in: ctx.establecimientoIds } },
     }
 
@@ -40,7 +42,7 @@ export const GET = withAuth(async (request, ctx) => {
 
     const [pastoreos, total] = await Promise.all([
       prisma.evtPastoreo.findMany({
-        where: where as any,
+        where,
         include: {
           lote: { select: { id: true, nombre: true, tipo: true } },
           sector: { select: { id: true, nombre: true, tipo: true } },
@@ -49,7 +51,7 @@ export const GET = withAuth(async (request, ctx) => {
         skip,
         take: limit,
       }),
-      prisma.evtPastoreo.count({ where: where as any }),
+      prisma.evtPastoreo.count({ where }),
     ])
 
     return NextResponse.json({

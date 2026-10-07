@@ -3,11 +3,13 @@ export interface MapSector {
   id: string; nombre: string; tipo: string; descripcion: string | null; version: number;
   geometria: Geometry | null; superficieHa: number | null; areaMapaHa: number | null;
   bovinos: number; ovinos: number;
+  /** Todas las especies; EV y carga calculados en lib/mapa/carga.ts. */
+  animales: number; porEspecie: Record<string, number>; ev: number; evHa: number | null; ocupacionPct: number | null;
   tieneAgua: boolean; tieneSombra: boolean; capacidad: number | null;
   pendientes: number; agua: SectorRecord | null; descanso: SectorRecord | null;
   ultimaMedicion: { fecha: string; alturaPastoCm: number | null; msKgHa: number | null; coberturaPct: number | null } | null;
   forrajes: { id: string; forraje: { nombre: string }; estado: string; superficieHa: number | null }[];
-  pastoreosIngreso: { id: string; lote: { id: string; nombre: string; especie: { nombre: string } } }[];
+  pastoreosIngreso: { id: string; ingreso?: string; animalesPromedio?: number | null; lote: { id: string; nombre: string; especie: { nombre: string } } }[];
 }
 export interface MapDraft {
   id?: string; version?: number; nombre: string; tipo: string; descripcion: string;

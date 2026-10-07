@@ -20,8 +20,8 @@ export const GET = withAuth(async (request, ctx) => {
     }
 
     const searchParams = request.nextUrl.searchParams
-    const page = parseInt(searchParams.get("page") || "1")
-    const limit = parseInt(searchParams.get("limit") || "20")
+    const page = z.coerce.number().int().min(1).max(100000).catch(1).parse(searchParams.get("page") ?? 1)
+    const limit = z.coerce.number().int().min(1).max(200).catch(20).parse(searchParams.get("limit") ?? 20)
     const skip = (page - 1) * limit
 
     const [mediciones, total] = await Promise.all([

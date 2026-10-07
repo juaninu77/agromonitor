@@ -58,6 +58,7 @@ export const POST = withAuth(async (request, ctx) => mapResult(async () => {
         geometria: grande.geometria,
         // La superficie declarada deja de valer: pasa a la medida del mapa
         ...(tieneSuperficie ? { superficieHa: redondear(grande.ha) } : {}),
+        ...(actual.capacidad != null ? { capacidad: Math.round(actual.capacidad * grande.ha / (grande.ha + chica.ha)) } : {}),
         version: { increment: 1 },
       },
     })
@@ -67,6 +68,11 @@ export const POST = withAuth(async (request, ctx) => mapResult(async () => {
         nombre: body.nombreNuevo,
         tipo: actual.tipo,
         uso: actual.uso,
+        // Las instalaciones se copian; la capacidad se reparte según la superficie
+        tieneAgua: actual.tieneAgua,
+        tieneSombra: actual.tieneSombra,
+        tieneBalanza: actual.tieneBalanza,
+        capacidad: actual.capacidad != null ? Math.round(actual.capacidad * chica.ha / (grande.ha + chica.ha)) : null,
         geometria: chica.geometria,
         superficieHa: tieneSuperficie ? redondear(chica.ha) : null,
         descripcion: `División de ${actual.nombre}`,

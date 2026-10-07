@@ -6,7 +6,8 @@ const place = (id: string, values: Partial<MapSector> = {}): MapSector => ({
   id, nombre: id, tipo: "potrero", descripcion: null, version: 1, geometria: null,
   superficieHa: null, areaMapaHa: null, bovinos: 0, ovinos: 0, tieneAgua: false,
   tieneSombra: false, capacidad: null, pendientes: 0, agua: null, descanso: null,
-  ultimaMedicion: null, forrajes: [], pastoreosIngreso: [], ...values,
+  ultimaMedicion: null, forrajes: [], pastoreosIngreso: [],
+  animales: (values.bovinos ?? 0) + (values.ovinos ?? 0), porEspecie: {}, ev: 0, evHa: null, ocupacionPct: null, ...values,
 })
 const filters = { type: "todos", state: "todos", query: "" }
 

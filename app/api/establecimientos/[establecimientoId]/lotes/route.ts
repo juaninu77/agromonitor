@@ -7,7 +7,7 @@ import { withAuth } from "@/lib/api/with-auth"
 // ============================================
 // Retorna los lotes de un establecimiento
 
-export const GET = withAuth(async (_request, ctx) => {
+export const GET = withAuth(async (request, ctx) => {
   try {
     const { establecimientoId } = ctx.params
 
@@ -23,6 +23,8 @@ export const GET = withAuth(async (_request, ctx) => {
     const lotes = await prisma.lote.findMany({
       where: {
         establecimientoId,
+        // ?activos=1: solo grupos operativos (para elegir a dónde mover o qué ingresar)
+        ...(request.nextUrl.searchParams.get("activos") === "1" ? { activo: true } : {}),
       },
       include: {
         especie: true,

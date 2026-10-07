@@ -5,6 +5,9 @@ import { isParcel, livestockTypes, sectorState, waterLabel } from "@/lib/mapa/se
 import { useState, useMemo } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import MapWorkspace from "@/components/mapa/map-workspace"
+import { formatearEv, textoEspecies } from "@/lib/mapa/carga"
+
+const diasDesde = (fecha: string) => Math.max(0, Math.floor((Date.now() - new Date(fecha).getTime()) / 86_400_000))
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { SECTOR_TYPES } from "@/lib/mapa/geometry"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
@@ -12,7 +15,6 @@ import { useTenant } from "@/lib/context/tenant-context"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
@@ -39,12 +41,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
   MapPin,
   Plus,
   Leaf,
@@ -53,13 +49,10 @@ import {
   Scale,
   LayoutGrid,
   Loader2,
-  Clock,
   TrendingUp,
   Fence,
   Ruler,
-  MoreVertical,
   Pencil,
-  Eye,
   AlertCircle,
 } from "lucide-react"
 
@@ -91,14 +84,6 @@ interface Sector extends MapSector {
   } | null
 }
 
-interface Pastoreo {
-  id: string
-  ingreso: string
-  egreso: string | null
-  lote: { id: string; nombre: string }
-  sector: { id: string; nombre: string }
-}
-
 interface LoteSimple {
   id: string
   nombre: string
@@ -115,16 +100,6 @@ const USO_OPTIONS = [
   { value: "engorde", label: "Engorde" },
 ]
 
-const TIPO_BADGE_COLORS: Record<string, string> = {
-  potrero: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-  corral: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
-  manga: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-  feedlot: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
-  embarcadero: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-  enfermeria: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
-  otro: "bg-gray-100 text-foreground dark:bg-gray-900 dark:text-gray-200",
-}
-
 // ─── Fetchers ────────────────────────────────────────────
 
 async function fetchSectores(estId: string): Promise<Sector[]> {
@@ -134,15 +109,8 @@ async function fetchSectores(estId: string): Promise<Sector[]> {
   return json.data
 }
 
-async function fetchPastoreos(estId: string): Promise<Pastoreo[]> {
-  const res = await fetch(`/api/pastoreo?establecimientoId=${estId}&activos=true`)
-  const json = await res.json()
-  if (!json.success) throw new Error(json.error || "Error al cargar pastoreos")
-  return json.data
-}
-
 async function fetchLotes(estId: string): Promise<LoteSimple[]> {
-  const res = await fetch(`/api/establecimientos/${estId}/lotes`)
+  const res = await fetch(`/api/establecimientos/${estId}/lotes?activos=1`)
   if (!res.ok) return []
   const json = await res.json()
   return Array.isArray(json) ? json : json.data ?? []
@@ -184,11 +152,6 @@ function PotrerosWorkspace() {
     enabled: !!estId && view === "lista",
   })
 
-  const { data: pastoreos = [] } = useQuery({
-    queryKey: ["pastoreos-activos", estId],
-    queryFn: () => fetchPastoreos(estId),
-    enabled: !!estId && view === "lista",
-  })
 
   const { data: lotes = [] } = useQuery({
     queryKey: ["lotes", estId],
@@ -236,6 +199,9 @@ function PotrerosWorkspace() {
     onSuccess: () => {
       toast.success("Medición registrada correctamente")
       queryClient.invalidateQueries({ queryKey: ["sectores", estId] })
+      queryClient.invalidateQueries({ queryKey: ["mapa", estId] })
+      queryClient.invalidateQueries({ queryKey: ["sector-ficha"] })
+      queryClient.invalidateQueries({ queryKey: ["mediciones"] })
       setShowMedicionDialog(false)
       setMedicionSectorId(null)
     },
@@ -482,7 +448,8 @@ function KpiCard({
 function SectorCard({ sector, onMedir, onAsignar, onEditar, onVer, canEdit }: { sector: Sector; onMedir: () => void; onAsignar: () => void; onEditar: () => void; onVer: () => void; canEdit: boolean }) {
   return <Card className="flex flex-col"><CardHeader className="pb-3"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><CardTitle className="text-lg">{sector.nombre}</CardTitle><CardDescription>{TIPO_SECTOR_OPTIONS.find(t => t.value === sector.tipo)?.label}</CardDescription></div><Button size="icon" variant="ghost" aria-label={`Editar datos de ${sector.nombre}`} onClick={onEditar} disabled={!canEdit}><Pencil className="h-4 w-4"/></Button></div></CardHeader><CardContent className="space-y-3">
     <p className="text-sm font-medium" style={{color:sectorState(sector).color}}>{sectorState(sector).label}</p>
-    {livestockTypes.has(sector.tipo) && <p className="text-sm">{sector.bovinos} bovinos · {sector.ovinos} ovinos</p>}
+    {livestockTypes.has(sector.tipo) && <p className="text-sm">{textoEspecies(sector.porEspecie) || "Sin animales"}{sector.ev ? ` · ${formatearEv(sector.ev)} EV${sector.evHa != null ? ` (${formatearEv(sector.evHa)} EV/ha)` : ""}` : ""}</p>}
+    {sector.pastoreosIngreso.map(p => <p key={p.id} className="text-sm">Pastoreando: <strong>{p.lote.nombre}</strong>{p.ingreso ? ` · ${diasDesde(p.ingreso)} días` : ""}</p>)}
     {sector.superficieHa != null && <p className="text-sm">{sector.superficieHa} ha declaradas</p>}
     <p className="text-xs text-muted-foreground">{waterLabel(sector.agua)}{sector.agua ? ` · ${new Date(sector.agua.fecha).toLocaleDateString("es-AR")}` : ""}</p>
     {sector.pendientes > 0 && <p className="text-sm text-amber-700">{sector.pendientes} tareas pendientes</p>}

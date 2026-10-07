@@ -5,7 +5,7 @@ import dynamic from "next/dynamic"
 import Link from "next/link"
 import "./map-workspace.css"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useTenant } from "@/lib/context/tenant-context"
 import { useMapDraft } from "./use-map-draft"
 import { filterPlaces } from "@/lib/mapa/filters"
@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Search, Loader2, LocateFixed, Plus, MoreHorizontal, Maximize, Minimize, ListFilter, Layers, Info, ArrowLeft, X, Undo2, Redo2, Magnet, Hexagon, RectangleHorizontal, Spline, MapPin } from "lucide-react"
 import { areaHa, geometrySchema, polygonFrom, QUICK_PLACES, SECTOR_TYPES, sectorColor, sectorLabel, type Geometry, type Position } from "@/lib/mapa/geometry"
 import type { MapDraft, MapFocus, MapSector } from "@/lib/mapa/types"
+import { formatearEv, textoEspecies } from "@/lib/mapa/carga"
 import { dividirPoligono, DivisionError, formaPorTipo, formatearDistancia, geometriaDeForma, largoM, perimetroM, type Forma } from "@/lib/mapa/drawing"
 
 const FORMAS: { forma: Forma; label: string; icon: typeof Hexagon }[] = [
@@ -45,8 +46,16 @@ const fmt = (value: number) => value.toLocaleString("es-AR", { maximumFractionDi
 export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onList: () => void }) {
   const client = useQueryClient()
   const params = useSearchParams()
+  const router = useRouter(), pathname = usePathname()
   const { establecimientoActivo } = useTenant()
   const [selected, setSelected] = useState<string | null>(params.get("sector"))
+  // La URL refleja el lugar abierto: se puede compartir y sobrevive a recargar
+  useEffect(() => {
+    const actual = new URLSearchParams(window.location.search)
+    if ((actual.get("sector") ?? null) === selected) return
+    if (selected) actual.set("sector", selected); else actual.delete("sector")
+    router.replace(`${pathname}?${actual.toString()}`, { scroll: false })
+  }, [selected, pathname, router])
   const { draft, setDraft, recovered, storageError, online } = useMapDraft(fieldId)
   const [panelEditing, setPanelEditing] = useState(false), [expanded, setExpanded] = useState(true), [panel, setPanel] = useState(!!params.get("sector"))
   const panelRef = useRef<HTMLElement>(null)
@@ -222,7 +231,7 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={division.guardarAlambrado} disabled={saving} onChange={e => setDivision({ ...division, guardarAlambrado: e.target.checked })}/>Guardar la línea como alambrado ({formatearDistancia(largoM(draft.vertices))} dibujados)</label>
           </>}
           <div className="flex flex-wrap gap-2"><Button type="submit" disabled={!online || !corte?.partes || !division.nombreOriginal.trim() || !division.nombreNuevo.trim() || saving}>{saving ? "Dividiendo…" : "Dividir"}</Button><Button type="button" variant="outline" disabled={saving} onClick={() => setDraft(null)}>Cancelar</Button></div>
-          <p className="text-xs text-muted-foreground">Si el lugar tenía superficie declarada, cada parte pasa a la superficie medida en el mapa.</p>
+          <p className="text-xs text-muted-foreground">El ganado ubicado queda en la parte más grande; después podés moverlo. Agua, sombra y balanza se copian a la parte nueva y la capacidad se reparte según la superficie. Si había superficie declarada, cada parte pasa a la medida en el mapa.</p>
         </form> : draft ? <form onSubmit={e => { e.preventDefault(); void save() }} className="h-full space-y-3 overflow-y-auto p-4">
           <div className="flex items-center justify-between gap-2"><h2 className="font-semibold">{draft.id ? "Editar lugar" : "Nuevo lugar"}</h2><Button type="button" size="icon" variant="ghost" aria-label="Ocultar datos del dibujo" onClick={() => setPanel(false)}><X className="h-4 w-4"/></Button></div>
           <div className="space-y-1"><Label htmlFor="map-name">Nombre</Label><Input id="map-name" value={draft.nombre} onChange={e => setDraft({ ...draft, nombre: e.target.value })} required maxLength={120} disabled={saving} placeholder="Ej. Corral 3, Potrero norte o Alambrado del bajo" /></div>
@@ -243,7 +252,7 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>{visible.length} de {sectors.length} lugares</span>{(filter !== "todos" || stateFilter !== "todos" || placeQuery) && <button type="button" className="font-medium text-primary underline" onClick={() => { setFilter("todos"); setStateFilter("todos"); setPlaceQuery("") }}>Limpiar filtros</button>}</div>
           </div>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3">
-          <div className="space-y-1" aria-label="Lugares del campo">{visible.map(s => <button key={s.id} type="button" onClick={() => setSelected(s.id)} className="flex w-full items-center gap-3 rounded-lg border border-transparent p-3 text-left text-sm hover:border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span className="h-3 w-3 shrink-0 rounded-full ring-1 ring-border" style={{ backgroundColor: colorByState ? sectorState(s).color : sectorColor(s.tipo) }}/><span className="min-w-0 flex-1"><span className="block font-medium">{s.nombre}</span><span className="block text-xs text-muted-foreground">{sectorLabel(s.tipo)}{!s.geometria ? " · Sin ubicar" : ""}{s.pendientes ? " · " + s.pendientes + (s.pendientes === 1 ? " tarea" : " tareas") : ""}</span>{livestockTypes.has(s.tipo) && s.bovinos + s.ovinos > 0 && <span className="block text-xs text-muted-foreground">{s.bovinos} bovinos · {s.ovinos} ovinos</span>}</span></button>)}</div>
+          <div className="space-y-1" aria-label="Lugares del campo">{visible.map(s => <button key={s.id} type="button" onClick={() => setSelected(s.id)} className="flex w-full items-center gap-3 rounded-lg border border-transparent p-3 text-left text-sm hover:border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span className="h-3 w-3 shrink-0 rounded-full ring-1 ring-border" style={{ backgroundColor: colorByState ? sectorState(s).color : sectorColor(s.tipo) }}/><span className="min-w-0 flex-1"><span className="block font-medium">{s.nombre}</span><span className="block text-xs text-muted-foreground">{sectorLabel(s.tipo)}{!s.geometria ? " · Sin ubicar" : ""}{s.pendientes ? " · " + s.pendientes + (s.pendientes === 1 ? " tarea" : " tareas") : ""}</span>{livestockTypes.has(s.tipo) && s.animales > 0 && <span className="block text-xs text-muted-foreground">{textoEspecies(s.porEspecie)} · {formatearEv(s.ev)} EV</span>}</span></button>)}</div>
           {!visible.length && <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">{sectors.length ? "No hay lugares que coincidan con estos filtros. Probá otra combinación o limpiá los filtros." : "Todavía no hay lugares. Usá Agregar para dibujar el primero."}</p>}
           {canEdit && <details className="border-t pt-3"><summary className="cursor-pointer text-sm font-medium">Importar límites de Google Earth</summary><label className="mt-3 block text-xs text-muted-foreground">KML o GeoJSON · máximo 1 MB<Input type="file" accept=".kml,.geojson,.json" disabled={!!draft || panelEditing} onChange={async e => { const file = e.target.files?.[0]; if (!file) return; setImportError(""); try { if (file.size > 1000000) throw Error("El archivo debe pesar menos de 1 MB"); setImports(parseMapImport(await file.text(), file.name)) } catch (err) { setImportError(err instanceof Error ? err.message : "No se pudo leer el archivo") } e.target.value = "" }}/></label>{importError && <p role="alert" className="text-sm text-destructive">{importError}</p>}{imports.map((item, i) => <Button key={i} variant="ghost" className="mt-1 h-auto w-full whitespace-normal justify-start" onClick={() => { const g = item.geometry; const vertices = g.type === "Point" ? [g.coordinates] : g.type === "Polygon" ? g.coordinates[0].slice(0, -1) : g.coordinates; setDraft({ nombre: item.nombre, tipo: g.type === "Point" ? "otro" : g.type === "LineString" ? "camino" : "potrero", descripcion: "", kind: g.type, vertices, drawing: false }); setFocus({ lat: vertices[0][1], lon: vertices[0][0], zoom: 15, key: Date.now() }); setImports(v => v.filter((_, index) => index !== i)) }}>{item.nombre} · Revisar</Button>)}<p className="mt-2 text-xs text-muted-foreground">Revisá cada figura en el mapa y guardala. Importar no crea lugares automáticamente.</p></details>}
 

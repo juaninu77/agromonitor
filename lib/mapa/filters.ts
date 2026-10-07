@@ -1,4 +1,5 @@
 import type { MapSector } from "./types"
+import { animalesDe } from "./sector-state"
 
 export type PlaceFilters = { type: string; state: string; query: string }
 export const searchText = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es").trim()
@@ -11,7 +12,7 @@ export function filterPlaces(sectors: MapSector[], filters: PlaceFilters) {
     switch (filters.state) {
       case "sin-mapa": return !s.geometria
       case "pendientes": return s.pendientes > 0
-      case "ocupado": return s.bovinos + s.ovinos > 0
+      case "ocupado": return animalesDe(s) > 0
       case "descanso": return s.descanso?.estado === "inicio"
       case "cultivado": return s.forrajes.length > 0
       default: return true

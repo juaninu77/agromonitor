@@ -97,18 +97,8 @@ export const POST = withAuth(async (request, ctx) => {
       )
     }
 
-    // Verificar rol de la membresía (solo propietario o administrador pueden crear lotes)
-    const membresia = await prisma.membresia.findUnique({
-      where: {
-        usuarioId_organizacionId: {
-          usuarioId: ctx.userId,
-          organizacionId: establecimiento.organizacionId,
-        },
-        esActivo: true,
-      },
-    })
-
-    if (!membresia || !["propietario", "administrador"].includes(membresia.rol)) {
+    // Solo el administrador de la organización dueña del campo crea grupos
+    if (!ctx.organizacionIdsConRol(["admin"]).includes(establecimiento.organizacionId)) {
       return NextResponse.json(
         { error: "No tienes permisos para crear lotes" },
         { status: 403 }

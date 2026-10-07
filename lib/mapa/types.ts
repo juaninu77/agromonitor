@@ -6,7 +6,7 @@ export interface MapSector {
   /** Todas las especies; EV y carga calculados en lib/mapa/carga.ts. */
   animales: number; porEspecie: Record<string, number>; ev: number; evHa: number | null; ocupacionPct: number | null;
   /** Días con animales (desde el ingreso del grupo o la primera ubicación) o sin animales desde la última salida. */
-  diasOcupacion: number | null; diasDescanso: number | null; ultimaSalida: string | null;
+  diasOcupacion: number | null; diasDescanso: number | null; ultimaSalida: string | null; ocupadoDesde?: string | null;
   tieneAgua: boolean; tieneSombra: boolean; capacidad: number | null;
   pendientes: number; agua: SectorRecord | null; descanso: SectorRecord | null;
   ultimaMedicion: { fecha: string; alturaPastoCm: number | null; msKgHa: number | null; coberturaPct: number | null } | null;

@@ -14,6 +14,8 @@ import { rankearDestinos } from "@/lib/mapa/rotacion"
 import { SectorDatos } from "./sector-datos"
 import { SectorRotacion } from "./sector-rotacion"
 import { SectorTareas } from "./sector-tareas"
+import { SectorHistorial } from "./sector-historial"
+import type { Position } from "@/lib/mapa/geometry"
 interface Detail {
   puedeEditar: boolean; totalRegistros: number; registros: SectorRecord[];
   animales: { id: string; caravanaVisual: string | null; otroId: string | null; especie: { nombre: string }; categoria: { nombre: string } | null }[];
@@ -29,7 +31,7 @@ const date = (s: string) => new Date(s).toLocaleDateString("es-AR", { timeZone: 
 const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" })
 const labels: Record<string, string> = { nota: "Nota", tarea: "Tarea", revision_agua: "Revisión de agua", descanso: "Descanso", labor: "Labor / cosecha", medicion: "Medición de pasto", pendiente: "Pendiente", completada: "Completada", registrado: "Registrado", disponible: "Agua disponible", sin_agua: "Sin agua", requiere_revision: "Requiere revisión", inicio: "Inicio", fin: "Fin" }
 type Action = "record" | "move" | "group" | "crop" | "stock" | "document"
-export function SectorPanel({ sector, fieldId, sectors, onBack, onClose, onEdit, onDivide, onEditingChange, initialTab, onElegirEnMapa }: { initialTab?: string; onElegirEnMapa?: (elegir: (id: string) => void) => void; sector: MapSector; fieldId: string; sectors: MapSector[]; onBack: () => void; onClose?: () => void; onEdit: () => void; onDivide?: () => void; onEditingChange: (editing: boolean) => void }) {
+export function SectorPanel({ sector, fieldId, sectors, onBack, onClose, onEdit, onDivide, onEditingChange, initialTab, onElegirEnMapa, onVerLimite }: { initialTab?: string; onVerLimite?: (limite: { vertices: Position[]; etiqueta: string } | null) => void; onElegirEnMapa?: (elegir: (id: string) => void) => void; sector: MapSector; fieldId: string; sectors: MapSector[]; onBack: () => void; onClose?: () => void; onEdit: () => void; onDivide?: () => void; onEditingChange: (editing: boolean) => void }) {
   const client = useQueryClient(), [tab, setTab] = useState(initialTab ?? "resumen"), [page, setPage] = useState(1)
   const [action, setAction] = useState<Action | null>(null), [animalSearch, setAnimalSearch] = useState("")
   const scroll = useRef<HTMLDivElement>(null), heading = useRef<HTMLHeadingElement>(null)
@@ -91,6 +93,7 @@ export function SectorPanel({ sector, fieldId, sectors, onBack, onClose, onEdit,
         {sector.ultimaMedicion && <p>Última medición: {date(sector.ultimaMedicion.fecha)} · {sector.ultimaMedicion.alturaPastoCm ?? "—"} cm</p>}
         {sector.pastoreosIngreso.length > 0 && <details><summary className="cursor-pointer font-medium">Pastoreos declarados</summary>{sector.pastoreosIngreso.map(p => <p key={p.id} className="mt-2">{p.lote.nombre} · {p.lote.especie.nombre}</p>)}</details>}
         <SectorDatos key={sector.version} sector={sector} canEdit={canEdit} onArchivado={onClose ?? onBack}/>
+        {sector.geometria && onVerLimite && <SectorHistorial sector={sector} canEdit={canEdit} onVer={onVerLimite}/>}
       </div>}
       {tab === "rotacion" && <SectorRotacion sector={sector} canEdit={canEdit}/>}
       {tab === "actividad" && <div className="space-y-4"><SectorTareas sectorId={sector.id} fieldId={fieldId}/>

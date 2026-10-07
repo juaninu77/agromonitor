@@ -92,7 +92,7 @@ export const POST = withAuth(async (request, ctx) => mapResult(async () => {
     const organizacionId = ctx.organizacionDeEstablecimiento[actual.establecimientoId]
     await tx.auditLog.createMany({
       data: [
-        { usuarioId: ctx.userId, organizacionId, tabla: "sectores", rowPk: id, accion: "UPDATE", detalle: { division: true, versionAnterior: actual.version, geometriaAnterior: actual.geometria as object, nuevoSector: nuevo.id } },
+        { usuarioId: ctx.userId, organizacionId, tabla: "sectores", rowPk: id, accion: "UPDATE", detalle: { division: true, versionAnterior: actual.version, geometriaAnterior: actual.geometria as object, geometriaNueva: grande.geometria, nuevoSector: nuevo.id } },
         { usuarioId: ctx.userId, organizacionId, tabla: "sectores", rowPk: nuevo.id, accion: "INSERT", detalle: { divisionDe: id } },
         ...(alambrado ? [{ usuarioId: ctx.userId, organizacionId, tabla: "sectores", rowPk: alambrado.id, accion: "INSERT", detalle: { divisionDe: id } }] : []),
       ],

@@ -73,7 +73,7 @@ export function SectorRotacion({ sector, canEdit }: { sector: MapSector; canEdit
         <h3 className="mb-1 font-medium">Situación actual</h3>
         {sector.animales > 0 ? (
           <p>
-            Ocupado {sector.diasOcupacion != null ? <>hace <strong>{sector.diasOcupacion} días</strong></> : ""} · {textoEspecies(sector.porEspecie)} · {formatearEv(sector.ev)} EV
+            Ocupado {sector.diasOcupacion != null ? <>hace <strong>{sector.diasOcupacion} días</strong>{sector.ocupadoDesde ? ` (desde el ${fecha(sector.ocupadoDesde)})` : ""}</> : ""} · {textoEspecies(sector.porEspecie)} · {formatearEv(sector.ev)} EV
             {sector.evHa != null && <> ({formatearEv(sector.evHa)} EV/ha)</>}
           </p>
         ) : sector.diasDescanso != null ? (

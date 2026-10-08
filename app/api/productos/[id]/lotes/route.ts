@@ -31,6 +31,7 @@ export const GET = withAuth(async (request, ctx) => {
 
     const data = lotes.map((lote) => ({
       ...lote,
+      cantidad: decimalToNumber(lote.cantidad),
       costo: decimalToNumber(lote.costo),
     }))
 
@@ -49,7 +50,7 @@ export const POST = withAuth(async (request, ctx) => {
     const productoId = z.string().uuid().parse(ctx.params.id)
     const lote = await crearLote(ctx, productoId, await request.json())
     return NextResponse.json(
-      { success: true, data: { ...lote, costo: decimalToNumber(lote.costo) } },
+      { success: true, data: { ...lote, cantidad: decimalToNumber(lote.cantidad), costo: decimalToNumber(lote.costo) } },
       { status: 201 }
     )
   } catch (error) {

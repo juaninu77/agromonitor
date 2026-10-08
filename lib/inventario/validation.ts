@@ -36,7 +36,22 @@ export const productoSchema = z.object({
   organizacionId: z.string().uuid().nullish(),
 }).strict()
 
+const decimal3 = z.coerce.number().finite().min(0, "No puede ser negativo").max(10_000_000)
+
+/** Configuración de inventario de un producto (todas opcionales: se cambia lo que viene). */
+export const productoConfigSchema = z.object({
+  unidad: z.string().trim().min(1, "Indicá la unidad").max(30).optional(),
+  stockMinimo: z.union([decimal3, z.literal(""), z.null()]).optional().transform((v) => (v === "" ? null : v)),
+  costoReferencia: z.union([z.coerce.number().finite().min(0, "El costo no puede ser negativo").max(1e10), z.literal(""), z.null()]).optional().transform((v) => (v === "" ? null : v)),
+  monedaCosto: z.enum(["ARS", "USD"]).optional(),
+  activo: z.boolean().optional(),
+}).strict()
+
+export const UNIDADES_SUGERIDAS = ["unidades", "dosis", "ml", "litros", "kg", "frascos", "bolsas", "cajas"]
+
 export const loteSchema = z.object({
+  /** Idempotencia del alta (el lote con cantidad genera la entrada al stock). */
+  clave: z.string().uuid().nullish().transform((v) => v ?? null),
   nroLote: z.string().trim().min(1, "Se requiere el número de lote").max(80),
   vencimiento: fechaDia.nullish().transform((v) => v ?? null),
   proveedor: texto(180),

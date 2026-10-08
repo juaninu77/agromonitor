@@ -12,13 +12,13 @@ export const POST = withAuth(async (request, ctx) => mapResult(async () => {
     if (!sector) throw new MapError("Depósito no encontrado", 404)
     mapField(ctx, sector.establecimientoId, true)
     const org = ctx.organizacionDeEstablecimiento[sector.establecimientoId]
-    const product = await tx.producto.findFirst({ where: { id: v.productoId, organizacionId: org } })
+    const product = await tx.producto.findFirst({ where: { id: v.productoId, organizacionId: org, activo: true } })
     if (!product) throw new MapError("Producto no encontrado", 404)
     const prior = await tx.movimientoStock.findUnique({ where: { clave: v.clave } })
-    if (prior) { if (prior.sectorId !== id || prior.productoId !== v.productoId || prior.tipo !== v.tipo || prior.cantidad !== v.cantidad || prior.motivo !== v.motivo) throw new MapError("La clave ya fue utilizada", 409); return prior }
+    if (prior) { if (prior.sectorId !== id || prior.productoId !== v.productoId || prior.tipo !== v.tipo || !prior.cantidad.equals(v.cantidad) || prior.motivo !== v.motivo) throw new MapError("La clave ya fue utilizada", 409); return prior }
     const grouped = await tx.movimientoStock.groupBy({ by: ["tipo"], where: { sectorId: id, productoId: v.productoId }, _sum: { cantidad: true } })
-    const stock = grouped.reduce((n, r) => n + (r.tipo === "salida" ? -1 : 1) * (r._sum.cantidad ?? 0), 0)
-    if (v.tipo === "salida" && v.cantidad > stock) throw new MapError("Stock insuficiente en este galpón", 409)
+    const stock = grouped.reduce((n, r) => n + (r.tipo === "salida" ? -1 : 1) * Number(r._sum.cantidad ?? 0), 0)
+    if (v.tipo === "salida" && v.cantidad > Math.round(stock * 1000) / 1000) throw new MapError("Stock insuficiente en este galpón", 409)
     const row = await tx.movimientoStock.create({ data: { ...v, sectorId: id } })
     await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: org, tabla: "movimientos_stock", rowPk: row.id, accion: "INSERT" } })
     return row

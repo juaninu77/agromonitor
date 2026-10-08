@@ -13,6 +13,8 @@ export const GET = withAuth(async (request, ctx) => {
 
     const where: Record<string, unknown> = {
       ...scopeCatalogo(ctx.organizacionIds),
+      // Los archivados no se ofrecen para nuevas aplicaciones
+      ...(searchParams.get("archivados") === "1" ? {} : { activo: true }),
     }
 
     if (tipo) {
@@ -48,8 +50,11 @@ export const GET = withAuth(async (request, ctx) => {
       ...producto,
       lotes: producto.lotes.map((lote) => ({
         ...lote,
+        cantidad: decimalToNumber(lote.cantidad),
         costo: decimalToNumber(lote.costo),
       })),
+      stockMinimo: decimalToNumber(producto.stockMinimo),
+      costoReferencia: decimalToNumber(producto.costoReferencia),
     }))
 
     return NextResponse.json({ success: true, data })

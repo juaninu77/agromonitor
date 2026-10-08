@@ -44,7 +44,7 @@ export const GET = withAuth(async (request, ctx) => mapResult(async () => {
     movimientosGalpon: movsGalpon.map(linea),
   }
   const existencias = new Map<string, { id: string; nombre: string; cantidad: number }>()
-  for (const m of stock) { const item = existencias.get(m.productoId) ?? { id: m.productoId, nombre: m.producto.nombre, cantidad: 0 }; item.cantidad += (m.tipo === "salida" ? -1 : 1) * m.cantidad; existencias.set(m.productoId, item) }
+  for (const m of stock) { const item = existencias.get(m.productoId) ?? { id: m.productoId, nombre: m.producto.nombre, cantidad: 0 }; item.cantidad = Math.round((item.cantidad + (m.tipo === "salida" ? -1 : 1) * Number(m.cantidad)) * 1000) / 1000; existencias.set(m.productoId, item) }
   return NextResponse.json({ registros, totalRegistros, page, animales, cultivos, documentos, grupos, movimientos, reservas, productos, existencias: [...existencias.values()], forraje, puedeEditar: ctx.establecimientoIdsConRol(["admin", "encargado"]).includes(s.establecimientoId) }, { headers: { "Cache-Control": "private, no-store" } })
 }))
 export const POST = withAuth(async (request, ctx) => mapResult(async () => {

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server"
+import type { Prisma } from "@prisma/client"
+import { z } from "zod"
 import { scopeOrganizacion } from "@/lib/api/tenant"
 import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
@@ -6,125 +8,123 @@ import { decimalToNumber } from "@/lib/api/serialize"
 import { filtroUbicacion } from "@/lib/inventario/ubicacion"
 import { estadoVencimiento, hoyArgentina } from "@/lib/inventario/fechas"
 import { orgsEscritura } from "@/lib/inventario/service"
+import { aNumero, CERO, saldosPorLote, saldosPorProducto } from "@/lib/inventario/stock"
 
-const STOCK_BAJO_UMBRAL = 10
 const DIAS_VENCIMIENTO_ALERTA = 30
+const query = z.object({
+  page: z.coerce.number().int().min(1).max(100000).default(1),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+  archivados: z.enum(["1", "0"]).optional(),
+})
 
+/**
+ * Stock por producto calculado en SQL (groupBy), con saldo por lote.
+ * - "Stock bajo" usa el mínimo de cada producto; sin mínimo no hay alerta.
+ * - Un lote solo alerta por vencimiento si todavía tiene saldo.
+ */
 export const GET = withAuth(async (request, ctx) => {
   try {
     const searchParams = request.nextUrl.searchParams
+    const q = query.safeParse(Object.fromEntries(searchParams))
+    if (!q.success) return NextResponse.json({ success: false, error: "Parámetros inválidos" }, { status: 400 })
     const tipoFilter = searchParams.get("tipo")
-    const searchFilter = searchParams.get("search")
+    const searchFilter = searchParams.get("search")?.slice(0, 120)
     // Ubicación: el stock se calcula solo con los movimientos de ese galpón (o sin galpón)
-    const ubicacion = filtroUbicacion(searchParams.get("ubicacion"), ctx.establecimientoIds)
+    const ubicacion = filtroUbicacion(searchParams.get("ubicacion"), ctx.establecimientoIds) as Prisma.MovimientoStockWhereInput | null
 
-    const whereProducto: Record<string, unknown> = {
+    const whereProducto: Prisma.ProductoWhereInput = {
       ...scopeOrganizacion(ctx.organizacionIds),
-    }
-
-    if (tipoFilter) {
-      whereProducto.tipo = tipoFilter
-    }
-
-    if (searchFilter) {
-      whereProducto.OR = [
-        { nombre: { contains: searchFilter, mode: "insensitive" } },
-        { principioActivo: { contains: searchFilter, mode: "insensitive" } },
-        { laboratorio: { contains: searchFilter, mode: "insensitive" } },
-      ]
+      ...(q.data.archivados === "1" ? {} : { activo: true }),
+      ...(tipoFilter ? { tipo: tipoFilter } : {}),
+      ...(searchFilter
+        ? { OR: [
+            { nombre: { contains: searchFilter, mode: "insensitive" } },
+            { principioActivo: { contains: searchFilter, mode: "insensitive" } },
+            { laboratorio: { contains: searchFilter, mode: "insensitive" } },
+          ] }
+        : {}),
     }
 
     const productos = await prisma.producto.findMany({
-      where: whereProducto as any,
-      include: {
-        lotes: {
-          orderBy: { vencimiento: "asc" },
-        },
-        movimientosStock: ubicacion ? { where: ubicacion as never } : true,
-      },
+      where: whereProducto,
+      include: { lotes: { orderBy: [{ vencimiento: { sort: "asc", nulls: "last" } }, { createdAt: "asc" }] } },
       orderBy: { nombre: "asc" },
     })
-
+    const ids = productos.map((p) => p.id)
+    const [saldos, { porLote }] = await Promise.all([
+      saldosPorProducto(prisma, ids, ubicacion ?? {}),
+      saldosPorLote(prisma, ids, ubicacion ?? {}),
+    ])
     const hoy = hoyArgentina()
 
-    const productosConStock = productos.filter((p) => !ubicacion || p.movimientosStock.length > 0).map((producto) => {
-      let stockTotal = 0
-      for (const mov of producto.movimientosStock) {
-        if (mov.tipo === "entrada") {
-          stockTotal += mov.cantidad
-        } else if (mov.tipo === "salida") {
-          stockTotal -= mov.cantidad
-        } else if (mov.tipo === "ajuste") {
-          stockTotal += mov.cantidad
-        }
-      }
-
-      const lotesConAlerta = producto.lotes.map((lote) => {
-        const { proximoAVencer, vencido, diasRestantes } = estadoVencimiento(lote.vencimiento, { hoy, diasAlerta: DIAS_VENCIMIENTO_ALERTA })
-
+    const productosConStock = productos
+      // Con ubicación elegida, solo los productos que tuvieron movimientos ahí
+      .filter((p) => !ubicacion || saldos.has(p.id))
+      .map((producto) => {
+        const stock = saldos.get(producto.id) ?? CERO
+        const lotes = producto.lotes.map((lote) => {
+          const saldo = porLote.get(lote.id) ?? CERO
+          const venc = estadoVencimiento(lote.vencimiento, { hoy, diasAlerta: DIAS_VENCIMIENTO_ALERTA })
+          const conSaldo = saldo.gt(0)
+          return {
+            id: lote.id,
+            nroLote: lote.nroLote,
+            vencimiento: lote.vencimiento?.toISOString() ?? null,
+            proveedor: lote.proveedor,
+            cantidad: aNumero(lote.cantidad),
+            saldo: aNumero(saldo)!,
+            unidad: lote.unidad ?? producto.unidad,
+            costo: decimalToNumber(lote.costo),
+            proximoAVencer: conSaldo && venc.proximoAVencer,
+            vencido: conSaldo && venc.vencido,
+            diasRestantes: venc.diasRestantes,
+          }
+        })
+        const minimo = producto.stockMinimo
         return {
-          id: lote.id,
-          nroLote: lote.nroLote,
-          vencimiento: lote.vencimiento?.toISOString() ?? null,
-          proveedor: lote.proveedor,
-          cantidad: lote.cantidad,
-          unidad: lote.unidad,
-          costo: decimalToNumber(lote.costo),
-          proximoAVencer,
-          vencido,
-          diasRestantes,
+          id: producto.id,
+          organizacionId: producto.organizacionId,
+          nombre: producto.nombre,
+          tipo: producto.tipo,
+          principioActivo: producto.principioActivo,
+          laboratorio: producto.laboratorio,
+          retiroDias: producto.retiroDias,
+          dosisReferencia: producto.dosisReferencia,
+          notas: producto.notas,
+          unidad: producto.unidad,
+          stockMinimo: aNumero(minimo),
+          costoReferencia: decimalToNumber(producto.costoReferencia),
+          monedaCosto: producto.monedaCosto,
+          activo: producto.activo,
+          stockTotal: aNumero(stock)!,
+          stockBajo: minimo != null && stock.lte(minimo),
+          tieneVencimientoProximo: lotes.some((l) => l.proximoAVencer),
+          lotes,
         }
       })
-
-      const stockBajo = stockTotal < STOCK_BAJO_UMBRAL
-      const tieneVencimientoProximo = lotesConAlerta.some(
-        (l) => l.proximoAVencer
-      )
-
-      return {
-        id: producto.id,
-        nombre: producto.nombre,
-        tipo: producto.tipo,
-        principioActivo: producto.principioActivo,
-        laboratorio: producto.laboratorio,
-        retiroDias: producto.retiroDias,
-        dosisReferencia: producto.dosisReferencia,
-        notas: producto.notas,
-        stockTotal: Math.round(stockTotal * 100) / 100,
-        stockBajo,
-        tieneVencimientoProximo,
-        lotes: lotesConAlerta,
-      }
-    })
-
-    const totalProductos = productosConStock.length
-    const productosStockBajo = productosConStock.filter((p) => p.stockBajo)
-    const productosConVencimiento = productosConStock.filter(
-      (p) => p.tieneVencimientoProximo
-    )
 
     const ubicaciones = await prisma.sector.findMany({
       where: { establecimientoId: { in: ctx.establecimientoIds }, tipo: "galpon", activo: true },
       select: { id: true, nombre: true, establecimiento: { select: { nombre: true } } },
       orderBy: { nombre: "asc" },
     })
-
-    const tiposUnicos = [
-      ...new Set(productos.map((p) => p.tipo)),
-    ].sort()
+    const { page, limit } = q.data
+    const total = productosConStock.length
 
     return NextResponse.json({
       success: true,
-      data: productosConStock,
+      data: productosConStock.slice((page - 1) * limit, page * limit),
+      pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
       resumen: {
-        totalProductos,
-        productosStockBajo: productosStockBajo.length,
-        productosConVencimientoProximo: productosConVencimiento.length,
-        umbralStockBajo: STOCK_BAJO_UMBRAL,
+        totalProductos: total,
+        productosStockBajo: productosConStock.filter((p) => p.stockBajo).length,
+        productosConVencimientoProximo: productosConStock.filter((p) => p.tieneVencimientoProximo).length,
+        productosSinMinimo: productosConStock.filter((p) => p.stockMinimo == null).length,
         diasAlertaVencimiento: DIAS_VENCIMIENTO_ALERTA,
       },
-      tiposDisponibles: tiposUnicos,
+      tiposDisponibles: [...new Set(productos.map((p) => p.tipo))].sort(),
       puedeEditar: orgsEscritura(ctx).length > 0,
+      organizacionesEditables: orgsEscritura(ctx),
       ubicaciones: ubicaciones.map((u) => ({ id: u.id, nombre: u.nombre, campo: u.establecimiento.nombre })),
     })
   } catch (error) {

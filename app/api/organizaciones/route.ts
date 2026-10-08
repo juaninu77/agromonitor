@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
+import { normalizarRolOrg } from "@/lib/equipo/roles"
 
 // ============================================
 // GET /api/organizaciones
@@ -18,10 +19,17 @@ export const GET = withAuth(async (_request, ctx) => {
         nombre: true,
         slug: true,
         logo: true,
+        membresias: { where: { usuarioId: ctx.userId }, select: { rol: true, accesoTotal: true } },
       },
+      orderBy: { nombre: "asc" },
     })
 
-    return NextResponse.json(organizaciones)
+    // Rol del usuario en cada organización (para permisos de la interfaz y el selector)
+    return NextResponse.json(organizaciones.map(({ membresias, ...o }) => ({
+      ...o,
+      rol: normalizarRolOrg(membresias[0]?.rol),
+      accesoTotal: membresias[0]?.accesoTotal ?? true,
+    })))
   } catch (error) {
     console.error("Error al obtener organizaciones:", error)
     // Log más detallado en desarrollo
@@ -52,34 +60,24 @@ export const GET = withAuth(async (_request, ctx) => {
 export const POST = withAuth(async (request, ctx) => {
   try {
     const body = await request.json()
-    const { nombre } = body
+    const nombre = typeof body?.nombre === "string" ? body.nombre.trim() : ""
 
-    if (!nombre || typeof nombre !== "string") {
+    if (nombre.length < 2 || nombre.length > 120) {
       return NextResponse.json(
-        { error: "El nombre es requerido" },
+        { error: "El nombre es requerido (2 a 120 caracteres)" },
         { status: 400 }
       )
     }
 
-    // Generar slug a partir del nombre
-    const slug = nombre
+    // Slug único: el nombre no tiene por qué ser único entre organizaciones de distintos usuarios
+    const base = nombre
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "") // Remover acentos
       .replace(/[^a-z0-9]+/g, "-")     // Reemplazar caracteres especiales
       .replace(/^-+|-+$/g, "")         // Remover guiones al inicio/final
-
-    // Verificar si el slug ya existe
-    const existente = await prisma.organizacion.findUnique({
-      where: { slug },
-    })
-
-    if (existente) {
-      return NextResponse.json(
-        { error: "Ya existe una organización con ese nombre" },
-        { status: 409 }
-      )
-    }
+      .slice(0, 50)
+    const slug = `${base || "organizacion"}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
 
     // Crear organización y membresía en una transacción
     const organizacion = await prisma.$transaction(async (tx) => {

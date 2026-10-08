@@ -84,13 +84,20 @@ export function withAuth(handler: AuthHandler, options: AuthOptions = {}) {
           organizacion: {
             include: { establecimientos: { select: { id: true } } },
           },
+          establecimientosAcceso: { select: { establecimientoId: true } },
         },
       })
 
+      // Campos accesibles por membresía: todos los de la org, o solo los asignados
+      // cuando accesoTotal = false (propietarios y administradores siempre ven todos).
+      const camposDe = (m: (typeof membresias)[number]) => {
+        if (m.accesoTotal !== false || normalizarRol(m.rol) === "admin") return m.organizacion.establecimientos
+        const permitidos = new Set((m.establecimientosAcceso ?? []).map((a) => a.establecimientoId))
+        return m.organizacion.establecimientos.filter((e) => permitidos.has(e.id))
+      }
+
       const organizacionIds = membresias.map((m) => m.organizacionId)
-      const establecimientoIds = membresias.flatMap((m) =>
-        m.organizacion.establecimientos.map((e) => e.id)
-      )
+      const establecimientoIds = membresias.flatMap((m) => camposDe(m).map((e) => e.id))
 
       // Rol POR organización/establecimiento (fuente de verdad multi-tenant):
       // nunca se colapsa a un rol global entre orgs, para que un rol alto en
@@ -101,7 +108,7 @@ export function withAuth(handler: AuthHandler, options: AuthOptions = {}) {
       for (const m of membresias) {
         const rol = normalizarRol(m.rol) ?? "operario"
         rolPorOrganizacion[m.organizacionId] = rol
-        for (const e of m.organizacion.establecimientos) {
+        for (const e of camposDe(m)) {
           rolPorEstablecimiento[e.id] = rol
           organizacionDeEstablecimiento[e.id] = m.organizacionId
         }

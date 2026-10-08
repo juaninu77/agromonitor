@@ -13,6 +13,7 @@ import {
   Truck,
   Sprout,
   Wallet,
+  Users,
 } from "lucide-react"
 import type { NavItem } from "@/lib/types"
 
@@ -30,5 +31,6 @@ export const navItems: NavItem[] = [
   { title: "Finanzas", href: "/finanzas", icon: Wallet },
   { title: "Administración", href: "/administracion", icon: FolderOpen },
   { title: "Tareas", href: "/tareas", icon: ClipboardList },
+  { title: "Equipo", href: "/configuracion/equipo", icon: Users },
   { title: "Configuración", href: "/configuracion/establecimientos", icon: Settings },
 ]

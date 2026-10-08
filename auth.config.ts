@@ -32,6 +32,9 @@ export const authConfig = {
       const isApiRoute = nextUrl.pathname.startsWith('/api/')
       const isAuthApiRoute = nextUrl.pathname.startsWith('/api/auth')
       const isAuthPage = AUTH_PAGES.some((page) => nextUrl.pathname.startsWith(page))
+      // Invitaciones: públicas (se aceptan con o sin sesión) y sin redirigir a quien ya entró
+      const isInvitacion = nextUrl.pathname.startsWith('/invitacion/') || nextUrl.pathname.startsWith('/api/invitaciones/')
+      if (isInvitacion) return true
 
       if (!isAuthPage && !isAuthApiRoute && !isLoggedIn) {
         if (isApiRoute) {
@@ -52,7 +55,13 @@ export const authConfig = {
       return true
     },
 
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
+      // Perfil editado en «Mi cuenta»: se actualiza el nombre del token sin volver a loguearse
+      if (trigger === 'update' && session && typeof session === 'object') {
+        const datos = session as { nombre?: unknown; apellido?: unknown }
+        if (typeof datos.nombre === 'string') token.nombre = datos.nombre.slice(0, 80)
+        if (typeof datos.apellido === 'string') token.apellido = datos.apellido.slice(0, 80)
+      }
       // Si hay nuevo login, usar esos datos directamente
       if (user) {
         token.id = user.id

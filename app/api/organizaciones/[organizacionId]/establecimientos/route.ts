@@ -21,8 +21,10 @@ export const GET = withAuth(async (_request, ctx) => {
 
     // Obtener establecimientos de la organización
     const establecimientos = await prisma.establecimiento.findMany({
+      // Solo los campos a los que accede el usuario (un miembro puede tener acceso parcial)
       where: {
         organizacionId,
+        id: { in: ctx.establecimientoIds },
       },
       select: {
         id: true,

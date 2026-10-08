@@ -17,6 +17,9 @@ export function OnboardingGuard({ children }: { children: React.ReactNode }) {
   const allowedRoutes = useMemo(() => [
     "/configuracion/onboarding",
     "/configuracion/establecimientos",
+    // Cuenta y equipo funcionan aunque el espacio activo todavía no tenga campos
+    "/configuracion/cuenta",
+    "/configuracion/equipo",
   ], [])
 
   const isAllowedRoute = useMemo(() =>

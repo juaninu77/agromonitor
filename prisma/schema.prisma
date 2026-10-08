@@ -37,13 +37,14 @@ model Usuario {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  sessions       Session[]
-  accounts       Account[]
-  membresias     Membresia[]
-  auditLogs      AuditLog[]
-  tareas         Tarea[]
-  notificaciones Notificacion[]
-  sesionesManga  SesionManga[]
+  sessions             Session[]
+  accounts             Account[]
+  invitacionesEnviadas Invitacion[]   @relation("InvitacionesEnviadas")
+  membresias           Membresia[]
+  auditLogs            AuditLog[]
+  tareas               Tarea[]
+  notificaciones       Notificacion[]
+  sesionesManga        SesionManga[]
 
   @@map("usuarios")
 }
@@ -111,26 +112,72 @@ model Organizacion {
   especies         Especie[]
   razas            Raza[]
   categorias       Categoria[]
+  invitaciones     Invitacion[]
 
   @@map("organizaciones")
 }
 
 model Membresia {
-  id        String   @id @default(uuid()) @db.Uuid
-  rol       String   @default("operario")
-  esActivo  Boolean  @default(true) @map("es_activo")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(uuid()) @db.Uuid
+  /// propietario | admin | encargado | vet | operario (ver lib/equipo/roles.ts)
+  rol           String   @default("operario")
+  esActivo      Boolean  @default(true) @map("es_activo")
+  /// true: accede a todos los campos de la organización; false: solo a los de establecimientosAcceso
+  accesoTotal   Boolean  @default(true) @map("acceso_total")
+  invitadoPorId String?  @map("invitado_por_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   usuarioId      String       @map("usuario_id") @db.Uuid
   usuario        Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   organizacionId String       @map("organizacion_id") @db.Uuid
   organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
 
+  establecimientosAcceso MembresiaEstablecimiento[]
+
   @@unique([usuarioId, organizacionId])
   @@index([usuarioId])
   @@index([organizacionId])
   @@map("membresias")
+}
+
+/// Campos a los que accede un miembro con accesoTotal = false.
+model MembresiaEstablecimiento {
+  membresiaId       String          @map("membresia_id") @db.Uuid
+  membresia         Membresia       @relation(fields: [membresiaId], references: [id], onDelete: Cascade)
+  establecimientoId String          @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id], onDelete: Cascade)
+
+  @@id([membresiaId, establecimientoId])
+  @@index([establecimientoId])
+  @@map("membresia_establecimientos")
+}
+
+/// Invitación a sumarse a una organización. El enlace lleva un token cuyo hash
+/// (SHA-256) es lo único que se guarda; vence y se usa una sola vez.
+model Invitacion {
+  id                 String       @id @default(uuid()) @db.Uuid
+  organizacionId     String       @map("organizacion_id") @db.Uuid
+  organizacion       Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+  email              String
+  rol                String
+  accesoTotal        Boolean      @default(true) @map("acceso_total")
+  establecimientoIds String[]     @default([]) @map("establecimiento_ids") @db.Uuid
+  mensaje            String?
+  tokenHash          String       @unique @map("token_hash")
+  /// pendiente | aceptada | revocada
+  estado             String       @default("pendiente")
+  expiraAt           DateTime     @map("expira_at")
+  invitadoPorId      String       @map("invitado_por_id") @db.Uuid
+  invitadoPor        Usuario      @relation("InvitacionesEnviadas", fields: [invitadoPorId], references: [id], onDelete: Cascade)
+  aceptadaPorId      String?      @map("aceptada_por_id") @db.Uuid
+  aceptadaAt         DateTime?    @map("aceptada_at")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+
+  @@index([organizacionId, estado])
+  @@index([email])
+  @@map("invitaciones")
 }
 
 // ============================================
@@ -235,6 +282,7 @@ model Establecimiento {
   movimientosFinancieros MovimientoFinanciero[]
   tramites               Tramite[]
   documentosArchivo      DocumentoArchivo[]
+  miembrosConAcceso      MembresiaEstablecimiento[]
 
   @@unique([organizacionId, nombre])
   @@map("establecimientos")

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
+import { usuarioConAccesoACampo } from "@/lib/equipo/acceso"
 import { logAudit } from "@/lib/api/audit-log"
 
 const tareaSchema = z.object({
@@ -140,6 +141,11 @@ export const POST = withAuth(async (request, ctx) => {
         { error: "No tienes acceso a este establecimiento" },
         { status: 403 }
       )
+    }
+
+    // Solo se asigna a alguien del equipo con acceso a ese campo
+    if (data.asignadoAId && !(await usuarioConAccesoACampo(data.asignadoAId, data.establecimientoId))) {
+      return NextResponse.json({ error: "La persona asignada no tiene acceso a este campo" }, { status: 400 })
     }
 
     // El lugar debe ser del mismo campo y estar activo

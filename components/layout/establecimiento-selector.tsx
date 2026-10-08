@@ -1,5 +1,6 @@
 "use client"
 
+import { normalizarRolOrg, ROL_INFO } from "@/lib/equipo/roles"
 import * as React from "react"
 import { Check, ChevronsUpDown, Building2, MapPin, Loader2, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -157,7 +158,8 @@ export function EstablecimientoSelector() {
                         }}
                       >
                         <Building2 className="mr-2 h-4 w-4 text-muted-foreground" />
-                        <span>{org.nombre}</span>
+                        <span className="flex-1">{org.nombre}</span>
+                        {org.rol && <span className="text-xs text-muted-foreground">{ROL_INFO[normalizarRolOrg(org.rol)].label}</span>}
                       </CommandItem>
                     ))}
                 </CommandGroup>

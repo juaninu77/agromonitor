@@ -202,7 +202,16 @@ export default function EstablecimientosPage() {
 
       <div className="mt-8 border-t pt-6">
         <h3 className="text-lg font-semibold mb-4">Otras configuraciones</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card
+            className="cursor-pointer hover:bg-accent/50 transition-colors"
+            onClick={() => router.push("/configuracion/equipo")}
+          >
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Equipo y permisos</CardTitle>
+              <CardDescription>Invitar personas, roles y acceso a campos</CardDescription>
+            </CardHeader>
+          </Card>
           <Card
             className="cursor-pointer hover:bg-accent/50 transition-colors"
             onClick={() => router.push("/configuracion/catalogo")}

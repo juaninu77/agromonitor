@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
+import { usuarioConAccesoACampo } from "@/lib/equipo/acceso"
 import { scopeEstablecimiento } from "@/lib/api/tenant"
 import { logAudit } from "@/lib/api/audit-log"
 
@@ -87,6 +88,11 @@ export const PATCH = withAuth(async (request, ctx) => {
     }
 
     const data = parsed.data
+
+    // Solo se asigna a alguien del equipo con acceso a ese campo
+    if (data.asignadoAId && !(await usuarioConAccesoACampo(data.asignadoAId, existingTarea.establecimientoId))) {
+      return NextResponse.json({ error: "La persona asignada no tiene acceso a este campo" }, { status: 400 })
+    }
 
     if (data.sectorId) {
       const sector = await prisma.sector.findFirst({ where: { id: data.sectorId, establecimientoId: existingTarea.establecimientoId, activo: true }, select: { id: true } })

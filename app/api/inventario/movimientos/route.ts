@@ -73,7 +73,8 @@ export const GET = withAuth(async (request, ctx) => {
       data: movimientos.map((m) => ({
         id: m.id,
         tipo: m.tipo,
-        cantidad: m.cantidad,
+        cantidad: Number(m.cantidad),
+        operacionId: m.operacionId,
         motivo: m.motivo,
         fecha: m.fecha.toISOString(),
         createdAt: m.createdAt.toISOString(),
@@ -113,7 +114,7 @@ export const POST = withAuth(async (request, ctx) => {
         data: {
           id: movimiento.id,
           tipo: movimiento.tipo,
-          cantidad: movimiento.cantidad,
+          cantidad: Number(movimiento.cantidad),
           motivo: movimiento.motivo,
           fecha: movimiento.fecha.toISOString(),
           createdAt: movimiento.createdAt.toISOString(),

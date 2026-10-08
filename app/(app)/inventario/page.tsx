@@ -28,6 +28,7 @@ import {
 import { format, formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
 import { MovimientoStockDialog } from "@/components/inventario/movimiento-stock-dialog"
+import { ConfigurarProductoDialog, IngresarLoteDialog } from "@/components/inventario/producto-dialogs"
 import { formatoDia, textoVencimiento } from "@/lib/inventario/fechas"
 
 // ============================================
@@ -40,6 +41,7 @@ interface LoteProductoUI {
   vencimiento: string | null
   proveedor: string | null
   cantidad: number | null
+  saldo: number
   unidad: string | null
   costo: number | null
   proximoAVencer: boolean
@@ -56,6 +58,11 @@ interface ProductoStock {
   retiroDias: number
   dosisReferencia: string | null
   notas: string | null
+  unidad: string
+  stockMinimo: number | null
+  costoReferencia: number | null
+  monedaCosto: string
+  activo: boolean
   stockTotal: number
   stockBajo: boolean
   tieneVencimientoProximo: boolean
@@ -66,7 +73,7 @@ interface Resumen {
   totalProductos: number
   productosStockBajo: number
   productosConVencimientoProximo: number
-  umbralStockBajo: number
+  productosSinMinimo: number
   diasAlertaVencimiento: number
 }
 
@@ -123,6 +130,8 @@ export default function InventarioPage() {
   const [movPage, setMovPage] = useState(1)
 
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [configurando, setConfigurando] = useState<ProductoStock | null>(null)
+  const [ingresandoLote, setIngresandoLote] = useState<ProductoStock | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   // ---- Fetch inventario ----
@@ -223,13 +232,14 @@ export default function InventarioPage() {
       accessorFn: (row) => (
         <div className="flex items-center gap-2">
           <span className={row.stockBajo ? "font-bold text-destructive" : "font-medium"}>
-            {row.stockTotal}
+            {row.stockTotal.toLocaleString("es-AR")} <span className="text-xs font-normal text-muted-foreground">{row.unidad}</span>
           </span>
           {row.stockBajo && (
             <Badge variant="destructive" className="text-xs">
               Bajo
             </Badge>
           )}
+          <span className="text-xs text-muted-foreground">{row.stockMinimo != null ? `mín. ${row.stockMinimo.toLocaleString("es-AR")}` : "sin mínimo"}</span>
         </div>
       ),
     },
@@ -238,7 +248,7 @@ export default function InventarioPage() {
       header: "Lotes",
       accessorFn: (row) => (
         <div className="flex items-center gap-1">
-          <span>{row.lotes.length}</span>
+          <span title={row.lotes.map((l) => `${l.nroLote}: ${l.saldo.toLocaleString("es-AR")}`).join("\n")}>{row.lotes.filter((l) => l.saldo > 0).length} con saldo</span>
           {row.tieneVencimientoProximo && (
             <AlertTriangle className="h-4 w-4 text-amber-500" />
           )}
@@ -269,6 +279,18 @@ export default function InventarioPage() {
         )
       },
     },
+    ...(puedeEditar
+      ? [{
+          id: "acciones",
+          header: "",
+          accessorFn: (row: ProductoStock) => (
+            <div className="flex justify-end gap-1">
+              <Button size="sm" variant="outline" onClick={() => setIngresandoLote(row)}>Ingresar lote</Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfigurando(row)}>Configurar</Button>
+            </div>
+          ),
+        } satisfies ColumnDef<ProductoStock>]
+      : []),
   ]
 
   // ---- Columnas de la tabla de Movimientos ----
@@ -402,6 +424,8 @@ export default function InventarioPage() {
             Nuevo Movimiento
           </Button>
         )}
+        <ConfigurarProductoDialog producto={configurando} onOpenChange={(o) => !o && setConfigurando(null)} onGuardado={() => { fetchInventario(); fetchMovimientos() }} />
+        <IngresarLoteDialog producto={ingresandoLote} onOpenChange={(o) => !o && setIngresandoLote(null)} onGuardado={() => { fetchInventario(); fetchMovimientos() }} />
         <MovimientoStockDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
@@ -439,7 +463,7 @@ export default function InventarioPage() {
               {loadingStock ? "..." : resumen?.productosStockBajo ?? 0}
             </div>
             <p className="text-xs text-muted-foreground">
-              Menos de {resumen?.umbralStockBajo ?? 10} unidades
+              En o debajo de su stock mínimo{resumen?.productosSinMinimo ? ` · ${resumen.productosSinMinimo} sin mínimo` : ""}
             </p>
           </CardContent>
         </Card>
@@ -709,12 +733,10 @@ export default function InventarioPage() {
                           )}
                         </p>
                       )}
-                      {l.cantidad !== null && (
-                        <p className="text-sm">
-                          <span className="text-muted-foreground">Cantidad:</span>{" "}
-                          {l.cantidad} {l.unidad ?? ""}
-                        </p>
-                      )}
+                      <p className="text-sm">
+                        <span className="text-muted-foreground">Saldo:</span>{" "}
+                        {l.saldo.toLocaleString("es-AR")} {l.unidad ?? ""}
+                      </p>
                     </CardContent>
                   </Card>
                 ))}

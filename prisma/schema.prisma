@@ -404,14 +404,20 @@ model Lote {
 // ============================================
 
 model Producto {
-  id              String  @id @default(uuid()) @db.Uuid
+  id              String   @id @default(uuid()) @db.Uuid
   nombre          String
   tipo            String // 'vacuna' | 'antiparasitario' | 'antibiotico' | 'mineral' | 'vitaminico' | 'otro'
-  principioActivo String? @map("principio_activo")
+  principioActivo String?  @map("principio_activo")
   laboratorio     String?
-  retiroDias      Int     @default(0) @map("retiro_dias")
-  dosisReferencia String? @map("dosis_referencia")
+  retiroDias      Int      @default(0) @map("retiro_dias")
+  dosisReferencia String?  @map("dosis_referencia")
   notas           String?
+  // Inventario: unidad en la que se cuenta el stock, punto de reposición y costo de referencia
+  unidad          String   @default("unidades")
+  stockMinimo     Decimal? @map("stock_minimo") @db.Decimal(14, 3)
+  costoReferencia Decimal? @map("costo_referencia") @db.Decimal(12, 2)
+  monedaCosto     String   @default("ARS") @map("moneda_costo")
+  activo          Boolean  @default(true)
 
   // Tenant scoping (backfill: si hay una sola organización se asigna a ella)
   organizacionId String?       @map("organizacion_id") @db.Uuid
@@ -433,7 +439,7 @@ model LoteProducto {
   nroLote     String    @map("nro_lote")
   vencimiento DateTime? @db.Date
   proveedor   String? // Legado: texto libre. Usar proveedorRef (FK) para datos nuevos.
-  cantidad    Float?
+  cantidad    Decimal?  @db.Decimal(14, 3) // Cantidad inicial (entra al stock como movimiento)
   unidad      String?
   costo       Decimal?  @db.Decimal(12, 2)
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -1183,15 +1189,17 @@ model Notificacion {
 // ============================================
 
 model MovimientoStock {
-  sectorId  String?  @map("sector_id") @db.Uuid
-  sector    Sector?  @relation(fields: [sectorId], references: [id], onDelete: Restrict)
-  clave     String?  @unique @db.Uuid
-  id        String   @id @default(uuid()) @db.Uuid
-  tipo      String // 'entrada' | 'salida' | 'ajuste'
-  cantidad  Float
-  motivo    String?
-  fecha     DateTime @default(now())
-  createdAt DateTime @default(now()) @map("created_at")
+  sectorId    String?  @map("sector_id") @db.Uuid
+  sector      Sector?  @relation(fields: [sectorId], references: [id], onDelete: Restrict)
+  clave       String?  @unique @db.Uuid
+  // Una salida sin lote se reparte entre lotes (primero el que vence antes): todas sus filas comparten operacionId
+  operacionId String?  @map("operacion_id") @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
+  tipo        String // 'entrada' | 'salida' | 'ajuste'
+  cantidad    Decimal  @db.Decimal(14, 3) // Ajuste con signo: negativo = faltante
+  motivo      String?
+  fecha       DateTime @default(now())
+  createdAt   DateTime @default(now()) @map("created_at")
 
   productoId     String        @map("producto_id") @db.Uuid
   producto       Producto      @relation(fields: [productoId], references: [id])
@@ -1199,6 +1207,7 @@ model MovimientoStock {
   loteProducto   LoteProducto? @relation(fields: [loteProductoId], references: [id])
 
   @@index([productoId])
+  @@index([operacionId])
   @@index([loteProductoId])
   @@index([sectorId])
   @@index([fecha])

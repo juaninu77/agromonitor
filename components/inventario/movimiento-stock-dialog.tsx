@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { hoyArgentina } from "@/lib/inventario/fechas"
+import { formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import { movimientoStockSchema } from "@/lib/inventario/validation"
 
 type Entrada = z.input<typeof movimientoStockSchema>
@@ -21,7 +21,7 @@ const selectClass = "flex h-10 w-full rounded-md border border-input bg-backgrou
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
-  productos: { id: string; nombre: string; tipo: string; stockTotal: number }[]
+  productos: { id: string; nombre: string; tipo: string; stockTotal: number; unidad: string; lotes: { id: string; nroLote: string; saldo: number; vencido: boolean; vencimiento: string | null }[] }[]
   onGuardado: () => void
 }
 
@@ -48,6 +48,8 @@ export function MovimientoStockDialog({ open, onOpenChange, productos, onGuardad
   useEffect(() => { if (tipo !== "ajuste") setValue("sentido", null) }, [tipo, setValue])
   const producto = productos.find((p) => p.id === productoId)
   const resta = tipo === "salida" || (tipo === "ajuste" && sentido === "restar")
+  const lotesElegibles = (producto?.lotes ?? []).filter((l) => !resta || l.saldo > 0)
+  useEffect(() => { setValue("loteProductoId", null) }, [productoId, setValue])
 
   async function guardar(datos: Salida) {
     setErrorServidor("")
@@ -82,7 +84,7 @@ export function MovimientoStockDialog({ open, onOpenChange, productos, onGuardad
               <option value="">Seleccionar producto</option>
               {productos.map((p) => <option key={p.id} value={p.id}>{p.nombre} ({p.tipo})</option>)}
             </select>
-            {producto && <p className="text-xs text-muted-foreground">Stock actual: {producto.stockTotal.toLocaleString("es-AR")}</p>}
+            {producto && <p className="text-xs text-muted-foreground">Stock actual: {producto.stockTotal.toLocaleString("es-AR")} {producto.unidad}</p>}
             {error("productoId")}
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -114,9 +116,23 @@ export function MovimientoStockDialog({ open, onOpenChange, productos, onGuardad
           <div className="space-y-1.5">
             <Label htmlFor="mov-cantidad">Cantidad</Label>
             <Input id="mov-cantidad" type="number" inputMode="decimal" step="0.01" min="0.01" placeholder="Ej: 50" {...register("cantidad")} />
-            {resta && producto && <p className="text-xs text-muted-foreground">Disponible: {producto.stockTotal.toLocaleString("es-AR")}</p>}
+            {resta && producto && <p className="text-xs text-muted-foreground">Disponible: {producto.stockTotal.toLocaleString("es-AR")} {producto.unidad}</p>}
             {error("cantidad")}
           </div>
+          {lotesElegibles.length > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="mov-lote">Lote (opcional)</Label>
+              <select id="mov-lote" className={selectClass} {...register("loteProductoId", { setValueAs: (v) => v || null })}>
+                <option value="">{resta ? "Automático: primero el que vence antes" : "Sin lote"}</option>
+                {lotesElegibles.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.nroLote} · saldo {l.saldo.toLocaleString("es-AR")}{l.vencimiento ? ` · vence ${formatoDia(l.vencimiento)}` : ""}{l.vencido ? " (vencido)" : ""}
+                  </option>
+                ))}
+              </select>
+              {error("loteProductoId")}
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="mov-motivo">Motivo{tipo === "ajuste" ? "" : " (opcional)"}</Label>
             <Input id="mov-motivo" placeholder={tipo === "ajuste" ? "Ej: recuento del 30/09, frasco roto…" : "Ej: compra a proveedor, uso en sanidad…"} {...register("motivo")} />

@@ -8,8 +8,10 @@
 
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
-import { loteSchema, movimientoStockSchema, productoSchema } from "./validation"
-import { hoyArgentina } from "./fechas"
+import { loteSchema, movimientoStockSchema, productoConfigSchema, productoSchema } from "./validation"
+import { randomUUID } from "node:crypto"
+import { estadoVencimiento, hoyArgentina } from "./fechas"
+import { CERO, repartirFefo, saldosPorLote, saldosPorProducto, type Asignacion } from "./stock"
 import { prisma } from "@/lib/prisma"
 import type { AuthContext } from "@/lib/api/with-auth"
 
@@ -30,50 +32,70 @@ export async function productoEditable(tx: Prisma.TransactionClient, ctx: AuthCo
 
 /** Saldo del producto (todas las ubicaciones). Los ajustes se guardan con signo. */
 export async function saldoProducto(tx: Prisma.TransactionClient, productoId: string) {
-  const rows = await tx.movimientoStock.groupBy({ by: ["tipo"], where: { productoId }, _sum: { cantidad: true } })
-  return rows.reduce((n, r) => n + (r.tipo === "salida" ? -1 : 1) * (r._sum.cantidad ?? 0), 0)
+  return (await saldosPorProducto(tx, [productoId])).get(productoId) ?? CERO
 }
 
-const redondear = (n: number) => Math.round(n * 1000) / 1000
+const fmt = (d: Prisma.Decimal) => d.toDecimalPlaces(3).toNumber().toLocaleString("es-AR")
 
 export async function registrarMovimientoStock(ctx: AuthContext, raw: unknown) {
   const v = movimientoStockSchema.parse(raw)
-  // Ajuste que resta: se guarda negativo para que todos los saldos lo descuenten
-  const cantidadFirmada = v.tipo === "ajuste" && v.sentido === "restar" ? -v.cantidad : v.cantidad
+  const cantidad = new Prisma.Decimal(v.cantidad)
+  const resta = v.tipo === "salida" || (v.tipo === "ajuste" && v.sentido === "restar")
+  // Un ajuste que resta se guarda negativo para que todos los saldos lo descuenten
+  const signo = v.tipo === "ajuste" && v.sentido === "restar" ? -1 : 1
   return prisma.$transaction(async (tx) => {
     const producto = await productoEditable(tx, ctx, v.productoId)
+    if (!producto.activo) throw new InventarioError("El producto está archivado: reactivalo para registrar movimientos")
     if (v.clave) {
       const prior = await tx.movimientoStock.findUnique({ where: { clave: v.clave } })
       if (prior) {
-        if (prior.productoId !== v.productoId || prior.tipo !== v.tipo || prior.cantidad !== cantidadFirmada || (prior.loteProductoId ?? null) !== v.loteProductoId) {
+        // Una salida repartida entre lotes son varias filas con el mismo operacionId
+        const filas = prior.operacionId ? await tx.movimientoStock.findMany({ where: { operacionId: prior.operacionId } }) : [prior]
+        const total = filas.reduce((n, f) => n.plus(f.cantidad), new Prisma.Decimal(0))
+        const loteIgual = !v.loteProductoId || (filas.length === 1 && prior.loteProductoId === v.loteProductoId)
+        if (prior.productoId !== v.productoId || prior.tipo !== v.tipo || !total.equals(cantidad.times(signo)) || !loteIgual) {
           throw new InventarioError("La clave de operación ya fue utilizada con otros datos", 409)
         }
-        return { movimiento: prior, producto, repetido: true }
+        return { movimiento: prior, filas, producto, repetido: true }
       }
     }
-    if (v.loteProductoId) {
-      const lote = await tx.loteProducto.findFirst({ where: { id: v.loteProductoId, productoId: v.productoId } })
-      if (!lote) throw new InventarioError("El lote no existe o no pertenece al producto", 400)
-    }
-    if (cantidadFirmada < 0 || v.tipo === "salida") {
+    const lote = v.loteProductoId ? await tx.loteProducto.findFirst({ where: { id: v.loteProductoId, productoId: v.productoId } }) : null
+    if (v.loteProductoId && !lote) throw new InventarioError("El lote no existe o no pertenece al producto", 400)
+
+    let asignaciones: Asignacion[] = [{ loteProductoId: v.loteProductoId, cantidad }]
+    if (resta) {
       const saldo = await saldoProducto(tx, v.productoId)
-      if (redondear(saldo - Math.abs(cantidadFirmada)) < 0) {
-        throw new InventarioError(`Stock insuficiente: hay ${redondear(Math.max(saldo, 0)).toLocaleString("es-AR")} disponibles`, 409)
+      if (saldo.lt(cantidad)) throw new InventarioError(`Stock insuficiente: hay ${fmt(Prisma.Decimal.max(saldo, 0))} ${producto.unidad} disponibles`, 409)
+      const { porLote, sinLote } = await saldosPorLote(tx, [v.productoId])
+      if (lote) {
+        const saldoLote = porLote.get(lote.id) ?? CERO
+        if (saldoLote.lt(cantidad)) throw new InventarioError(`El lote ${lote.nroLote} tiene ${fmt(Prisma.Decimal.max(saldoLote, 0))} ${producto.unidad}`, 409)
+      } else {
+        // Sin lote elegido: se descuenta primero del lote vigente que vence antes
+        const lotes = await tx.loteProducto.findMany({ where: { productoId: v.productoId, id: { in: [...porLote.keys()] } } })
+        const hoy = hoyArgentina()
+        const reparto = repartirFefo(cantidad, lotes.map((l) => ({ id: l.id, vencimiento: l.vencimiento, createdAt: l.createdAt, vencido: estadoVencimiento(l.vencimiento, { hoy }).vencido, saldo: porLote.get(l.id) ?? CERO })), sinLote.get(v.productoId) ?? CERO)
+        if (!reparto) throw new InventarioError(`Stock insuficiente: hay ${fmt(Prisma.Decimal.max(saldo, 0))} ${producto.unidad} disponibles`, 409)
+        asignaciones = reparto
       }
     }
+
     // Fecha del día elegido (mediodía de Argentina, para que no cambie de día por zona horaria) o ahora
     const fecha = v.fecha && v.fecha !== hoyArgentina() ? new Date(`${v.fecha}T12:00:00-03:00`) : new Date()
-    const movimiento = await tx.movimientoStock.create({
-      data: { productoId: v.productoId, loteProductoId: v.loteProductoId, tipo: v.tipo, cantidad: cantidadFirmada, motivo: v.motivo, fecha, clave: v.clave },
-      include: { producto: { select: { id: true, nombre: true, tipo: true } }, loteProducto: { select: { id: true, nroLote: true, vencimiento: true } } },
-    })
+    const operacionId = asignaciones.length > 1 ? randomUUID() : null
+    const filas = []
+    for (const [i, a] of asignaciones.entries()) {
+      filas.push(await tx.movimientoStock.create({
+        data: { productoId: v.productoId, loteProductoId: a.loteProductoId, tipo: v.tipo, cantidad: a.cantidad.times(signo), motivo: v.motivo, fecha, clave: i === 0 ? v.clave : null, operacionId },
+      }))
+    }
     await tx.auditLog.create({
       data: {
-        usuarioId: ctx.userId, organizacionId: producto.organizacionId, tabla: "movimientos_stock", rowPk: movimiento.id, accion: "INSERT",
-        detalle: { productoId: v.productoId, productoNombre: producto.nombre, tipo: v.tipo, cantidad: cantidadFirmada, motivo: v.motivo, loteProductoId: v.loteProductoId },
+        usuarioId: ctx.userId, organizacionId: producto.organizacionId, tabla: "movimientos_stock", rowPk: filas[0].id, accion: "INSERT",
+        detalle: { productoId: v.productoId, productoNombre: producto.nombre, tipo: v.tipo, cantidad: cantidad.times(signo).toNumber(), motivo: v.motivo, lotes: asignaciones.map((a) => ({ loteProductoId: a.loteProductoId, cantidad: a.cantidad.toNumber() })) },
       },
     })
-    return { movimiento, producto, repetido: false }
+    return { movimiento: filas[0], filas, producto, repetido: false }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15000 })
 }
 
@@ -99,10 +121,36 @@ export async function crearProducto(ctx: AuthContext, raw: unknown) {
   })
 }
 
+/** Unidad, stock mínimo, costo de referencia y archivado. Archivar exige stock en cero. */
+export async function configurarProducto(ctx: AuthContext, productoId: string, raw: unknown) {
+  const v = productoConfigSchema.parse(raw)
+  return prisma.$transaction(async (tx) => {
+    const producto = await productoEditable(tx, ctx, productoId)
+    if (v.activo === false && producto.activo) {
+      const saldo = await saldoProducto(tx, productoId)
+      if (!saldo.isZero()) throw new InventarioError(`Tiene ${fmt(saldo)} ${producto.unidad} en stock: registrá la salida o un ajuste antes de archivarlo`, 409)
+    }
+    const actualizado = await tx.producto.update({ where: { id: productoId }, data: v })
+    await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: producto.organizacionId, tabla: "productos", rowPk: productoId, accion: "UPDATE", detalle: JSON.parse(JSON.stringify(v)) } })
+    return actualizado
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+}
+
 export async function crearLote(ctx: AuthContext, productoId: string, raw: unknown) {
   const v = loteSchema.parse(raw)
   return prisma.$transaction(async (tx) => {
     const producto = await productoEditable(tx, ctx, productoId)
+    if (!producto.activo) throw new InventarioError("El producto está archivado: reactivalo para cargar lotes")
+    if (v.clave) {
+      const prior = await tx.movimientoStock.findUnique({ where: { clave: v.clave }, include: { loteProducto: true } })
+      if (prior?.loteProducto) {
+        if (prior.productoId !== productoId || prior.loteProducto.nroLote !== v.nroLote) throw new InventarioError("La clave de operación ya fue utilizada con otros datos", 409)
+        return prior.loteProducto
+      }
+    }
+    if (await tx.loteProducto.findFirst({ where: { productoId, nroLote: { equals: v.nroLote, mode: "insensitive" } }, select: { id: true } })) {
+      throw new InventarioError(`Ya existe el lote ${v.nroLote} de este producto`, 409)
+    }
     if (v.proveedorId && !await tx.proveedor.findFirst({ where: { id: v.proveedorId, organizacionId: producto.organizacionId! }, select: { id: true } })) {
       throw new InventarioError("Proveedor no encontrado en la organización", 404)
     }
@@ -110,6 +158,11 @@ export async function crearLote(ctx: AuthContext, productoId: string, raw: unkno
       data: { productoId, nroLote: v.nroLote, vencimiento: v.vencimiento ? new Date(`${v.vencimiento}T00:00:00Z`) : null, proveedor: v.proveedor, proveedorId: v.proveedorId, cantidad: v.cantidad, unidad: v.unidad, costo: v.costo },
     })
     await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: producto.organizacionId, tabla: "lotes_producto", rowPk: lote.id, accion: "INSERT", detalle: { productoId, nroLote: lote.nroLote } } })
+    // El alta de un lote con cantidad es la entrada al stock (un solo libro de movimientos)
+    if (v.cantidad && v.cantidad > 0) {
+      const mov = await tx.movimientoStock.create({ data: { productoId, loteProductoId: lote.id, tipo: "entrada", cantidad: v.cantidad, motivo: `Ingreso del lote ${lote.nroLote}`, clave: v.clave } })
+      await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: producto.organizacionId, tabla: "movimientos_stock", rowPk: mov.id, accion: "INSERT", detalle: { productoId, loteProductoId: lote.id, tipo: "entrada", cantidad: v.cantidad } } })
+    }
     return lote
   })
 }

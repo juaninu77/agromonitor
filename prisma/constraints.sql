@@ -112,6 +112,31 @@ BEGIN
       CHECK (cultivo_id IS NULL OR concepto = 'cosecha') NOT VALID;
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'movimientos_stock_cantidad_chk') THEN
+    ALTER TABLE movimientos_stock ADD CONSTRAINT movimientos_stock_cantidad_chk
+      CHECK (cantidad <> 0 AND (tipo = 'ajuste' OR cantidad > 0)) NOT VALID;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'lotes_producto_cantidad_chk') THEN
+    ALTER TABLE lotes_producto ADD CONSTRAINT lotes_producto_cantidad_chk
+      CHECK (cantidad IS NULL OR cantidad >= 0) NOT VALID;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'productos_stock_minimo_chk') THEN
+    ALTER TABLE productos ADD CONSTRAINT productos_stock_minimo_chk
+      CHECK (stock_minimo IS NULL OR stock_minimo >= 0) NOT VALID;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'productos_costo_referencia_chk') THEN
+    ALTER TABLE productos ADD CONSTRAINT productos_costo_referencia_chk
+      CHECK (costo_referencia IS NULL OR costo_referencia >= 0) NOT VALID;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'productos_moneda_costo_chk') THEN
+    ALTER TABLE productos ADD CONSTRAINT productos_moneda_costo_chk
+      CHECK (moneda_costo IN ('ARS', 'USD')) NOT VALID;
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sesiones_manga_estado_chk') THEN
     ALTER TABLE sesiones_manga ADD CONSTRAINT sesiones_manga_estado_chk
       CHECK (estado IN ('activa', 'pausada', 'finalizada')) NOT VALID;

@@ -1,23 +1,10 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
-import { logAudit } from "@/lib/api/audit-log"
 import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 import { parsePagination } from "@/lib/api/pagination"
 import { filtroUbicacion } from "@/lib/inventario/ubicacion"
-
-const movimientoSchema = z.object({
-  productoId: z.string().uuid("ID de producto inválido"),
-  loteProductoId: z.string().uuid("ID de lote inválido").optional().nullable(),
-  tipo: z.enum(["entrada", "salida", "ajuste"], {
-    errorMap: () => ({ message: "Tipo debe ser 'entrada', 'salida' o 'ajuste'" }),
-  }),
-  cantidad: z
-    .number({ invalid_type_error: "La cantidad debe ser un número" })
-    .positive("La cantidad debe ser mayor a 0"),
-  motivo: z.string().optional().nullable(),
-  fecha: z.string().datetime().optional(),
-})
+import { registrarMovimientoStock, respuestaError } from "@/lib/inventario/service"
 
 export const GET = withAuth(async (request, ctx) => {
   try {
@@ -48,13 +35,15 @@ export const GET = withAuth(async (request, ctx) => {
     const ubicacion = filtroUbicacion(searchParams.get("ubicacion"), ctx.establecimientoIds)
     if (ubicacion) Object.assign(where, ubicacion)
 
+    // Rango de días en hora de Argentina (AAAA-MM-DD), ambos inclusive
+    const dia = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+    if ((fechaDesde && !dia.safeParse(fechaDesde).success) || (fechaHasta && !dia.safeParse(fechaHasta).success)) {
+      return NextResponse.json({ success: false, error: "Fechas inválidas (AAAA-MM-DD)" }, { status: 400 })
+    }
     if (fechaDesde || fechaHasta) {
-      where.fecha = {}
-      if (fechaDesde) {
-        ;(where.fecha as Record<string, unknown>).gte = new Date(fechaDesde)
-      }
-      if (fechaHasta) {
-        ;(where.fecha as Record<string, unknown>).lte = new Date(fechaHasta)
+      where.fecha = {
+        ...(fechaDesde ? { gte: new Date(`${fechaDesde}T00:00:00-03:00`) } : {}),
+        ...(fechaHasta ? { lt: new Date(new Date(`${fechaHasta}T00:00:00-03:00`).getTime() + 86_400_000) } : {}),
       }
     }
 
@@ -117,86 +106,7 @@ export const GET = withAuth(async (request, ctx) => {
 
 export const POST = withAuth(async (request, ctx) => {
   try {
-    const body = await request.json()
-    const parsed = movimientoSchema.safeParse(body)
-
-    if (!parsed.success) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Datos inválidos",
-          details: parsed.error.flatten().fieldErrors,
-        },
-        { status: 400 }
-      )
-    }
-
-    const { productoId, loteProductoId, tipo, cantidad, motivo, fecha } =
-      parsed.data
-
-    const producto = await prisma.producto.findFirst({
-      where: {
-        id: productoId,
-        organizacionId: { in: ctx.organizacionIds },
-      },
-    })
-
-    if (!producto) {
-      return NextResponse.json(
-        { success: false, error: "Producto no encontrado" },
-        { status: 404 }
-      )
-    }
-
-    if (loteProductoId) {
-      const lote = await prisma.loteProducto.findUnique({
-        where: { id: loteProductoId },
-      })
-
-      if (!lote || lote.productoId !== productoId) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Lote de producto no encontrado o no pertenece al producto",
-          },
-          { status: 400 }
-        )
-      }
-    }
-
-    const movimiento = await prisma.movimientoStock.create({
-      data: {
-        productoId,
-        loteProductoId: loteProductoId ?? null,
-        tipo,
-        cantidad,
-        motivo: motivo ?? null,
-        fecha: fecha ? new Date(fecha) : new Date(),
-      },
-      include: {
-        producto: { select: { id: true, nombre: true, tipo: true } },
-        loteProducto: {
-          select: { id: true, nroLote: true, vencimiento: true },
-        },
-      },
-    })
-
-    await logAudit({
-      userId: ctx.userId,
-      tabla: "movimientos_stock",
-      rowPk: movimiento.id,
-      accion: "INSERT",
-      organizacionId: producto.organizacionId ?? null,
-      detalle: {
-        productoId,
-        productoNombre: producto.nombre,
-        tipo,
-        cantidad,
-        motivo,
-        loteProductoId,
-      },
-    })
-
+    const { movimiento, repetido } = await registrarMovimientoStock(ctx, await request.json())
     return NextResponse.json(
       {
         success: true,
@@ -207,19 +117,13 @@ export const POST = withAuth(async (request, ctx) => {
           motivo: movimiento.motivo,
           fecha: movimiento.fecha.toISOString(),
           createdAt: movimiento.createdAt.toISOString(),
-          producto: movimiento.producto,
-          loteProducto: movimiento.loteProducto
-            ? {
-                ...movimiento.loteProducto,
-                vencimiento:
-                  movimiento.loteProducto.vencimiento?.toISOString() ?? null,
-              }
-            : null,
         },
       },
-      { status: 201 }
+      { status: repetido ? 200 : 201 }
     )
   } catch (error) {
+    const r = respuestaError(error)
+    if (r) return NextResponse.json(r.body, { status: r.status })
     console.error("Error al crear movimiento de stock:", error)
     return NextResponse.json(
       { success: false, error: "Error interno del servidor" },

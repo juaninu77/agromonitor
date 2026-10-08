@@ -6,15 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -35,6 +27,8 @@ import {
 } from "lucide-react"
 import { format, formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
+import { MovimientoStockDialog } from "@/components/inventario/movimiento-stock-dialog"
+import { formatoDia, textoVencimiento } from "@/lib/inventario/fechas"
 
 // ============================================
 // TIPOS
@@ -50,6 +44,7 @@ interface LoteProductoUI {
   costo: number | null
   proximoAVencer: boolean
   vencido: boolean
+  diasRestantes: number | null
 }
 
 interface ProductoStock {
@@ -111,6 +106,15 @@ export default function InventarioPage() {
   const [loadingMov, setLoadingMov] = useState(true)
 
   const [searchTerm, setSearchTerm] = useState("")
+  // La búsqueda consulta al servidor cuando se deja de escribir
+  const [busqueda, setBusqueda] = useState("")
+  useEffect(() => {
+    const t = setTimeout(() => setBusqueda(searchTerm.trim()), 350)
+    return () => clearTimeout(t)
+  }, [searchTerm])
+  const [errorStock, setErrorStock] = useState("")
+  const [errorMov, setErrorMov] = useState("")
+  const [puedeEditar, setPuedeEditar] = useState(false)
   const [tipoFilter, setTipoFilter] = useState<string>("todos")
   const [movTipoFilter, setMovTipoFilter] = useState<string>("todos")
   // Ubicación: "todas", un galpón del mapa o "sin-asignar"
@@ -128,24 +132,26 @@ export default function InventarioPage() {
     try {
       const params = new URLSearchParams()
       if (tipoFilter && tipoFilter !== "todos") params.set("tipo", tipoFilter)
-      if (searchTerm) params.set("search", searchTerm)
+      if (busqueda) params.set("search", busqueda)
       if (ubicacionFilter !== "todas") params.set("ubicacion", ubicacionFilter)
 
+      setErrorStock("")
       const res = await fetch(`/api/inventario?${params.toString()}`)
-      const json = await res.json()
-
-      if (json.success) {
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json.success) throw new Error(json.error ?? "No se pudo cargar el inventario")
+      {
+        setPuedeEditar(!!json.puedeEditar)
         setProductos(json.data)
         setResumen(json.resumen)
         setTiposDisponibles(json.tiposDisponibles)
         setUbicaciones(json.ubicaciones ?? [])
       }
     } catch (err) {
-      console.error("Error al cargar inventario:", err)
+      setErrorStock(err instanceof Error && err.message !== "Failed to fetch" ? err.message : "No se pudo cargar el inventario. Revisá la conexión.")
     } finally {
       setLoadingStock(false)
     }
-  }, [tipoFilter, searchTerm, ubicacionFilter])
+  }, [tipoFilter, busqueda, ubicacionFilter])
 
   // ---- Fetch movimientos ----
 
@@ -159,15 +165,16 @@ export default function InventarioPage() {
         params.set("tipo", movTipoFilter)
       if (ubicacionFilter !== "todas") params.set("ubicacion", ubicacionFilter)
 
+      setErrorMov("")
       const res = await fetch(`/api/inventario/movimientos?${params.toString()}`)
-      const json = await res.json()
-
-      if (json.success) {
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json.success) throw new Error(json.error ?? "No se pudieron cargar los movimientos")
+      {
         setMovimientos(json.data)
         setMovPagination(json.pagination)
       }
     } catch (err) {
-      console.error("Error al cargar movimientos:", err)
+      setErrorMov(err instanceof Error && err.message !== "Failed to fetch" ? err.message : "No se pudieron cargar los movimientos. Revisá la conexión.")
     } finally {
       setLoadingMov(false)
     }
@@ -180,39 +187,6 @@ export default function InventarioPage() {
   useEffect(() => {
     fetchMovimientos()
   }, [fetchMovimientos])
-
-  // ---- Submit nuevo movimiento ----
-
-  async function handleNuevoMovimiento(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setSubmitting(true)
-
-    const formData = new FormData(e.currentTarget)
-    const body = {
-      productoId: formData.get("productoId") as string,
-      tipo: formData.get("tipo") as string,
-      cantidad: parseFloat(formData.get("cantidad") as string),
-      motivo: (formData.get("motivo") as string) || null,
-    }
-
-    try {
-      const res = await fetch("/api/inventario/movimientos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      })
-
-      if (res.ok) {
-        setDialogOpen(false)
-        fetchInventario()
-        fetchMovimientos()
-      }
-    } catch (err) {
-      console.error("Error al crear movimiento:", err)
-    } finally {
-      setSubmitting(false)
-    }
-  }
 
   // ---- Columnas de la tabla de Stock ----
 
@@ -368,8 +342,8 @@ export default function InventarioPage() {
       header: "Cantidad",
       accessorFn: (row) => (
         <span className="font-medium">
-          {row.tipo === "salida" ? "-" : row.tipo === "entrada" ? "+" : "±"}
-          {row.cantidad}
+          {row.tipo === "salida" || row.cantidad < 0 ? "−" : "+"}
+          {Math.abs(row.cantidad).toLocaleString("es-AR")}
         </span>
       ),
     },
@@ -422,84 +396,18 @@ export default function InventarioPage() {
           </p>
         </div>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Nuevo Movimiento
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Registrar Movimiento de Stock</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleNuevoMovimiento} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="productoId">Producto</Label>
-                <Select name="productoId" required>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar producto" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {productos.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.nombre} ({p.tipo})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="tipo">Tipo de movimiento</Label>
-                <Select name="tipo" required>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar tipo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="entrada">Entrada</SelectItem>
-                    <SelectItem value="salida">Salida</SelectItem>
-                    <SelectItem value="ajuste">Ajuste</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="cantidad">Cantidad</Label>
-                <Input
-                  name="cantidad"
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  placeholder="Ej: 50"
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="motivo">Motivo (opcional)</Label>
-                <Input
-                  name="motivo"
-                  placeholder="Ej: Compra a proveedor, uso en sanidad..."
-                />
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setDialogOpen(false)}
-                >
-                  Cancelar
-                </Button>
-                <Button type="submit" disabled={submitting}>
-                  {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Registrar
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+        {puedeEditar && (
+          <Button onClick={() => setDialogOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nuevo Movimiento
+          </Button>
+        )}
+        <MovimientoStockDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          productos={productos}
+          onGuardado={() => { fetchInventario(); fetchMovimientos() }}
+        />
       </div>
 
       {/* Cards de resumen */}
@@ -631,6 +539,12 @@ export default function InventarioPage() {
             </Select>
           </div>
 
+          {errorStock && (
+            <p role="alert" className="flex flex-wrap items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              {errorStock}
+              <Button size="sm" variant="outline" onClick={() => fetchInventario()}>Reintentar</Button>
+            </p>
+          )}
           <DataTable
             columns={stockColumns}
             data={productos}
@@ -668,6 +582,12 @@ export default function InventarioPage() {
             </Select>
           </div>
 
+          {errorMov && (
+            <p role="alert" className="flex flex-wrap items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              {errorMov}
+              <Button size="sm" variant="outline" onClick={() => fetchMovimientos()}>Reintentar</Button>
+            </p>
+          )}
           <DataTable
             columns={movColumns}
             data={movimientos}
@@ -783,17 +703,10 @@ export default function InventarioPage() {
                       {l.vencimiento && (
                         <p className="text-sm">
                           <span className="text-muted-foreground">Vence:</span>{" "}
-                          {format(new Date(l.vencimiento), "dd/MM/yyyy", {
-                            locale: es,
-                          })}
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            (
-                            {formatDistanceToNow(new Date(l.vencimiento), {
-                              addSuffix: true,
-                              locale: es,
-                            })}
-                            )
-                          </span>
+                          {formatoDia(l.vencimiento)}
+                          {l.diasRestantes !== null && (
+                            <span className="ml-1 text-xs text-muted-foreground">({textoVencimiento(l.diasRestantes)})</span>
+                          )}
                         </p>
                       )}
                       {l.cantidad !== null && (

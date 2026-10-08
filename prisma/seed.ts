@@ -100,7 +100,8 @@ async function main() {
     data: {
       usuarioId: usuario.id,
       organizacionId: organizacion.id,
-      rol: 'admin',
+      // Dueño de la organización demo: puede gestionar el equipo y nombrar administradores
+      rol: 'propietario',
     }
   })
   

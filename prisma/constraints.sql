@@ -137,6 +137,16 @@ BEGIN
       CHECK (moneda_costo IN ('ARS', 'USD')) NOT VALID;
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'invitaciones_rol_chk') THEN
+    ALTER TABLE invitaciones ADD CONSTRAINT invitaciones_rol_chk
+      CHECK (rol IN ('admin', 'encargado', 'vet', 'operario')) NOT VALID;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'invitaciones_estado_chk') THEN
+    ALTER TABLE invitaciones ADD CONSTRAINT invitaciones_estado_chk
+      CHECK (estado IN ('pendiente', 'aceptada', 'revocada')) NOT VALID;
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sesiones_manga_estado_chk') THEN
     ALTER TABLE sesiones_manga ADD CONSTRAINT sesiones_manga_estado_chk
       CHECK (estado IN ('activa', 'pausada', 'finalizada')) NOT VALID;
@@ -234,3 +244,6 @@ END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS cuentas_financieras_nombre_unico
   ON cuentas_financieras (establecimiento_id, lower(nombre));
+
+CREATE UNIQUE INDEX IF NOT EXISTS invitaciones_pendiente_unica
+  ON invitaciones (organizacion_id, lower(email)) WHERE estado = 'pendiente';

@@ -5,12 +5,15 @@ import { useTenant } from "@/lib/context/tenant-context"
 import { useMemo } from "react"
 
 type AppRole = "admin" | "encargado" | "vet" | "operario"
-type OrgRole = "propietario" | "administrador" | "encargado" | "operario"
+type OrgRole = "propietario" | "admin" | "encargado" | "vet" | "operario"
 
 interface Permissions {
+  /** Rol efectivo en la organización activa (propietario cuenta como admin). */
   role: AppRole
+  /** Rol tal como figura en la membresía de la organización activa. */
   orgRole: OrgRole | null
   isAdmin: boolean
+  isOwner: boolean
   isManager: boolean
   isVet: boolean
   canManageUsers: boolean
@@ -23,13 +26,20 @@ interface Permissions {
   hasOrgRole: (...roles: OrgRole[]) => boolean
 }
 
+const ORG_ROLES: OrgRole[] = ["propietario", "admin", "encargado", "vet", "operario"]
+
+/**
+ * Permisos de la interfaz según el rol en la ORGANIZACIÓN ACTIVA (los roles son por
+ * organización). El servidor vuelve a verificar todo: esto solo decide qué mostrar.
+ */
 export function usePermissions(): Permissions {
   const { data: session } = useSession()
   const { organizacionActiva } = useTenant()
 
   return useMemo(() => {
-    const role = (session?.user?.rol as AppRole) || "operario"
-    const orgRole: OrgRole | null = null
+    const raw = organizacionActiva?.rol === "administrador" ? "admin" : organizacionActiva?.rol
+    const orgRole: OrgRole | null = ORG_ROLES.includes(raw as OrgRole) ? (raw as OrgRole) : null
+    const role: AppRole = orgRole === "propietario" ? "admin" : (orgRole as AppRole | null) ?? "operario"
 
     const isAdmin = role === "admin"
     const isManager = role === "admin" || role === "encargado"
@@ -39,14 +49,16 @@ export function usePermissions(): Permissions {
       role,
       orgRole,
       isAdmin,
+      isOwner: orgRole === "propietario",
       isManager,
       isVet,
       canManageUsers: isAdmin,
       canManageConfig: isManager,
-      canWriteData: role !== "operario" || true,
+      canWriteData: true,
       canDeleteData: isManager,
       canViewFinances: isManager,
-      canViewAuditLog: isAdmin,
+      // La auditoría global es solo del admin de plataforma (rol de la cuenta, no de la org)
+      canViewAuditLog: session?.user?.rol === "admin",
       hasRole: (...roles: AppRole[]) => roles.includes(role),
       hasOrgRole: (...roles: OrgRole[]) => orgRole !== null && roles.includes(orgRole),
     }

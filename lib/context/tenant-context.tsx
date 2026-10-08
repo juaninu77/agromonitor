@@ -8,6 +8,9 @@ interface Organizacion {
   nombre: string
   slug: string
   logo?: string
+  /** Rol del usuario en esta organización (propietario | admin | encargado | vet | operario) */
+  rol?: string
+  accesoTotal?: boolean
 }
 
 interface Establecimiento {
@@ -27,6 +30,8 @@ interface TenantContextType {
   setOrganizacionActiva: (org: Organizacion | null) => void
   setEstablecimientoActivo: (establecimiento: Establecimiento | null) => void
   fetchEstablecimientos: (organizacionId: string) => Promise<void>
+  /** Vuelve a pedir las organizaciones (p. ej. después de aceptar una invitación o renombrar). */
+  recargarOrganizaciones: (seleccionarId?: string) => Promise<void>
   isLoading: boolean
   error: string | null
 }
@@ -150,6 +155,13 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     }
   }, [status, userId, fetchOrganizaciones])
 
+  const recargarOrganizaciones = useCallback(async (seleccionarId?: string) => {
+    if (seleccionarId && typeof window !== "undefined") localStorage.setItem("organizacionActivaId", seleccionarId)
+    orgsFetchedRef.current = false
+    estFetchingForOrgRef.current = null
+    await fetchOrganizaciones()
+  }, [fetchOrganizaciones])
+
   const setOrganizacionActiva = useCallback((org: Organizacion | null) => {
     setOrganizacionActivaState(org)
     setEstablecimientoActivoState(null)
@@ -188,9 +200,11 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     setOrganizacionActiva,
     setEstablecimientoActivo,
     fetchEstablecimientos,
+    recargarOrganizaciones,
     isLoading,
     error,
   }), [
+    recargarOrganizaciones,
     organizacionActiva,
     establecimientoActivo,
     organizaciones,

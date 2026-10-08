@@ -145,7 +145,8 @@ model Especie {
 
   // Catálogo por organización (nullable para backfill; ver scripts/backfill-tenant.ts)
   organizacionId String?       @map("organizacion_id") @db.Uuid
-  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
+  // Restrict: borrar la organización no debe convertir su catálogo en global
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id], onDelete: Restrict)
 
   razas      Raza[]
   categorias Categoria[]
@@ -168,7 +169,8 @@ model Raza {
 
   // Catálogo por organización (coincide con la org de su especie)
   organizacionId String?       @map("organizacion_id") @db.Uuid
-  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
+  // Restrict: borrar la organización no debe convertir su catálogo en global
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id], onDelete: Restrict)
 
   animales Animal[]
 
@@ -191,7 +193,8 @@ model Categoria {
 
   // Catálogo por organización (coincide con la org de su especie)
   organizacionId String?       @map("organizacion_id") @db.Uuid
-  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
+  // Restrict: borrar la organización no debe convertir su catálogo en global
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id], onDelete: Restrict)
 
   animales Animal[]
 
@@ -412,7 +415,8 @@ model Producto {
 
   // Tenant scoping (backfill: si hay una sola organización se asigna a ella)
   organizacionId String?       @map("organizacion_id") @db.Uuid
-  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id])
+  // Restrict: borrar la organización no debe convertir su catálogo en global
+  organizacion   Organizacion? @relation(fields: [organizacionId], references: [id], onDelete: Restrict)
 
   lotes            LoteProducto[]
   eventosSanidad   EvtSanidad[]

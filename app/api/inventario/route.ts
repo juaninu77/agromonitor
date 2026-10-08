@@ -4,6 +4,8 @@ import { withAuth } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 import { decimalToNumber } from "@/lib/api/serialize"
 import { filtroUbicacion } from "@/lib/inventario/ubicacion"
+import { estadoVencimiento, hoyArgentina } from "@/lib/inventario/fechas"
+import { orgsEscritura } from "@/lib/inventario/service"
 
 const STOCK_BAJO_UMBRAL = 10
 const DIAS_VENCIMIENTO_ALERTA = 30
@@ -43,9 +45,7 @@ export const GET = withAuth(async (request, ctx) => {
       orderBy: { nombre: "asc" },
     })
 
-    const hoy = new Date()
-    const limiteVencimiento = new Date()
-    limiteVencimiento.setDate(hoy.getDate() + DIAS_VENCIMIENTO_ALERTA)
+    const hoy = hoyArgentina()
 
     const productosConStock = productos.filter((p) => !ubicacion || p.movimientosStock.length > 0).map((producto) => {
       let stockTotal = 0
@@ -60,9 +60,7 @@ export const GET = withAuth(async (request, ctx) => {
       }
 
       const lotesConAlerta = producto.lotes.map((lote) => {
-        const proximoAVencer =
-          lote.vencimiento !== null && lote.vencimiento <= limiteVencimiento
-        const vencido = lote.vencimiento !== null && lote.vencimiento < hoy
+        const { proximoAVencer, vencido, diasRestantes } = estadoVencimiento(lote.vencimiento, { hoy, diasAlerta: DIAS_VENCIMIENTO_ALERTA })
 
         return {
           id: lote.id,
@@ -74,6 +72,7 @@ export const GET = withAuth(async (request, ctx) => {
           costo: decimalToNumber(lote.costo),
           proximoAVencer,
           vencido,
+          diasRestantes,
         }
       })
 
@@ -125,6 +124,7 @@ export const GET = withAuth(async (request, ctx) => {
         diasAlertaVencimiento: DIAS_VENCIMIENTO_ALERTA,
       },
       tiposDisponibles: tiposUnicos,
+      puedeEditar: orgsEscritura(ctx).length > 0,
       ubicaciones: ubicaciones.map((u) => ({ id: u.id, nombre: u.nombre, campo: u.establecimiento.nombre })),
     })
   } catch (error) {

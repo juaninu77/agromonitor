@@ -1,6 +1,5 @@
 "use client"
 
-import { normalizarRolOrg, ROL_INFO } from "@/lib/equipo/roles"
 import * as React from "react"
 import { Check, ChevronsUpDown, Building2, MapPin, Loader2, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -21,6 +20,7 @@ import {
 } from "@/components/ui/popover"
 import { useTenant } from "@/lib/context/tenant-context"
 import { useRouter } from "next/navigation"
+import { normalizarRolOrg, ROL_INFO } from "@/lib/equipo/roles"
 
 // ============================================
 // SELECTOR DE ESTABLECIMIENTO

@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const m = vi.hoisted(() => ({
   producto: vi.fn(), prodCreate: vi.fn(), lote: vi.fn(), loteCreate: vi.fn(), proveedor: vi.fn(),
   movUnique: vi.fn(), movCreate: vi.fn(), movMany: vi.fn(), groupBy: vi.fn(), audit: vi.fn(), lotes: vi.fn(), prodUpdate: vi.fn(),
+  nombreDup: vi.fn(), loteUpdate: vi.fn(),
 }))
 vi.mock("@/lib/prisma", () => {
   const tx = {
-    producto: { findFirst: m.producto, create: m.prodCreate, update: m.prodUpdate },
-    loteProducto: { findFirst: m.lote, create: m.loteCreate, findMany: m.lotes },
+    // findFirst con `nombre` es el control de nombre único; el resto, el producto
+    producto: { findFirst: (q: { where: { nombre?: unknown } }) => (q.where.nombre ? m.nombreDup(q) : m.producto(q)), create: m.prodCreate, update: m.prodUpdate },
+    loteProducto: { findFirst: m.lote, create: m.loteCreate, findMany: m.lotes, update: m.loteUpdate },
     proveedor: { findFirst: m.proveedor },
     movimientoStock: { findUnique: m.movUnique, create: m.movCreate, findMany: m.movMany, groupBy: m.groupBy },
     auditLog: { create: m.audit },
@@ -15,7 +17,8 @@ vi.mock("@/lib/prisma", () => {
   return { prisma: { $transaction: (cb: (t: unknown) => unknown) => cb(tx) } }
 })
 import { Prisma } from "@prisma/client"
-import { configurarProducto, crearLote, crearProducto, registrarMovimientoStock } from "@/lib/inventario/service"
+import { actualizarLote, anularMovimiento, configurarProducto, crearLote, crearProducto, registrarMovimientoStock } from "@/lib/inventario/service"
+import { productoConfigSchema } from "@/lib/inventario/validation"
 import { repartirFefo } from "@/lib/inventario/stock"
 import { estadoVencimiento, formatoDia, textoVencimiento } from "@/lib/inventario/fechas"
 import type { AuthContext } from "@/lib/api/with-auth"
@@ -160,5 +163,71 @@ describe("lotes conectados al stock (FEFO)", () => {
     await expect(configurarProducto(ctx, PROD, { activo: false, stockMinimo: "5", unidad: "dosis" })).resolves.toMatchObject({ activo: false, stockMinimo: 5, unidad: "dosis" })
     m.producto.mockResolvedValue({ id: PROD, nombre: "X", organizacionId: "o1", unidad: "ml", activo: false })
     await expect(registrarMovimientoStock(ctx, mov({ tipo: "entrada" }))).rejects.toThrow(/archivado/)
+  })
+})
+
+describe("Fase C: edición, anulación y categorías", () => {
+  const fila = (extra: object = {}) => ({ id: uuid(20), productoId: PROD, loteProductoId: null, sectorId: null, tipo: "salida", cantidad: D(4), operacionId: null, anulaAId: null, anuladoPor: null, ...extra })
+
+  it("no permite dos productos con el mismo nombre en la organización", async () => {
+    m.nombreDup.mockResolvedValueOnce({ id: "otro" })
+    await expect(crearProducto(ctx, { nombre: "ivermectina", tipo: "antiparasitario" })).rejects.toMatchObject({ status: 409 })
+    m.nombreDup.mockResolvedValueOnce({ id: "otro" })
+    await expect(configurarProducto(ctx, PROD, { nombre: "Doramectina" })).rejects.toMatchObject({ status: 409 })
+    m.prodCreate.mockImplementation(async ({ data }) => ({ id: "p", ...data }))
+    await expect(crearProducto(ctx, { nombre: "Gasoil", tipo: "combustible", unidad: "litros", stockMinimo: "200" })).resolves.toMatchObject({ tipo: "combustible", unidad: "litros", stockMinimo: 200 })
+  })
+
+  it("vaciar el stock mínimo lo borra (no lo deja en 0)", () => {
+    expect(productoConfigSchema.parse({ stockMinimo: "" }).stockMinimo).toBeNull()
+    expect(productoConfigSchema.parse({ costoReferencia: "" }).costoReferencia).toBeNull()
+    expect(productoConfigSchema.parse({}).stockMinimo).toBeUndefined()
+    // Archivar o cambiar un campo no borra los demás
+    expect(productoConfigSchema.parse({ activo: false })).toEqual({ activo: false })
+    expect(productoConfigSchema.parse({ laboratorio: "" }).laboratorio).toBeNull()
+  })
+
+  it("anular una salida registra una entrada que la compensa y queda vinculada", async () => {
+    m.movUnique.mockResolvedValueOnce(fila())
+    const r = await anularMovimiento(ctx, uuid(20), { motivo: "cargado dos veces" })
+    expect(r.anulados).toBe(1)
+    const c = m.movCreate.mock.calls[0][0].data
+    expect(c).toMatchObject({ tipo: "entrada", anulaAId: uuid(20), motivo: "Anulación: cargado dos veces" })
+    expect(c.cantidad.toNumber()).toBe(4)
+  })
+
+  it("anular una entrada no puede dejar el stock negativo; un ajuste se compensa con signo contrario", async () => {
+    m.groupBy.mockImplementation(async (q) => saldo(10, 8)(q)) // stock 2
+    m.movUnique.mockResolvedValueOnce(fila({ tipo: "entrada", cantidad: D(5) }))
+    await expect(anularMovimiento(ctx, uuid(20), { motivo: "error" })).rejects.toMatchObject({ status: 409 })
+    m.groupBy.mockImplementation(async (q) => saldo(10)(q))
+    m.movUnique.mockResolvedValueOnce(fila({ tipo: "ajuste", cantidad: D(-3) }))
+    await anularMovimiento(ctx, uuid(20), { motivo: "recuento mal hecho" })
+    expect(m.movCreate.mock.calls[0][0].data.cantidad.toNumber()).toBe(3)
+  })
+
+  it("no se anula dos veces, ni una anulación; una salida repartida se anula completa", async () => {
+    m.movUnique.mockResolvedValueOnce(fila({ anuladoPor: { id: "x" } }))
+    await expect(anularMovimiento(ctx, uuid(20), { motivo: "otra vez" })).rejects.toMatchObject({ status: 409 })
+    m.movUnique.mockResolvedValueOnce(fila({ anulaAId: uuid(9) }))
+    await expect(anularMovimiento(ctx, uuid(20), { motivo: "otra vez" })).rejects.toThrow(/Es una anulación/)
+    await expect(anularMovimiento(ctx, uuid(20), { motivo: "" })).rejects.toThrow(/por qué/)
+    m.movUnique.mockResolvedValueOnce(fila({ operacionId: "op" }))
+    m.movMany.mockResolvedValueOnce([fila({ id: "a", operacionId: "op", loteProductoId: "L1", cantidad: D(10) }), fila({ id: "b", operacionId: "op", loteProductoId: "L2", cantidad: D(2) })])
+    const r = await anularMovimiento(ctx, uuid(20), { motivo: "salida equivocada" })
+    expect(r.anulados).toBe(2)
+    const creadas = m.movCreate.mock.calls.map((c) => c[0].data)
+    expect(creadas.map((c) => [c.anulaAId, c.loteProductoId, c.tipo])).toEqual([["a", "L1", "entrada"], ["b", "L2", "entrada"]])
+    expect(creadas[0].operacionId).toBeTruthy(); expect(creadas[1].operacionId).toBe(creadas[0].operacionId)
+  })
+
+  it("editar un lote cambia sus datos, no la cantidad, y no duplica números", async () => {
+    m.lote.mockResolvedValueOnce({ id: LOTE, nroLote: "A1", productoId: PROD }).mockResolvedValueOnce({ id: "otro" })
+    await expect(actualizarLote(ctx, PROD, LOTE, { nroLote: "B2" })).rejects.toMatchObject({ status: 409 })
+    m.lote.mockResolvedValueOnce({ id: LOTE, nroLote: "A1", productoId: PROD })
+    m.loteUpdate.mockImplementation(async ({ data }) => ({ id: LOTE, ...data }))
+    await actualizarLote(ctx, PROD, LOTE, { vencimiento: "2027-05-31", costo: "" })
+    expect(m.loteUpdate.mock.calls[0][0].data).toEqual({ vencimiento: new Date("2027-05-31T00:00:00Z"), costo: null })
+    await expect(actualizarLote(ctx, PROD, LOTE, { cantidad: 99 })).rejects.toThrow()
   })
 })

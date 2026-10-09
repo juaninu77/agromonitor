@@ -50,6 +50,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/context/tenant-context"
+import { esSanitario } from "@/lib/inventario/validation"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -272,7 +273,8 @@ export default function SanidadPage() {
   const allEventos = allEventosQuery.data ?? []
   const animales = bovinosQuery.data ?? []
   const lotes = lotesQuery.data ?? []
-  const productos = inventarioQuery.data ?? []
+  // Solo insumos sanitarios (no combustible, semillas, repuestos…)
+  const productos = useMemo(() => (inventarioQuery.data ?? []).filter((p) => esSanitario(p.tipo)), [inventarioQuery.data])
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["sanidad"] })

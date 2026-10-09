@@ -34,6 +34,7 @@ export const GET = withAuth(async (request, ctx) => {
           ...(fullHistory ? {} : { take: 5 }),
         },
         eventosSanidad: {
+          where: { anuladoAt: null },
           orderBy: { fecha: 'desc' },
           include: { producto: { select: { id: true, nombre: true, principioActivo: true } } },
           ...(fullHistory ? {} : { take: 5 }),

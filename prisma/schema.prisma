@@ -879,8 +879,16 @@ model EvtSanidad {
   loteProductoId String?       @map("lote_producto_id") @db.Uuid
   loteProducto   LoteProducto? @relation(fields: [loteProductoId], references: [id])
 
+  /// Aplicación masiva: todos sus eventos comparten operacionId (también es la clave de idempotencia)
+  operacionId     String?   @map("operacion_id") @db.Uuid
+  /// Anulación (no se borra): fecha, quién y por qué
+  anuladoAt       DateTime? @map("anulado_at")
+  anuladoPorId    String?   @map("anulado_por_id") @db.Uuid
+  motivoAnulacion String?   @map("motivo_anulacion")
+
   @@index([animalId])
   @@index([loteId])
+  @@index([operacionId])
   @@index([fecha])
   @@index([productoId])
   @@index([loteProductoId])

@@ -31,6 +31,7 @@ export const GET = withAuth(async (request, ctx) => {
       prisma.evtSanidad.count({
         where: {
           fecha: { gte: startOfMonth },
+          anuladoAt: null,
           ...scopeEventoAnimalOLote(establecimientoIds),
         },
       }),

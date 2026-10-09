@@ -144,13 +144,13 @@ export function ProductoFormDialog({ abierto, producto, organizaciones, onOpenCh
 /** Editar número, vencimiento, proveedor o costo de un lote (la cantidad cambia con movimientos). */
 export function EditarLoteDialog({ productoId, lote, onOpenChange, onGuardado }: {
   productoId: string
-  lote: { id: string; nroLote: string; vencimiento: string | null; proveedor: string | null; costo: number | null } | null
+  lote: { id: string; nroLote: string; vencimiento: string | null; proveedor: string | null; costo: number | null; moneda?: string } | null
   onOpenChange: (o: boolean) => void
   onGuardado: () => void
 }) {
-  const [form, setForm] = useState({ nroLote: "", vencimiento: "", proveedor: "", costo: "" })
+  const [form, setForm] = useState({ nroLote: "", vencimiento: "", proveedor: "", costo: "", moneda: "ARS" })
   const [guardando, setGuardando] = useState(false), [error, setError] = useState("")
-  useEffect(() => { if (lote) { setError(""); setForm({ nroLote: lote.nroLote, vencimiento: lote.vencimiento?.slice(0, 10) ?? "", proveedor: lote.proveedor ?? "", costo: lote.costo?.toString() ?? "" }) } }, [lote])
+  useEffect(() => { if (lote) { setError(""); setForm({ nroLote: lote.nroLote, vencimiento: lote.vencimiento?.slice(0, 10) ?? "", proveedor: lote.proveedor ?? "", costo: lote.costo?.toString() ?? "", moneda: lote.moneda ?? "ARS" }) } }, [lote])
   async function submit(e: FormEvent) {
     e.preventDefault(); if (!lote) return
     setGuardando(true); setError("")
@@ -168,7 +168,7 @@ export function EditarLoteDialog({ productoId, lote, onOpenChange, onGuardado }:
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5"><Label htmlFor="el-prov">Proveedor</Label><Input id="el-prov" maxLength={180} value={form.proveedor} onChange={(e) => setForm({ ...form, proveedor: e.target.value })} /></div>
-            <div className="space-y-1.5"><Label htmlFor="el-costo">Costo del lote</Label><Input id="el-costo" type="number" min="0" step="0.01" value={form.costo} onChange={(e) => setForm({ ...form, costo: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label htmlFor="el-costo">Costo por unidad</Label><div className="flex gap-2"><Input id="el-costo" type="number" min="0" step="0.01" value={form.costo} onChange={(e) => setForm({ ...form, costo: e.target.value })} /><select aria-label="Moneda del costo" className="h-10 rounded-md border border-input bg-background px-2 text-sm" value={form.moneda} onChange={(e) => setForm({ ...form, moneda: e.target.value })}><option value="ARS">ARS</option><option value="USD">USD</option></select></div></div>
           </div>
           {error && <p role="alert" className="rounded-md bg-destructive/10 p-2 text-sm text-destructive">{error}</p>}
         </form>

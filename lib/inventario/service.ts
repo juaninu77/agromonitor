@@ -189,6 +189,7 @@ export async function actualizarLote(ctx: AuthContext, productoId: string, loteI
       ...(v.vencimiento !== undefined ? { vencimiento: v.vencimiento ? new Date(`${v.vencimiento}T00:00:00Z`) : null } : {}),
       ...(v.proveedor !== undefined ? { proveedor: v.proveedor } : {}),
       ...(v.costo !== undefined ? { costo: v.costo } : {}),
+      ...(v.moneda !== undefined ? { moneda: v.moneda } : {}),
     }
     const actualizado = await tx.loteProducto.update({ where: { id: loteId }, data })
     await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: producto.organizacionId, tabla: "lotes_producto", rowPk: loteId, accion: "UPDATE", detalle: JSON.parse(JSON.stringify(v)) } })
@@ -344,7 +345,7 @@ export async function crearLote(ctx: AuthContext, productoId: string, raw: unkno
       throw new InventarioError("Proveedor no encontrado en la organización", 404)
     }
     const lote = await tx.loteProducto.create({
-      data: { productoId, nroLote: v.nroLote, vencimiento: v.vencimiento ? new Date(`${v.vencimiento}T00:00:00Z`) : null, proveedor: v.proveedor, proveedorId: v.proveedorId, cantidad: v.cantidad, unidad: v.unidad, costo: v.costo },
+      data: { productoId, nroLote: v.nroLote, vencimiento: v.vencimiento ? new Date(`${v.vencimiento}T00:00:00Z`) : null, proveedor: v.proveedor, proveedorId: v.proveedorId, cantidad: v.cantidad, unidad: v.unidad, costo: v.costo, moneda: v.moneda },
     })
     await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: producto.organizacionId, tabla: "lotes_producto", rowPk: lote.id, accion: "INSERT", detalle: { productoId, nroLote: lote.nroLote } } })
     // El alta de un lote con cantidad es la entrada al stock (un solo libro de movimientos)

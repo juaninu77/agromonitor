@@ -30,10 +30,13 @@ import {
   ClipboardCheck,
   FileSpreadsheet,
   FileText,
+  ShoppingCart,
+  Wallet,
 } from "lucide-react"
 import { format, formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
 import { MovimientoStockDialog } from "@/components/inventario/movimiento-stock-dialog"
+import { CompraDialog } from "@/components/inventario/compra-dialog"
 import { IngresarLoteDialog } from "@/components/inventario/producto-dialogs"
 import { ProductoFormDialog } from "@/components/inventario/producto-form-dialog"
 import { TransferenciaDialog } from "@/components/inventario/transferencia-dialog"
@@ -42,6 +45,7 @@ import { exportarTablaPDF } from "@/lib/utils/export-pdf"
 import { useTenant } from "@/lib/context/tenant-context"
 import { etiquetaTipo } from "@/lib/inventario/validation"
 import { formatoDia, textoVencimiento } from "@/lib/inventario/fechas"
+import { textoValores, type Valores } from "@/lib/inventario/formato-valor"
 
 // ============================================
 // TIPOS
@@ -56,6 +60,7 @@ interface LoteProductoUI {
   saldo: number
   unidad: string | null
   costo: number | null
+  moneda: string
   proximoAVencer: boolean
   vencido: boolean
   diasRestantes: number | null
@@ -80,6 +85,8 @@ interface ProductoStock {
   stockTotal: number
   stockBajo: boolean
   tieneVencimientoProximo: boolean
+  /** Solo para quien gestiona la organización */
+  valorizacion: { valores: Valores; sinCosto: number } | null
   lotes: LoteProductoUI[]
 }
 
@@ -89,6 +96,7 @@ interface Resumen {
   productosConVencimientoProximo: number
   productosSinMinimo: number
   diasAlertaVencimiento: number
+  valorizacion: { organizacionId: string; nombre: string; valores: Valores; productosSinCosto: number }[]
 }
 
 interface Movimiento {
@@ -101,6 +109,7 @@ interface Movimiento {
   producto: { id: string; nombre: string; tipo: string }
   ubicacion: { id: string; nombre: string } | null
   concepto?: string | null
+  origenTipo?: string | null
   loteProducto: { id: string; nroLote: string; vencimiento: string | null } | null
 }
 
@@ -148,6 +157,7 @@ export default function InventarioPage() {
   const [configurando, setConfigurando] = useState<ProductoStock | null>(null)
   const [creando, setCreando] = useState(false)
   const [transfiriendo, setTransfiriendo] = useState(false)
+  const [comprando, setComprando] = useState(false)
   const [orgsEditables, setOrgsEditables] = useState<string[]>([])
   const { organizaciones, organizacionActiva } = useTenant()
   const [ingresandoLote, setIngresandoLote] = useState<ProductoStock | null>(null)
@@ -234,6 +244,8 @@ export default function InventarioPage() {
           { header: "Producto", key: "nombre", width: 30 }, { header: "Tipo", key: "tipo", formatter: etiquetaTipo },
           { header: "Unidad", key: "unidad" }, { header: "Stock", key: "stockTotal" }, { header: "Mínimo", key: "stockMinimo", formatter: (v) => v ?? "" },
           { header: "Costo ref.", key: "costoReferencia", formatter: (v) => v ?? "" }, { header: "Moneda", key: "monedaCosto" },
+          { header: "Valor ARS", key: "valorizacion", formatter: (v: ProductoStock["valorizacion"]) => v?.valores.ARS ?? "" },
+          { header: "Valor USD", key: "valorizacion", formatter: (v: ProductoStock["valorizacion"]) => v?.valores.USD ?? "" },
           { header: "Lotes con saldo", key: "lotes", formatter: (l: LoteProductoUI[]) => l.filter((x) => x.saldo > 0).length },
           { header: "Estado", key: "id", formatter: (id: string) => estadoProducto(productos.find((p) => p.id === id)!) },
         ],
@@ -264,7 +276,7 @@ export default function InventarioPage() {
         filename: `movimientos_stock_${fechaArchivo()}.xlsx`, sheetName: "Movimientos", data: filas.map((m) => ({ ...m, producto: m.producto.nombre, lote: m.loteProducto?.nroLote ?? "", galpon: m.ubicacion?.nombre ?? "Sin galpón" })),
         columns: [
           { header: "Fecha", key: "fecha", formatter: (v: string) => new Date(v).toLocaleString("es-AR") }, { header: "Tipo", key: "tipo" },
-          { header: "Concepto", key: "concepto", formatter: (v) => v ?? "" }, { header: "Producto", key: "producto", width: 30 },
+          { header: "Concepto", key: "concepto", formatter: (v) => v ?? "" }, { header: "Origen", key: "origenTipo", formatter: (v) => v ?? "" }, { header: "Producto", key: "producto", width: 30 },
           { header: "Cantidad", key: "cantidad" }, { header: "Lote", key: "lote" }, { header: "Galpón", key: "galpon" }, { header: "Motivo", key: "motivo", width: 40 },
         ],
       })
@@ -312,6 +324,7 @@ export default function InventarioPage() {
             </Badge>
           )}
           <span className="text-xs text-muted-foreground">{row.stockMinimo != null ? `mín. ${row.stockMinimo.toLocaleString("es-AR")}` : "sin mínimo"}</span>
+          {row.valorizacion && Object.keys(row.valorizacion.valores).length > 0 && <span className="text-xs text-muted-foreground">· {textoValores(row.valorizacion.valores)}</span>}
         </div>
       ),
     },
@@ -416,6 +429,7 @@ export default function InventarioPage() {
               {config.label}
             </Badge>
             {row.concepto && <Badge variant="outline">{row.concepto === "transferencia" ? "Transferencia" : "Recuento"}</Badge>}
+            {row.origenTipo && <Badge variant="outline">{row.origenTipo === "compra" ? "Compra" : row.origenTipo === "manga" ? "Manga" : "Sanidad"}</Badge>}
           </div>
         )
       },
@@ -506,6 +520,12 @@ export default function InventarioPage() {
           </Button>
         )}
         {puedeEditar && (
+          <Button variant="outline" onClick={() => setComprando(true)}>
+            <ShoppingCart className="mr-2 h-4 w-4" />
+            Registrar compra
+          </Button>
+        )}
+        {puedeEditar && (
           <Button variant="outline" onClick={() => setCreando(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Nuevo producto
@@ -527,6 +547,7 @@ export default function InventarioPage() {
           ubicaciones={ubicaciones}
           onGuardado={() => { fetchInventario(); fetchMovimientos() }}
         />
+        <CompraDialog open={comprando} onOpenChange={setComprando} productos={productos.filter((p) => p.activo && p.organizacionId && orgsEditables.includes(p.organizacionId))} ubicaciones={ubicaciones} onGuardado={() => { fetchInventario(); fetchMovimientos() }} />
         <TransferenciaDialog open={transfiriendo} onOpenChange={setTransfiriendo} productos={productos} ubicaciones={ubicaciones} onGuardado={() => { fetchInventario(); fetchMovimientos() }} />
       </div>
 
@@ -583,23 +604,42 @@ export default function InventarioPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Alertas</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {loadingStock
-                ? "..."
-                : (resumen?.productosStockBajo ?? 0) +
-                  (resumen?.productosConVencimientoProximo ?? 0)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Alertas activas totales
-            </p>
-          </CardContent>
-        </Card>
+        {resumen?.valorizacion?.length ? (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Valor del stock</CardTitle>
+              <Wallet className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent className="space-y-1">
+              {resumen.valorizacion.map((v) => (
+                <div key={v.organizacionId}>
+                  {resumen.valorizacion.length > 1 && <p className="text-xs text-muted-foreground">{v.nombre}</p>}
+                  <div className="text-lg font-bold tabular-nums">{textoValores(v.valores)}</div>
+                  {v.productosSinCosto > 0 && <p className="text-xs text-muted-foreground">{v.productosSinCosto} {v.productosSinCosto === 1 ? "producto" : "productos"} sin costo cargado</p>}
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground">Por costo de lote o de referencia</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Alertas</CardTitle>
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {loadingStock
+                  ? "..."
+                  : (resumen?.productosStockBajo ?? 0) +
+                    (resumen?.productosConVencimientoProximo ?? 0)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Alertas activas totales
+              </p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Tabs */}

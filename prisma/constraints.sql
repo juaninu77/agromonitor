@@ -157,6 +157,10 @@ BEGIN
       CHECK (origen_tipo IS NULL OR origen_tipo IN ('sanidad', 'manga', 'compra')) NOT VALID;
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'lotes_producto_moneda_chk') THEN
+    ALTER TABLE lotes_producto ADD CONSTRAINT lotes_producto_moneda_chk CHECK (moneda IN ('ARS', 'USD'));
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sesiones_manga_estado_chk') THEN
     ALTER TABLE sesiones_manga ADD CONSTRAINT sesiones_manga_estado_chk
       CHECK (estado IN ('activa', 'pausada', 'finalizada')) NOT VALID;

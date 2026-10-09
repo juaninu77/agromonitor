@@ -1,6 +1,7 @@
 // Esquemas del inventario de insumos (compartidos por el formulario y la API).
 import { z } from "zod"
 import { hoyArgentina } from "./fechas"
+import { MEDIOS_PAGO } from "@/lib/finanzas/constantes"
 
 const cantidad = z.coerce.number({ invalid_type_error: "La cantidad debe ser un número" }).finite().positive("La cantidad debe ser mayor a 0").max(10_000_000)
 const texto = (max: number) => z.string().trim().max(max).nullish().transform((v) => v || null)
@@ -93,6 +94,8 @@ export const productoConfigSchema = z.object({
   activo: z.boolean().optional(),
 }).strict()
 
+export const MONEDAS_COSTO = ["ARS", "USD"] as const
+
 export const UNIDADES_SUGERIDAS = ["unidades", "dosis", "ml", "litros", "kg", "frascos", "bolsas", "cajas"]
 
 export const loteSchema = z.object({
@@ -104,7 +107,9 @@ export const loteSchema = z.object({
   proveedorId: z.string().uuid().nullish().transform((v) => v ?? null),
   cantidad: z.coerce.number().finite().min(0).max(10_000_000).nullish().transform((v) => v ?? null),
   unidad: texto(30),
+  /** Costo por unidad del producto, en `moneda`. */
   costo: z.coerce.number().finite().min(0, "El costo no puede ser negativo").max(1e10).nullish().transform((v) => v ?? null),
+  moneda: z.enum(MONEDAS_COSTO).default("ARS"),
 }).strict()
 
 /** Edición de un lote: sus datos (la cantidad cambia solo con movimientos). */
@@ -114,7 +119,35 @@ export const loteUpdateSchema = z.object({
   // Ausente no se toca; "" lo borra
   proveedor: textoEdicion(180),
   costo: opcional(z.coerce.number().finite().min(0, "El costo no puede ser negativo").max(1e10)),
+  moneda: z.enum(MONEDAS_COSTO).optional(),
 }).strict()
+
+/**
+ * Compra de un insumo: entra al stock como un lote nuevo con proveedor y costo, y
+ * opcionalmente genera el egreso en Finanzas (cuenta de la misma moneda).
+ */
+export const compraSchema = z.object({
+  clave: z.string().uuid("Falta la clave de la operación"),
+  productoId: z.string().uuid("Elegí un producto"),
+  cantidad,
+  /** Importe total de la compra (texto decimal, como en Finanzas). */
+  costoTotal: z.coerce.number({ invalid_type_error: "El costo debe ser un número" }).finite().positive("Indicá el costo total").max(1e11),
+  moneda: z.enum(MONEDAS_COSTO, { errorMap: () => ({ message: "Moneda inválida" }) }),
+  proveedorId: z.string().uuid().nullish().transform((v) => v ?? null),
+  nroLote: texto(80),
+  vencimiento: fechaDia.nullish().transform((v) => v || null),
+  sectorId: z.string().uuid().nullish().transform((v) => v ?? null),
+  fecha: fechaDia,
+  comprobante: texto(80),
+  notas: texto(500),
+  /** Egreso en Finanzas: cuenta (del campo, misma moneda) y medio de pago. */
+  egreso: z.object({
+    cuentaId: z.string().uuid("Elegí la cuenta"),
+    medioPago: z.enum(MEDIOS_PAGO).nullish().transform((v) => v ?? null),
+  }).strict().nullish().transform((v) => v ?? null),
+}).strict()
+  .refine((v) => v.fecha <= hoyArgentina(), { message: "La compra no puede tener fecha futura", path: ["fecha"] })
+export type CompraInput = z.input<typeof compraSchema>
 
 /** Anular un movimiento: genera el contramovimiento (no se borra historial). */
 export const anulacionSchema = z.object({

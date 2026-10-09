@@ -9,6 +9,7 @@ import { filtroUbicacion } from "@/lib/inventario/ubicacion"
 import { estadoVencimiento, hoyArgentina } from "@/lib/inventario/fechas"
 import { orgsEscritura } from "@/lib/inventario/service"
 import { aNumero, CERO, saldosPorLote, saldosPorProducto } from "@/lib/inventario/stock"
+import { sumarValores, valorizarProducto } from "@/lib/inventario/valorizacion"
 
 const DIAS_VENCIMIENTO_ALERTA = 30
 const query = z.object({
@@ -51,7 +52,7 @@ export const GET = withAuth(async (request, ctx) => {
       orderBy: { nombre: "asc" },
     })
     const ids = productos.map((p) => p.id)
-    const [saldos, { porLote }, ubicGroup] = await Promise.all([
+    const [saldos, { porLote, sinLote }, ubicGroup] = await Promise.all([
       saldosPorProducto(prisma, ids, ubicacion ?? {}),
       saldosPorLote(prisma, ids, ubicacion ?? {}),
       // Saldo de cada producto por ubicación (galpón o "sin"), para elegir de dónde sale o se transfiere
@@ -66,6 +67,8 @@ export const GET = withAuth(async (request, ctx) => {
       porUbicacion.set(g.productoId, m)
     }
     const hoy = hoyArgentina()
+    // Los costos solo los ve quien gestiona la organización (admin/encargado)
+    const editables = orgsEscritura(ctx)
 
     const productosConStock = productos
       // Con ubicación elegida, solo los productos que tuvieron movimientos ahí
@@ -85,12 +88,16 @@ export const GET = withAuth(async (request, ctx) => {
             saldo: aNumero(saldo)!,
             unidad: lote.unidad ?? producto.unidad,
             costo: decimalToNumber(lote.costo),
+            moneda: lote.moneda,
             proximoAVencer: conSaldo && venc.proximoAVencer,
             vencido: conSaldo && venc.vencido,
             diasRestantes: venc.diasRestantes,
           }
         })
         const minimo = producto.stockMinimo
+        const valorizacion = producto.organizacionId && editables.includes(producto.organizacionId)
+          ? valorizarProducto(producto, porLote, sinLote.get(producto.id) ?? CERO)
+          : null
         return {
           id: producto.id,
           organizacionId: producto.organizacionId,
@@ -110,6 +117,7 @@ export const GET = withAuth(async (request, ctx) => {
           porUbicacion: Object.fromEntries(Object.entries(porUbicacion.get(producto.id) ?? {}).filter(([, n]) => n !== 0)),
           stockBajo: minimo != null && stock.lte(minimo),
           tieneVencimientoProximo: lotes.some((l) => l.proximoAVencer),
+          valorizacion,
           lotes,
         }
       })
@@ -120,6 +128,17 @@ export const GET = withAuth(async (request, ctx) => {
       orderBy: { nombre: "asc" },
     })
     const { page, limit } = q.data
+    // Valor del stock por organización y moneda (ARS y USD nunca se suman)
+    const orgs = editables.length ? await prisma.organizacion.findMany({ where: { id: { in: editables } }, select: { id: true, nombre: true }, orderBy: { nombre: "asc" } }) : []
+    const valorizacion = orgs.map((o) => {
+      const propios = productosConStock.filter((p) => p.organizacionId === o.id && p.valorizacion)
+      return {
+        organizacionId: o.id,
+        nombre: o.nombre,
+        valores: sumarValores(propios.map((p) => p.valorizacion!.valores)),
+        productosSinCosto: propios.filter((p) => p.valorizacion!.sinCosto > 0).length,
+      }
+    }).filter((v) => productosConStock.some((p) => p.organizacionId === v.organizacionId))
     const total = productosConStock.length
 
     return NextResponse.json({
@@ -132,6 +151,7 @@ export const GET = withAuth(async (request, ctx) => {
         productosConVencimientoProximo: productosConStock.filter((p) => p.tieneVencimientoProximo).length,
         productosSinMinimo: productosConStock.filter((p) => p.stockMinimo == null).length,
         diasAlertaVencimiento: DIAS_VENCIMIENTO_ALERTA,
+        valorizacion,
       },
       tiposDisponibles: [...new Set(productos.map((p) => p.tipo))].sort(),
       puedeEditar: orgsEscritura(ctx).length > 0,

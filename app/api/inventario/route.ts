@@ -51,10 +51,20 @@ export const GET = withAuth(async (request, ctx) => {
       orderBy: { nombre: "asc" },
     })
     const ids = productos.map((p) => p.id)
-    const [saldos, { porLote }] = await Promise.all([
+    const [saldos, { porLote }, ubicGroup] = await Promise.all([
       saldosPorProducto(prisma, ids, ubicacion ?? {}),
       saldosPorLote(prisma, ids, ubicacion ?? {}),
+      // Saldo de cada producto por ubicación (galpón o "sin"), para elegir de dónde sale o se transfiere
+      ids.length ? prisma.movimientoStock.groupBy({ by: ["productoId", "sectorId", "tipo"], where: { productoId: { in: ids } }, _sum: { cantidad: true } }) : [],
     ])
+    const porUbicacion = new Map<string, Record<string, number>>()
+    for (const g of ubicGroup) {
+      const m = porUbicacion.get(g.productoId) ?? {}
+      const k = g.sectorId ?? "sin"
+      const v = Number(g._sum.cantidad ?? 0) * (g.tipo === "salida" ? -1 : 1)
+      m[k] = Math.round(((m[k] ?? 0) + v) * 1000) / 1000
+      porUbicacion.set(g.productoId, m)
+    }
     const hoy = hoyArgentina()
 
     const productosConStock = productos
@@ -97,6 +107,7 @@ export const GET = withAuth(async (request, ctx) => {
           monedaCosto: producto.monedaCosto,
           activo: producto.activo,
           stockTotal: aNumero(stock)!,
+          porUbicacion: Object.fromEntries(Object.entries(porUbicacion.get(producto.id) ?? {}).filter(([, n]) => n !== 0)),
           stockBajo: minimo != null && stock.lte(minimo),
           tieneVencimientoProximo: lotes.some((l) => l.proximoAVencer),
           lotes,

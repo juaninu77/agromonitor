@@ -1242,6 +1242,8 @@ model MovimientoStock {
   clave       String?          @unique @db.Uuid
   // Una salida sin lote se reparte entre lotes (primero el que vence antes): todas sus filas comparten operacionId
   operacionId String?          @map("operacion_id") @db.Uuid
+  /// transferencia (entre galpones, o reubicar stock sin galpón) | recuento (ajuste por conteo físico); null = movimiento común
+  concepto    String?
   /// Contramovimiento: anula al movimiento indicado (cada movimiento se anula una sola vez)
   anulaAId    String?          @unique @map("anula_a_id") @db.Uuid
   anulaA      MovimientoStock? @relation("Anulacion", fields: [anulaAId], references: [id], onDelete: Restrict)

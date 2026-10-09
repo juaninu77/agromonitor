@@ -39,6 +39,8 @@ export const movimientoStockSchema = z.object({
   /** Fecha del movimiento (día, hora de Argentina); por defecto, ahora. */
   fecha: fechaDia.nullish().transform((v) => v ?? null),
   clave: z.string().uuid().nullish().transform((v) => v ?? null),
+  /** Galpón del mapa donde entra o de donde sale; null = sin galpón asignado. */
+  sectorId: z.string().uuid().nullish().transform((v) => v ?? null),
 }).strict()
   .refine((v) => v.tipo !== "ajuste" || !!v.sentido, { message: "Indicá si el ajuste suma o resta", path: ["sentido"] })
   .refine((v) => v.tipo === "ajuste" || !v.sentido, { message: "El sentido solo aplica a ajustes", path: ["sentido"] })
@@ -118,3 +120,31 @@ export const loteUpdateSchema = z.object({
 export const anulacionSchema = z.object({
   motivo: z.string().trim().min(3, "Indicá por qué se anula").max(500),
 }).strict()
+
+/** Transferencia entre ubicaciones: galpón → galpón, o reubicar stock sin galpón (null). */
+export const transferenciaStockSchema = z.object({
+  productoId: z.string().uuid(),
+  desdeSectorId: z.string().uuid().nullish().transform((v) => v ?? null),
+  haciaSectorId: z.string().uuid().nullish().transform((v) => v ?? null),
+  loteProductoId: z.string().uuid().nullish().transform((v) => v ?? null),
+  cantidad,
+  fecha: fechaDia.nullish().transform((v) => v ?? null),
+  motivo: texto(500),
+  clave: z.string().uuid().nullish().transform((v) => v ?? null),
+}).strict()
+  .refine((v) => v.desdeSectorId !== v.haciaSectorId, { message: "El origen y el destino tienen que ser distintos", path: ["haciaSectorId"] })
+  .refine((v) => !v.fecha || v.fecha <= hoyArgentina(), { message: "Un movimiento no puede tener fecha futura", path: ["fecha"] })
+
+/** Recuento físico de una ubicación: lo contado por producto. */
+export const recuentoSchema = z.object({
+  sectorId: z.string().uuid().nullish().transform((v) => v ?? null),
+  fecha: fechaDia.nullish().transform((v) => v ?? null),
+  motivo: texto(300),
+  clave: z.string().uuid().nullish().transform((v) => v ?? null),
+  items: z.array(z.object({
+    productoId: z.string().uuid(),
+    contado: z.coerce.number({ invalid_type_error: "Ingresá lo contado" }).finite().min(0, "No puede ser negativo").max(10_000_000),
+  }).strict()).min(1, "Cargá al menos un producto contado").max(300),
+}).strict()
+  .refine((v) => new Set(v.items.map((i) => i.productoId)).size === v.items.length, { message: "Hay productos repetidos en el recuento", path: ["items"] })
+  .refine((v) => !v.fecha || v.fecha <= hoyArgentina(), { message: "El recuento no puede tener fecha futura", path: ["fecha"] })

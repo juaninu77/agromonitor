@@ -8,7 +8,7 @@
 
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
-import { anulacionSchema, loteSchema, loteUpdateSchema, movimientoStockSchema, productoConfigSchema, productoSchema } from "./validation"
+import { anulacionSchema, loteSchema, loteUpdateSchema, movimientoStockSchema, productoConfigSchema, productoSchema, recuentoSchema, transferenciaStockSchema } from "./validation"
 import { randomUUID } from "node:crypto"
 import { estadoVencimiento, hoyArgentina } from "./fechas"
 import { CERO, repartirFefo, saldosPorLote, saldosPorProducto, type Asignacion } from "./stock"
@@ -37,6 +37,45 @@ export async function saldoProducto(tx: Prisma.TransactionClient, productoId: st
 
 const fmt = (d: Prisma.Decimal) => d.toDecimalPlaces(3).toNumber().toLocaleString("es-AR")
 
+/** Nombre legible de una ubicación (galpón o sin galpón) para los mensajes. */
+const enUbicacion = (galpon: { nombre: string } | null) => (galpon ? ` en ${galpon.nombre}` : " sin galpón asignado")
+
+/**
+ * Galpón donde se registra el movimiento: del mapa, activo, de un campo donde el usuario
+ * es admin/encargado y de la misma organización que el producto. null = sin galpón.
+ */
+export async function galponEditable(tx: Prisma.TransactionClient, ctx: AuthContext, sectorId: string | null, organizacionId: string) {
+  if (!sectorId) return null
+  const g = await tx.sector.findFirst({ where: { id: sectorId, tipo: "galpon", activo: true, establecimientoId: { in: ctx.establecimientoIdsConRol([...ROLES_ESCRITURA]) } }, select: { id: true, nombre: true, establecimientoId: true } })
+  if (!g || ctx.organizacionDeEstablecimiento[g.establecimientoId] !== organizacionId) throw new InventarioError("Galpón no encontrado o sin permisos para cargar stock ahí", 404)
+  return g
+}
+
+/**
+ * Cómo se descuenta `cantidad` de una ubicación (galpón o sin galpón): del lote elegido
+ * o repartido FEFO entre los lotes que hay ahí. Error 409 si no alcanza.
+ */
+async function asignarSalida(tx: Prisma.TransactionClient, producto: { id: string; unidad: string }, cantidad: Prisma.Decimal, ubic: { galpon: { id: string; nombre: string } | null; lote: { id: string; nroLote: string } | null }): Promise<Asignacion[]> {
+  const where = { sectorId: ubic.galpon?.id ?? null }
+  const saldo = (await saldosPorProducto(tx, [producto.id], where)).get(producto.id) ?? CERO
+  if (saldo.lt(cantidad)) throw new InventarioError(`Stock insuficiente${enUbicacion(ubic.galpon)}: hay ${fmt(Prisma.Decimal.max(saldo, 0))} ${producto.unidad}`, 409)
+  const { porLote, sinLote } = await saldosPorLote(tx, [producto.id], where)
+  if (ubic.lote) {
+    const saldoLote = porLote.get(ubic.lote.id) ?? CERO
+    if (saldoLote.lt(cantidad)) throw new InventarioError(`El lote ${ubic.lote.nroLote} tiene ${fmt(Prisma.Decimal.max(saldoLote, 0))} ${producto.unidad}${enUbicacion(ubic.galpon)}`, 409)
+    return [{ loteProductoId: ubic.lote.id, cantidad }]
+  }
+  // Sin lote elegido: se descuenta primero del lote vigente que vence antes
+  const lotes = await tx.loteProducto.findMany({ where: { productoId: producto.id, id: { in: [...porLote.keys()] } } })
+  const hoy = hoyArgentina()
+  const reparto = repartirFefo(cantidad, lotes.map((l) => ({ id: l.id, vencimiento: l.vencimiento, createdAt: l.createdAt, vencido: estadoVencimiento(l.vencimiento, { hoy }).vencido, saldo: porLote.get(l.id) ?? CERO })), sinLote.get(producto.id) ?? CERO)
+  if (!reparto) throw new InventarioError(`Stock insuficiente${enUbicacion(ubic.galpon)}: hay ${fmt(Prisma.Decimal.max(saldo, 0))} ${producto.unidad}`, 409)
+  return reparto
+}
+
+/** Fecha del día elegido (mediodía de Argentina, para que no cambie de día por zona horaria) o ahora. */
+const fechaMovimiento = (dia: string | null) => (dia && dia !== hoyArgentina() ? new Date(`${dia}T12:00:00-03:00`) : new Date())
+
 export async function registrarMovimientoStock(ctx: AuthContext, raw: unknown) {
   const v = movimientoStockSchema.parse(raw)
   const cantidad = new Prisma.Decimal(v.cantidad)
@@ -53,7 +92,7 @@ export async function registrarMovimientoStock(ctx: AuthContext, raw: unknown) {
         const filas = prior.operacionId ? await tx.movimientoStock.findMany({ where: { operacionId: prior.operacionId } }) : [prior]
         const total = filas.reduce((n, f) => n.plus(f.cantidad), new Prisma.Decimal(0))
         const loteIgual = !v.loteProductoId || (filas.length === 1 && prior.loteProductoId === v.loteProductoId)
-        if (prior.productoId !== v.productoId || prior.tipo !== v.tipo || !total.equals(cantidad.times(signo)) || !loteIgual) {
+        if (prior.productoId !== v.productoId || prior.tipo !== v.tipo || !total.equals(cantidad.times(signo)) || !loteIgual || (prior.sectorId ?? null) !== v.sectorId) {
           throw new InventarioError("La clave de operación ya fue utilizada con otros datos", 409)
         }
         return { movimiento: prior, filas, producto, repetido: true }
@@ -62,31 +101,18 @@ export async function registrarMovimientoStock(ctx: AuthContext, raw: unknown) {
     const lote = v.loteProductoId ? await tx.loteProducto.findFirst({ where: { id: v.loteProductoId, productoId: v.productoId } }) : null
     if (v.loteProductoId && !lote) throw new InventarioError("El lote no existe o no pertenece al producto", 400)
 
-    let asignaciones: Asignacion[] = [{ loteProductoId: v.loteProductoId, cantidad }]
-    if (resta) {
-      const saldo = await saldoProducto(tx, v.productoId)
-      if (saldo.lt(cantidad)) throw new InventarioError(`Stock insuficiente: hay ${fmt(Prisma.Decimal.max(saldo, 0))} ${producto.unidad} disponibles`, 409)
-      const { porLote, sinLote } = await saldosPorLote(tx, [v.productoId])
-      if (lote) {
-        const saldoLote = porLote.get(lote.id) ?? CERO
-        if (saldoLote.lt(cantidad)) throw new InventarioError(`El lote ${lote.nroLote} tiene ${fmt(Prisma.Decimal.max(saldoLote, 0))} ${producto.unidad}`, 409)
-      } else {
-        // Sin lote elegido: se descuenta primero del lote vigente que vence antes
-        const lotes = await tx.loteProducto.findMany({ where: { productoId: v.productoId, id: { in: [...porLote.keys()] } } })
-        const hoy = hoyArgentina()
-        const reparto = repartirFefo(cantidad, lotes.map((l) => ({ id: l.id, vencimiento: l.vencimiento, createdAt: l.createdAt, vencido: estadoVencimiento(l.vencimiento, { hoy }).vencido, saldo: porLote.get(l.id) ?? CERO })), sinLote.get(v.productoId) ?? CERO)
-        if (!reparto) throw new InventarioError(`Stock insuficiente: hay ${fmt(Prisma.Decimal.max(saldo, 0))} ${producto.unidad} disponibles`, 409)
-        asignaciones = reparto
-      }
-    }
+    const galpon = await galponEditable(tx, ctx, v.sectorId, producto.organizacionId!)
+    // Salidas y ajustes que restan se controlan contra el saldo de esa ubicación (galpón o sin galpón)
+    const asignaciones: Asignacion[] = resta
+      ? await asignarSalida(tx, producto, cantidad, { galpon, lote })
+      : [{ loteProductoId: v.loteProductoId, cantidad }]
 
-    // Fecha del día elegido (mediodía de Argentina, para que no cambie de día por zona horaria) o ahora
-    const fecha = v.fecha && v.fecha !== hoyArgentina() ? new Date(`${v.fecha}T12:00:00-03:00`) : new Date()
+    const fecha = fechaMovimiento(v.fecha)
     const operacionId = asignaciones.length > 1 ? randomUUID() : null
     const filas = []
     for (const [i, a] of asignaciones.entries()) {
       filas.push(await tx.movimientoStock.create({
-        data: { productoId: v.productoId, loteProductoId: a.loteProductoId, tipo: v.tipo, cantidad: a.cantidad.times(signo), motivo: v.motivo, fecha, clave: i === 0 ? v.clave : null, operacionId },
+        data: { productoId: v.productoId, loteProductoId: a.loteProductoId, sectorId: galpon?.id ?? null, tipo: v.tipo, cantidad: a.cantidad.times(signo), motivo: v.motivo, fecha, clave: i === 0 ? v.clave : null, operacionId },
       }))
     }
     await tx.auditLog.create({
@@ -185,26 +211,114 @@ export async function anularMovimiento(ctx: AuthContext, movimientoId: string, r
 
     // Contramovimiento: entrada ↔ salida; un ajuste se anula con el ajuste de signo contrario
     const inverso = (f: (typeof filas)[number]) => (f.tipo === "entrada" ? { tipo: "salida", cantidad: f.cantidad } : f.tipo === "salida" ? { tipo: "entrada", cantidad: f.cantidad } : { tipo: "ajuste", cantidad: f.cantidad.neg() })
-    const resta = filas.reduce((n, f) => { const i = inverso(f); return i.tipo === "salida" ? n.plus(i.cantidad) : i.tipo === "ajuste" && i.cantidad.lt(0) ? n.plus(i.cantidad.neg()) : n }, new Prisma.Decimal(0))
-    if (resta.gt(0)) {
-      const saldo = await saldoProducto(tx, mov.productoId)
-      if (saldo.lt(resta)) throw new InventarioError(`No se puede anular: dejaría el stock negativo (hay ${fmt(Prisma.Decimal.max(saldo, 0))} ${producto.unidad}). Registrá primero las salidas que correspondan.`, 409)
-      const { porLote } = await saldosPorLote(tx, [mov.productoId])
-      for (const f of filas.filter((x) => x.loteProductoId && inverso(x).tipo !== "entrada")) {
-        if ((porLote.get(f.loteProductoId!) ?? CERO).lt(f.cantidad.abs())) throw new InventarioError("No se puede anular: el lote ya no tiene ese saldo", 409)
-      }
+    // Lo que el contramovimiento descuenta, por ubicación (galpón o sin galpón) y lote: no puede dejar nada negativo
+    const descuentos = new Map<string, { sectorId: string | null; loteId: string | null; cantidad: Prisma.Decimal }>()
+    for (const f of filas) {
+      const i = inverso(f)
+      const resta = i.tipo === "salida" ? i.cantidad : i.tipo === "ajuste" && i.cantidad.lt(0) ? i.cantidad.neg() : null
+      if (!resta) continue
+      const k = `${f.sectorId ?? "-"}|${f.loteProductoId ?? "-"}`
+      const d = descuentos.get(k) ?? { sectorId: f.sectorId, loteId: f.loteProductoId, cantidad: new Prisma.Decimal(0) }
+      descuentos.set(k, { ...d, cantidad: d.cantidad.plus(resta) })
+    }
+    for (const d of descuentos.values()) {
+      const { porLote, sinLote } = await saldosPorLote(tx, [mov.productoId], { sectorId: d.sectorId })
+      const disponible = d.loteId ? porLote.get(d.loteId) ?? CERO : sinLote.get(mov.productoId) ?? CERO
+      if (disponible.lt(d.cantidad)) throw new InventarioError(`No se puede anular: dejaría el stock negativo (quedan ${fmt(Prisma.Decimal.max(disponible, 0))} ${producto.unidad} de lo que entró con ese movimiento). Registrá primero las salidas que correspondan.`, 409)
     }
     const operacionId = filas.length > 1 ? randomUUID() : null
     const creadas = []
     for (const f of filas) {
       const i = inverso(f)
       creadas.push(await tx.movimientoStock.create({
-        data: { productoId: f.productoId, loteProductoId: f.loteProductoId, sectorId: f.sectorId, tipo: i.tipo, cantidad: i.cantidad, motivo: `Anulación: ${motivo}`, anulaAId: f.id, operacionId },
+        data: { productoId: f.productoId, loteProductoId: f.loteProductoId, sectorId: f.sectorId, tipo: i.tipo, cantidad: i.cantidad, motivo: `Anulación: ${motivo}`, anulaAId: f.id, operacionId, concepto: f.concepto },
       }))
     }
     await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: producto.organizacionId, tabla: "movimientos_stock", rowPk: mov.id, accion: "UPDATE", detalle: { anulado: filas.map((f) => f.id), contramovimientos: creadas.map((c) => c.id), motivo } } })
     return { anulados: filas.length, contramovimientos: creadas.map((c) => c.id) }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15000 })
+}
+
+/**
+ * Transferir stock entre ubicaciones (galpón ↔ galpón, o reubicar stock sin galpón):
+ * salida en origen + entrada en destino por cada lote, atómicas, con el mismo operacionId.
+ * El total del producto no cambia.
+ */
+export async function transferirStock(ctx: AuthContext, raw: unknown) {
+  const v = transferenciaStockSchema.parse(raw)
+  const cantidad = new Prisma.Decimal(v.cantidad)
+  return prisma.$transaction(async (tx) => {
+    const producto = await productoEditable(tx, ctx, v.productoId)
+    if (!producto.activo) throw new InventarioError("El producto está archivado: reactivalo para moverlo")
+    if (v.clave) {
+      const prior = await tx.movimientoStock.findUnique({ where: { clave: v.clave } })
+      if (prior) {
+        if (prior.productoId !== v.productoId || prior.concepto !== "transferencia") throw new InventarioError("La clave de operación ya fue utilizada con otros datos", 409)
+        return { operacionId: prior.operacionId, repetido: true, filas: 0 }
+      }
+    }
+    const [desde, hacia] = [await galponEditable(tx, ctx, v.desdeSectorId, producto.organizacionId!), await galponEditable(tx, ctx, v.haciaSectorId, producto.organizacionId!)]
+    const lote = v.loteProductoId ? await tx.loteProducto.findFirst({ where: { id: v.loteProductoId, productoId: v.productoId } }) : null
+    if (v.loteProductoId && !lote) throw new InventarioError("El lote no existe o no pertenece al producto", 400)
+    const asignaciones = await asignarSalida(tx, producto, cantidad, { galpon: desde, lote })
+    const operacionId = randomUUID(), fecha = fechaMovimiento(v.fecha)
+    const motivo = v.motivo ?? `Transferencia${desde ? ` desde ${desde.nombre}` : " (sin galpón)"} a ${hacia ? hacia.nombre : "sin galpón"}`
+    let primera = true
+    for (const a of asignaciones) {
+      await tx.movimientoStock.create({ data: { productoId: v.productoId, loteProductoId: a.loteProductoId, sectorId: desde?.id ?? null, tipo: "salida", concepto: "transferencia", cantidad: a.cantidad, motivo, fecha, operacionId, clave: primera ? v.clave : null } })
+      await tx.movimientoStock.create({ data: { productoId: v.productoId, loteProductoId: a.loteProductoId, sectorId: hacia?.id ?? null, tipo: "entrada", concepto: "transferencia", cantidad: a.cantidad, motivo, fecha, operacionId } })
+      primera = false
+    }
+    await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: producto.organizacionId, tabla: "movimientos_stock", rowPk: operacionId, accion: "INSERT", detalle: { transferencia: true, productoId: v.productoId, desde: desde?.id ?? null, hacia: hacia?.id ?? null, cantidad: cantidad.toNumber() } } })
+    return { operacionId, repetido: false, filas: asignaciones.length * 2 }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15000 })
+}
+
+/**
+ * Recuento físico de una ubicación: por cada producto contado se compara con el sistema y
+ * se registra un ajuste por la diferencia (concepto «recuento»). Un faltante se descuenta
+ * FEFO de los lotes de esa ubicación; un sobrante entra sin lote. Todo en una operación.
+ */
+export interface ResumenRecuento {
+  operacionId: string
+  ubicacion: string
+  ajustados: number
+  items: { productoId: string; nombre: string; unidad: string; sistema: number; contado: number; diferencia: number }[]
+}
+
+export async function registrarRecuento(ctx: AuthContext, raw: unknown): Promise<ResumenRecuento & { repetido: boolean }> {
+  const v = recuentoSchema.parse(raw)
+  return prisma.$transaction(async (tx) => {
+    if (v.clave) {
+      const prior = await tx.auditLog.findFirst({ where: { tabla: "recuentos_stock", rowPk: v.clave, usuarioId: ctx.userId }, select: { detalle: true } })
+      if (prior) return { ...(prior.detalle as unknown as ResumenRecuento), repetido: true }
+    }
+    const operacionId = randomUUID(), fecha = fechaMovimiento(v.fecha)
+    const resultado: { productoId: string; nombre: string; unidad: string; sistema: number; contado: number; diferencia: number }[] = []
+    let organizacionId: string | null = null
+    let galpon: Awaited<ReturnType<typeof galponEditable>> = null
+    for (const item of v.items) {
+      const producto = await productoEditable(tx, ctx, item.productoId)
+      if (organizacionId && producto.organizacionId !== organizacionId) throw new InventarioError("Un recuento es de una sola organización")
+      if (!organizacionId) { organizacionId = producto.organizacionId!; galpon = await galponEditable(tx, ctx, v.sectorId, organizacionId) }
+      const sistema = (await saldosPorProducto(tx, [producto.id], { sectorId: galpon?.id ?? null })).get(producto.id) ?? CERO
+      const contado = new Prisma.Decimal(item.contado)
+      const diferencia = contado.minus(sistema)
+      resultado.push({ productoId: producto.id, nombre: producto.nombre, unidad: producto.unidad, sistema: sistema.toNumber(), contado: contado.toNumber(), diferencia: diferencia.toNumber() })
+      if (diferencia.isZero()) continue
+      const motivo = `Recuento${galpon ? ` ${galpon.nombre}` : " sin galpón"}: sistema ${fmt(sistema)}, contado ${fmt(contado)}${v.motivo ? ` · ${v.motivo}` : ""}`
+      const asignaciones: Asignacion[] = diferencia.gt(0)
+        ? [{ loteProductoId: null, cantidad: diferencia }]
+        : (await asignarSalida(tx, producto, diferencia.neg(), { galpon, lote: null })).map((a) => ({ ...a, cantidad: a.cantidad.neg() }))
+      for (const a of asignaciones) {
+        await tx.movimientoStock.create({ data: { productoId: producto.id, loteProductoId: a.loteProductoId, sectorId: galpon?.id ?? null, tipo: "ajuste", concepto: "recuento", cantidad: a.cantidad, motivo, fecha, operacionId } })
+      }
+    }
+    const resumen: ResumenRecuento = { operacionId, ubicacion: galpon?.nombre ?? "Sin galpón asignado", items: resultado, ajustados: resultado.filter((r) => r.diferencia !== 0).length }
+    // El registro de auditoría también sirve para que reenviar el mismo recuento no lo duplique
+    await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId, tabla: "recuentos_stock", rowPk: v.clave ?? operacionId, accion: "INSERT", detalle: JSON.parse(JSON.stringify(resumen)) } })
+    return { ...resumen, repetido: false }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000 })
 }
 
 export async function crearLote(ctx: AuthContext, productoId: string, raw: unknown) {

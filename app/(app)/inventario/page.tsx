@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
+import { toast } from "sonner"
 import { DataTable, type ColumnDef } from "@/components/ui/data-table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -25,12 +26,19 @@ import {
   ArrowUpFromLine,
   Search,
   Loader2,
+  ArrowRightLeft,
+  ClipboardCheck,
+  FileSpreadsheet,
+  FileText,
 } from "lucide-react"
 import { format, formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
 import { MovimientoStockDialog } from "@/components/inventario/movimiento-stock-dialog"
 import { IngresarLoteDialog } from "@/components/inventario/producto-dialogs"
 import { ProductoFormDialog } from "@/components/inventario/producto-form-dialog"
+import { TransferenciaDialog } from "@/components/inventario/transferencia-dialog"
+import { exportToExcel } from "@/lib/utils/export-excel"
+import { exportarTablaPDF } from "@/lib/utils/export-pdf"
 import { useTenant } from "@/lib/context/tenant-context"
 import { etiquetaTipo } from "@/lib/inventario/validation"
 import { formatoDia, textoVencimiento } from "@/lib/inventario/fechas"
@@ -67,6 +75,8 @@ interface ProductoStock {
   costoReferencia: number | null
   monedaCosto: string
   activo: boolean
+  organizacionId: string | null
+  porUbicacion: Record<string, number>
   stockTotal: number
   stockBajo: boolean
   tieneVencimientoProximo: boolean
@@ -90,6 +100,7 @@ interface Movimiento {
   createdAt: string
   producto: { id: string; nombre: string; tipo: string }
   ubicacion: { id: string; nombre: string } | null
+  concepto?: string | null
   loteProducto: { id: string; nroLote: string; vencimiento: string | null } | null
 }
 
@@ -136,8 +147,9 @@ export default function InventarioPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [configurando, setConfigurando] = useState<ProductoStock | null>(null)
   const [creando, setCreando] = useState(false)
+  const [transfiriendo, setTransfiriendo] = useState(false)
   const [orgsEditables, setOrgsEditables] = useState<string[]>([])
-  const { organizaciones } = useTenant()
+  const { organizaciones, organizacionActiva } = useTenant()
   const [ingresandoLote, setIngresandoLote] = useState<ProductoStock | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -206,6 +218,58 @@ export default function InventarioPage() {
   }, [fetchMovimientos])
 
   // ---- Columnas de la tabla de Stock ----
+
+  // ---- Exportar ----
+
+  const fechaArchivo = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" })
+  const proximoVencimiento = (p: ProductoStock) => p.lotes.filter((l) => l.saldo > 0 && l.vencimiento).map((l) => l.vencimiento!).sort()[0]
+  const estadoProducto = (p: ProductoStock) => (p.stockBajo ? "Stock bajo" : p.tieneVencimientoProximo ? "Vencimiento próximo" : "OK")
+
+  function exportarStock(formato: "excel" | "pdf") {
+    const ubic = ubicacionFilter === "todas" ? "Todas las ubicaciones" : ubicacionFilter === "sin-asignar" ? "Sin galpón asignado" : ubicaciones.find((u) => u.id === ubicacionFilter)?.nombre ?? ""
+    if (formato === "excel") {
+      exportToExcel({
+        filename: `inventario_${fechaArchivo()}.xlsx`, sheetName: "Stock", data: productos,
+        columns: [
+          { header: "Producto", key: "nombre", width: 30 }, { header: "Tipo", key: "tipo", formatter: etiquetaTipo },
+          { header: "Unidad", key: "unidad" }, { header: "Stock", key: "stockTotal" }, { header: "Mínimo", key: "stockMinimo", formatter: (v) => v ?? "" },
+          { header: "Costo ref.", key: "costoReferencia", formatter: (v) => v ?? "" }, { header: "Moneda", key: "monedaCosto" },
+          { header: "Lotes con saldo", key: "lotes", formatter: (l: LoteProductoUI[]) => l.filter((x) => x.saldo > 0).length },
+          { header: "Estado", key: "id", formatter: (id: string) => estadoProducto(productos.find((p) => p.id === id)!) },
+        ],
+      })
+    } else {
+      exportarTablaPDF({
+        titulo: "Inventario de insumos", subtitulo: `${organizacionActiva?.nombre ?? ""} · ${ubic} · ${new Date().toLocaleString("es-AR")}`, archivo: `inventario_${fechaArchivo()}.pdf`, horizontal: true,
+        columnas: ["Producto", "Tipo", "Stock", "Unidad", "Mínimo", "Próx. vencimiento", "Estado"],
+        filas: productos.map((p) => [p.nombre, etiquetaTipo(p.tipo), p.stockTotal, p.unidad, p.stockMinimo ?? "—", proximoVencimiento(p) ? formatoDia(proximoVencimiento(p)!) : "—", estadoProducto(p)]),
+      })
+    }
+  }
+
+  async function exportarMovimientos() {
+    try {
+      const filas: Movimiento[] = []
+      for (let page = 1; page <= 20; page++) {
+        const params = new URLSearchParams({ page: String(page), limit: "100" })
+        if (movTipoFilter !== "todos") params.set("tipo", movTipoFilter)
+        if (ubicacionFilter !== "todas") params.set("ubicacion", ubicacionFilter)
+        const r = await fetch(`/api/inventario/movimientos?${params}`)
+        const b = await r.json()
+        if (!r.ok) throw new Error(b.error ?? "No se pudo exportar")
+        filas.push(...b.data)
+        if (!b.pagination?.hasNextPage) break
+      }
+      exportToExcel({
+        filename: `movimientos_stock_${fechaArchivo()}.xlsx`, sheetName: "Movimientos", data: filas.map((m) => ({ ...m, producto: m.producto.nombre, lote: m.loteProducto?.nroLote ?? "", galpon: m.ubicacion?.nombre ?? "Sin galpón" })),
+        columns: [
+          { header: "Fecha", key: "fecha", formatter: (v: string) => new Date(v).toLocaleString("es-AR") }, { header: "Tipo", key: "tipo" },
+          { header: "Concepto", key: "concepto", formatter: (v) => v ?? "" }, { header: "Producto", key: "producto", width: 30 },
+          { header: "Cantidad", key: "cantidad" }, { header: "Lote", key: "lote" }, { header: "Galpón", key: "galpon" }, { header: "Motivo", key: "motivo", width: 40 },
+        ],
+      })
+    } catch (e) { toast.error(e instanceof Error ? e.message : "No se pudo exportar") }
+  }
 
   const stockColumns: ColumnDef<ProductoStock>[] = [
     {
@@ -346,10 +410,13 @@ export default function InventarioPage() {
         const Icon = config.icon
 
         return (
-          <Badge className={config.className}>
-            <Icon className="mr-1 h-3 w-3" />
-            {config.label}
-          </Badge>
+          <div className="flex flex-wrap gap-1">
+            <Badge className={config.className}>
+              <Icon className="mr-1 h-3 w-3" />
+              {config.label}
+            </Badge>
+            {row.concepto && <Badge variant="outline">{row.concepto === "transferencia" ? "Transferencia" : "Recuento"}</Badge>}
+          </div>
         )
       },
     },
@@ -426,6 +493,18 @@ export default function InventarioPage() {
           </p>
         </div>
 
+        <div className="flex flex-wrap gap-2">
+        {puedeEditar && ubicaciones.length > 0 && (
+          <Button variant="outline" onClick={() => setTransfiriendo(true)}>
+            <ArrowRightLeft className="mr-2 h-4 w-4" />
+            Transferir
+          </Button>
+        )}
+        {puedeEditar && (
+          <Button variant="outline" asChild>
+            <Link href="/inventario/recuento"><ClipboardCheck className="mr-2 h-4 w-4" />Recuento</Link>
+          </Button>
+        )}
         {puedeEditar && (
           <Button variant="outline" onClick={() => setCreando(true)}>
             <Plus className="mr-2 h-4 w-4" />
@@ -438,14 +517,17 @@ export default function InventarioPage() {
             Nuevo Movimiento
           </Button>
         )}
+        </div>
         <ProductoFormDialog abierto={!!configurando || creando} producto={configurando} organizaciones={organizaciones.filter((o) => orgsEditables.includes(o.id))} onOpenChange={(o) => { if (!o) { setConfigurando(null); setCreando(false) } }} onGuardado={() => { fetchInventario(); fetchMovimientos() }} />
         <IngresarLoteDialog producto={ingresandoLote} onOpenChange={(o) => !o && setIngresandoLote(null)} onGuardado={() => { fetchInventario(); fetchMovimientos() }} />
         <MovimientoStockDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           productos={productos}
+          ubicaciones={ubicaciones}
           onGuardado={() => { fetchInventario(); fetchMovimientos() }}
         />
+        <TransferenciaDialog open={transfiriendo} onOpenChange={setTransfiriendo} productos={productos} ubicaciones={ubicaciones} onGuardado={() => { fetchInventario(); fetchMovimientos() }} />
       </div>
 
       {/* Cards de resumen */}
@@ -583,6 +665,31 @@ export default function InventarioPage() {
               <Button size="sm" variant="outline" onClick={() => fetchInventario()}>Reintentar</Button>
             </p>
           )}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button size="sm" variant="outline" disabled={!productos.length} onClick={() => exportarStock("excel")}><FileSpreadsheet className="mr-2 h-4 w-4" />Excel</Button>
+            <Button size="sm" variant="outline" disabled={!productos.length} onClick={() => exportarStock("pdf")}><FileText className="mr-2 h-4 w-4" />PDF</Button>
+          </div>
+          {/* Celular: tarjetas */}
+          <div className="space-y-2 md:hidden">
+            {loadingStock ? <p role="status" className="text-sm text-muted-foreground">Cargando…</p> : !productos.length ? <p className="text-sm text-muted-foreground">No hay productos en el inventario</p> : productos.map((p) => (
+              <Card key={p.id}>
+                <CardContent className="space-y-2 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <Link href={`/inventario/${p.id}`} className="font-medium hover:underline">{p.nombre}</Link>
+                    <Badge variant={p.stockBajo ? "destructive" : "outline"}>{estadoProducto(p)}</Badge>
+                  </div>
+                  <p className="text-sm"><span className={p.stockBajo ? "font-bold text-destructive" : "font-semibold"}>{p.stockTotal.toLocaleString("es-AR")}</span> {p.unidad}<span className="text-muted-foreground"> · {etiquetaTipo(p.tipo)}{p.stockMinimo != null ? ` · mín. ${p.stockMinimo.toLocaleString("es-AR")}` : ""}</span></p>
+                  {puedeEditar && (
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setIngresandoLote(p)}>Ingresar lote</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setConfigurando(p)}>Editar</Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <div className="hidden md:block">
           <DataTable
             columns={stockColumns}
             data={productos}
@@ -590,6 +697,7 @@ export default function InventarioPage() {
             emptyMessage="No hay productos en el inventario"
             rowKey={(row) => row.id}
           />
+          </div>
         </TabsContent>
 
         {/* ====== TAB: MOVIMIENTOS ====== */}
@@ -626,6 +734,9 @@ export default function InventarioPage() {
               <Button size="sm" variant="outline" onClick={() => fetchMovimientos()}>Reintentar</Button>
             </p>
           )}
+          <div className="flex justify-end">
+            <Button size="sm" variant="outline" onClick={exportarMovimientos}><FileSpreadsheet className="mr-2 h-4 w-4" />Exportar a Excel</Button>
+          </div>
           <DataTable
             columns={movColumns}
             data={movimientos}

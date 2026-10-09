@@ -21,12 +21,14 @@ const selectClass = "flex h-10 w-full rounded-md border border-input bg-backgrou
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
-  productos: { id: string; nombre: string; tipo: string; stockTotal: number; unidad: string; lotes: { id: string; nroLote: string; saldo: number; vencido: boolean; vencimiento: string | null }[] }[]
+  productos: { id: string; nombre: string; tipo: string; stockTotal: number; unidad: string; porUbicacion?: Record<string, number>; lotes: { id: string; nroLote: string; saldo: number; vencido: boolean; vencimiento: string | null }[] }[]
+  /** Galpones del mapa (vacío: el campo de galpón no se muestra) */
+  ubicaciones?: { id: string; nombre: string; campo: string }[]
   onGuardado: () => void
 }
 
 /** Registrar entrada, salida o ajuste (con sentido) de un insumo. */
-export function MovimientoStockDialog({ open, onOpenChange, productos, onGuardado }: Props) {
+export function MovimientoStockDialog({ open, onOpenChange, productos, ubicaciones = [], onGuardado }: Props) {
   const [errorServidor, setErrorServidor] = useState("")
   const {
     register,
@@ -41,13 +43,16 @@ export function MovimientoStockDialog({ open, onOpenChange, productos, onGuardad
   useEffect(() => {
     if (!open) return
     setErrorServidor("")
-    reset({ productoId: "", tipo: "entrada", sentido: null, cantidad: "" as unknown as number, motivo: "", fecha: hoyArgentina(), loteProductoId: null, clave: crypto.randomUUID() })
+    reset({ productoId: "", tipo: "entrada", sentido: null, cantidad: "" as unknown as number, motivo: "", fecha: hoyArgentina(), loteProductoId: null, sectorId: null, clave: crypto.randomUUID() })
   }, [open, reset])
 
   const tipo = watch("tipo"), productoId = watch("productoId"), sentido = watch("sentido")
   useEffect(() => { if (tipo !== "ajuste") setValue("sentido", null) }, [tipo, setValue])
   const producto = productos.find((p) => p.id === productoId)
   const resta = tipo === "salida" || (tipo === "ajuste" && sentido === "restar")
+  const sectorId = watch("sectorId")
+  // Disponible en la ubicación elegida (galpón o sin galpón): ahí se controla el saldo
+  const disponible = producto ? (producto.porUbicacion?.[sectorId ?? "sin"] ?? (ubicaciones.length ? 0 : producto.stockTotal)) : 0
   const lotesElegibles = (producto?.lotes ?? []).filter((l) => !resta || l.saldo > 0)
   useEffect(() => { setValue("loteProductoId", null) }, [productoId, setValue])
 
@@ -103,6 +108,16 @@ export function MovimientoStockDialog({ open, onOpenChange, productos, onGuardad
               {error("fecha")}
             </div>
           </div>
+          {ubicaciones.length > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="mov-galpon">{tipo === "entrada" ? "Galpón donde entra" : "Galpón"}</Label>
+              <select id="mov-galpon" className={selectClass} {...register("sectorId", { setValueAs: (v) => v || null })}>
+                <option value="">Sin galpón asignado</option>
+                {ubicaciones.map((u) => <option key={u.id} value={u.id}>{u.nombre} · {u.campo}{producto?.porUbicacion?.[u.id] ? ` (${producto.porUbicacion[u.id].toLocaleString("es-AR")})` : ""}</option>)}
+              </select>
+              {error("sectorId")}
+            </div>
+          )}
           {tipo === "ajuste" && (
             <fieldset className="space-y-1.5">
               <legend className="text-sm font-medium">El ajuste…</legend>
@@ -116,7 +131,7 @@ export function MovimientoStockDialog({ open, onOpenChange, productos, onGuardad
           <div className="space-y-1.5">
             <Label htmlFor="mov-cantidad">Cantidad</Label>
             <Input id="mov-cantidad" type="number" inputMode="decimal" step="0.01" min="0.01" placeholder="Ej: 50" {...register("cantidad")} />
-            {resta && producto && <p className="text-xs text-muted-foreground">Disponible: {producto.stockTotal.toLocaleString("es-AR")} {producto.unidad}</p>}
+            {resta && producto && <p className="text-xs text-muted-foreground">Disponible {ubicaciones.length ? (sectorId ? `en ${ubicaciones.find((u) => u.id === sectorId)?.nombre ?? "el galpón"}` : "sin galpón asignado") : ""}: {disponible.toLocaleString("es-AR")} {producto.unidad}</p>}
             {error("cantidad")}
           </div>
           {lotesElegibles.length > 0 && (

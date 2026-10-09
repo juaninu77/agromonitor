@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import Link from "next/link"
 import { DataTable, type ColumnDef } from "@/components/ui/data-table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -28,7 +29,10 @@ import {
 import { format, formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
 import { MovimientoStockDialog } from "@/components/inventario/movimiento-stock-dialog"
-import { ConfigurarProductoDialog, IngresarLoteDialog } from "@/components/inventario/producto-dialogs"
+import { IngresarLoteDialog } from "@/components/inventario/producto-dialogs"
+import { ProductoFormDialog } from "@/components/inventario/producto-form-dialog"
+import { useTenant } from "@/lib/context/tenant-context"
+import { etiquetaTipo } from "@/lib/inventario/validation"
 import { formatoDia, textoVencimiento } from "@/lib/inventario/fechas"
 
 // ============================================
@@ -131,6 +135,9 @@ export default function InventarioPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [configurando, setConfigurando] = useState<ProductoStock | null>(null)
+  const [creando, setCreando] = useState(false)
+  const [orgsEditables, setOrgsEditables] = useState<string[]>([])
+  const { organizaciones } = useTenant()
   const [ingresandoLote, setIngresandoLote] = useState<ProductoStock | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -150,6 +157,7 @@ export default function InventarioPage() {
       if (!res.ok || !json.success) throw new Error(json.error ?? "No se pudo cargar el inventario")
       {
         setPuedeEditar(!!json.puedeEditar)
+        setOrgsEditables(json.organizacionesEditables ?? [])
         setProductos(json.data)
         setResumen(json.resumen)
         setTiposDisponibles(json.tiposDisponibles)
@@ -205,7 +213,7 @@ export default function InventarioPage() {
       header: "Producto",
       accessorFn: (row) => (
         <div>
-          <p className="font-medium">{row.nombre}</p>
+          <Link href={`/inventario/${row.id}`} className="font-medium hover:underline">{row.nombre}</Link>
           {row.principioActivo && (
             <p className="text-xs text-muted-foreground">{row.principioActivo}</p>
           )}
@@ -216,8 +224,8 @@ export default function InventarioPage() {
       id: "tipo",
       header: "Tipo",
       accessorFn: (row) => (
-        <Badge variant="outline" className="capitalize">
-          {row.tipo}
+        <Badge variant="outline">
+          {etiquetaTipo(row.tipo)}
         </Badge>
       ),
     },
@@ -286,7 +294,7 @@ export default function InventarioPage() {
           accessorFn: (row: ProductoStock) => (
             <div className="flex justify-end gap-1">
               <Button size="sm" variant="outline" onClick={() => setIngresandoLote(row)}>Ingresar lote</Button>
-              <Button size="sm" variant="ghost" onClick={() => setConfigurando(row)}>Configurar</Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfigurando(row)}>Editar</Button>
             </div>
           ),
         } satisfies ColumnDef<ProductoStock>]
@@ -350,7 +358,7 @@ export default function InventarioPage() {
       header: "Producto",
       accessorFn: (row) => (
         <div>
-          <p className="font-medium">{row.producto.nombre}</p>
+          <Link href={`/inventario/${row.producto.id}`} className="font-medium hover:underline">{row.producto.nombre}</Link>
           {row.loteProducto && (
             <p className="text-xs text-muted-foreground">
               Lote: {row.loteProducto.nroLote}
@@ -419,12 +427,18 @@ export default function InventarioPage() {
         </div>
 
         {puedeEditar && (
+          <Button variant="outline" onClick={() => setCreando(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nuevo producto
+          </Button>
+        )}
+        {puedeEditar && (
           <Button onClick={() => setDialogOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Nuevo Movimiento
           </Button>
         )}
-        <ConfigurarProductoDialog producto={configurando} onOpenChange={(o) => !o && setConfigurando(null)} onGuardado={() => { fetchInventario(); fetchMovimientos() }} />
+        <ProductoFormDialog abierto={!!configurando || creando} producto={configurando} organizaciones={organizaciones.filter((o) => orgsEditables.includes(o.id))} onOpenChange={(o) => { if (!o) { setConfigurando(null); setCreando(false) } }} onGuardado={() => { fetchInventario(); fetchMovimientos() }} />
         <IngresarLoteDialog producto={ingresandoLote} onOpenChange={(o) => !o && setIngresandoLote(null)} onGuardado={() => { fetchInventario(); fetchMovimientos() }} />
         <MovimientoStockDialog
           open={dialogOpen}
@@ -543,8 +557,8 @@ export default function InventarioPage() {
               <SelectContent>
                 <SelectItem value="todos">Todos los tipos</SelectItem>
                 {tiposDisponibles.map((t) => (
-                  <SelectItem key={t} value={t} className="capitalize">
-                    {t}
+                  <SelectItem key={t} value={t}>
+                    {etiquetaTipo(t)}
                   </SelectItem>
                 ))}
               </SelectContent>

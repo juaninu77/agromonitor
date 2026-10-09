@@ -8,7 +8,7 @@
 
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
-import { loteSchema, movimientoStockSchema, productoConfigSchema, productoSchema } from "./validation"
+import { anulacionSchema, loteSchema, loteUpdateSchema, movimientoStockSchema, productoConfigSchema, productoSchema } from "./validation"
 import { randomUUID } from "node:crypto"
 import { estadoVencimiento, hoyArgentina } from "./fechas"
 import { CERO, repartirFefo, saldosPorLote, saldosPorProducto, type Asignacion } from "./stock"
@@ -115,17 +115,25 @@ export async function crearProducto(ctx: AuthContext, raw: unknown) {
   }
   const { organizacionId: _omit, ...data } = v
   return prisma.$transaction(async (tx) => {
+    await nombreLibre(tx, organizacionId, v.nombre)
     const producto = await tx.producto.create({ data: { ...data, organizacionId } })
     await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId, tabla: "productos", rowPk: producto.id, accion: "INSERT", detalle: { nombre: producto.nombre, tipo: producto.tipo } } })
     return producto
   })
 }
 
-/** Unidad, stock mínimo, costo de referencia y archivado. Archivar exige stock en cero. */
+/** El nombre de un producto es único dentro de la organización (sin distinguir mayúsculas). */
+async function nombreLibre(tx: Prisma.TransactionClient, organizacionId: string, nombre: string, excepto?: string) {
+  const otro = await tx.producto.findFirst({ where: { organizacionId, nombre: { equals: nombre, mode: "insensitive" }, ...(excepto ? { id: { not: excepto } } : {}) }, select: { id: true } })
+  if (otro) throw new InventarioError(`Ya existe un producto llamado «${nombre}»`, 409)
+}
+
+/** Editar datos y configuración del producto. Archivar exige stock en cero. */
 export async function configurarProducto(ctx: AuthContext, productoId: string, raw: unknown) {
   const v = productoConfigSchema.parse(raw)
   return prisma.$transaction(async (tx) => {
     const producto = await productoEditable(tx, ctx, productoId)
+    if (v.nombre && v.nombre !== producto.nombre) await nombreLibre(tx, producto.organizacionId!, v.nombre, productoId)
     if (v.activo === false && producto.activo) {
       const saldo = await saldoProducto(tx, productoId)
       if (!saldo.isZero()) throw new InventarioError(`Tiene ${fmt(saldo)} ${producto.unidad} en stock: registrá la salida o un ajuste antes de archivarlo`, 409)
@@ -134,6 +142,69 @@ export async function configurarProducto(ctx: AuthContext, productoId: string, r
     await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: producto.organizacionId, tabla: "productos", rowPk: productoId, accion: "UPDATE", detalle: JSON.parse(JSON.stringify(v)) } })
     return actualizado
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+}
+
+export const actualizarProducto = configurarProducto
+
+/** Editar datos de un lote (número, vencimiento, proveedor, costo). La cantidad solo cambia con movimientos. */
+export async function actualizarLote(ctx: AuthContext, productoId: string, loteId: string, raw: unknown) {
+  const v = loteUpdateSchema.parse(raw)
+  return prisma.$transaction(async (tx) => {
+    const producto = await productoEditable(tx, ctx, productoId)
+    const lote = await tx.loteProducto.findFirst({ where: { id: loteId, productoId } })
+    if (!lote) throw new InventarioError("Lote no encontrado", 404)
+    if (v.nroLote && v.nroLote.toLowerCase() !== lote.nroLote.toLowerCase() && await tx.loteProducto.findFirst({ where: { productoId, nroLote: { equals: v.nroLote, mode: "insensitive" }, id: { not: loteId } }, select: { id: true } })) {
+      throw new InventarioError(`Ya existe el lote ${v.nroLote} de este producto`, 409)
+    }
+    const data: Prisma.LoteProductoUpdateInput = {
+      ...(v.nroLote ? { nroLote: v.nroLote } : {}),
+      ...(v.vencimiento !== undefined ? { vencimiento: v.vencimiento ? new Date(`${v.vencimiento}T00:00:00Z`) : null } : {}),
+      ...(v.proveedor !== undefined ? { proveedor: v.proveedor } : {}),
+      ...(v.costo !== undefined ? { costo: v.costo } : {}),
+    }
+    const actualizado = await tx.loteProducto.update({ where: { id: loteId }, data })
+    await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: producto.organizacionId, tabla: "lotes_producto", rowPk: loteId, accion: "UPDATE", detalle: JSON.parse(JSON.stringify(v)) } })
+    return actualizado
+  })
+}
+
+/**
+ * Anular un movimiento con su contramovimiento (no se borra historial). Si el movimiento
+ * es parte de una operación repartida entre lotes, se anula la operación completa.
+ * Anular una entrada exige que el stock alcance (no puede quedar negativo).
+ */
+export async function anularMovimiento(ctx: AuthContext, movimientoId: string, raw: unknown) {
+  const { motivo } = anulacionSchema.parse(raw)
+  return prisma.$transaction(async (tx) => {
+    const mov = await tx.movimientoStock.findUnique({ where: { id: movimientoId }, include: { anuladoPor: { select: { id: true } } } })
+    if (!mov) throw new InventarioError("Movimiento no encontrado", 404)
+    const producto = await productoEditable(tx, ctx, mov.productoId)
+    if (mov.anulaAId) throw new InventarioError("Es una anulación: no se puede anular")
+    const filas = mov.operacionId ? await tx.movimientoStock.findMany({ where: { operacionId: mov.operacionId }, include: { anuladoPor: { select: { id: true } } } }) : [mov]
+    if (filas.some((f) => f.anuladoPor)) throw new InventarioError("El movimiento ya fue anulado", 409)
+
+    // Contramovimiento: entrada ↔ salida; un ajuste se anula con el ajuste de signo contrario
+    const inverso = (f: (typeof filas)[number]) => (f.tipo === "entrada" ? { tipo: "salida", cantidad: f.cantidad } : f.tipo === "salida" ? { tipo: "entrada", cantidad: f.cantidad } : { tipo: "ajuste", cantidad: f.cantidad.neg() })
+    const resta = filas.reduce((n, f) => { const i = inverso(f); return i.tipo === "salida" ? n.plus(i.cantidad) : i.tipo === "ajuste" && i.cantidad.lt(0) ? n.plus(i.cantidad.neg()) : n }, new Prisma.Decimal(0))
+    if (resta.gt(0)) {
+      const saldo = await saldoProducto(tx, mov.productoId)
+      if (saldo.lt(resta)) throw new InventarioError(`No se puede anular: dejaría el stock negativo (hay ${fmt(Prisma.Decimal.max(saldo, 0))} ${producto.unidad}). Registrá primero las salidas que correspondan.`, 409)
+      const { porLote } = await saldosPorLote(tx, [mov.productoId])
+      for (const f of filas.filter((x) => x.loteProductoId && inverso(x).tipo !== "entrada")) {
+        if ((porLote.get(f.loteProductoId!) ?? CERO).lt(f.cantidad.abs())) throw new InventarioError("No se puede anular: el lote ya no tiene ese saldo", 409)
+      }
+    }
+    const operacionId = filas.length > 1 ? randomUUID() : null
+    const creadas = []
+    for (const f of filas) {
+      const i = inverso(f)
+      creadas.push(await tx.movimientoStock.create({
+        data: { productoId: f.productoId, loteProductoId: f.loteProductoId, sectorId: f.sectorId, tipo: i.tipo, cantidad: i.cantidad, motivo: `Anulación: ${motivo}`, anulaAId: f.id, operacionId },
+      }))
+    }
+    await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: producto.organizacionId, tabla: "movimientos_stock", rowPk: mov.id, accion: "UPDATE", detalle: { anulado: filas.map((f) => f.id), contramovimientos: creadas.map((c) => c.id), motivo } } })
+    return { anulados: filas.length, contramovimientos: creadas.map((c) => c.id) }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15000 })
 }
 
 export async function crearLote(ctx: AuthContext, productoId: string, raw: unknown) {

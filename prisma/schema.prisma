@@ -1237,17 +1237,21 @@ model Notificacion {
 // ============================================
 
 model MovimientoStock {
-  sectorId    String?  @map("sector_id") @db.Uuid
-  sector      Sector?  @relation(fields: [sectorId], references: [id], onDelete: Restrict)
-  clave       String?  @unique @db.Uuid
+  sectorId    String?          @map("sector_id") @db.Uuid
+  sector      Sector?          @relation(fields: [sectorId], references: [id], onDelete: Restrict)
+  clave       String?          @unique @db.Uuid
   // Una salida sin lote se reparte entre lotes (primero el que vence antes): todas sus filas comparten operacionId
-  operacionId String?  @map("operacion_id") @db.Uuid
-  id          String   @id @default(uuid()) @db.Uuid
+  operacionId String?          @map("operacion_id") @db.Uuid
+  /// Contramovimiento: anula al movimiento indicado (cada movimiento se anula una sola vez)
+  anulaAId    String?          @unique @map("anula_a_id") @db.Uuid
+  anulaA      MovimientoStock? @relation("Anulacion", fields: [anulaAId], references: [id], onDelete: Restrict)
+  anuladoPor  MovimientoStock? @relation("Anulacion")
+  id          String           @id @default(uuid()) @db.Uuid
   tipo        String // 'entrada' | 'salida' | 'ajuste'
-  cantidad    Decimal  @db.Decimal(14, 3) // Ajuste con signo: negativo = faltante
+  cantidad    Decimal          @db.Decimal(14, 3) // Ajuste con signo: negativo = faltante
   motivo      String?
-  fecha       DateTime @default(now())
-  createdAt   DateTime @default(now()) @map("created_at")
+  fecha       DateTime         @default(now())
+  createdAt   DateTime         @default(now()) @map("created_at")
 
   productoId     String        @map("producto_id") @db.Uuid
   producto       Producto      @relation(fields: [productoId], references: [id])

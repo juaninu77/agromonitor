@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { TIPOS_PRODUCTO } from "@/lib/inventario/validation"
 
 export const eventoSanidadSchema = z.object({
   animalId: z.string().uuid().optional(),
@@ -19,7 +20,7 @@ export type EventoSanidadFormData = z.infer<typeof eventoSanidadSchema>
 
 export const productoSchema = z.object({
   nombre: z.string().min(1, "El nombre es requerido"),
-  tipo: z.enum(["vacuna", "antiparasitario", "antibiotico", "mineral", "vitaminico", "otro"]),
+  tipo: z.enum(TIPOS_PRODUCTO),
   principioActivo: z.string().optional(),
   laboratorio: z.string().optional(),
   retiroDias: z.number().int().min(0).default(0),

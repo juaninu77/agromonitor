@@ -38,11 +38,11 @@ export async function fichaProducto(ctx: AuthContext, productoId: string, { page
       ORDER BY fecha DESC, created_at DESC, id DESC
       LIMIT ${limit} OFFSET ${(page - 1) * limit}`,
     prisma.evtSanidad.findMany({
-      where: { productoId, ...scopeEventoAnimalOLote(ctx.establecimientoIds) },
+      where: { productoId, anuladoAt: null, ...scopeEventoAnimalOLote(ctx.establecimientoIds) },
       select: { id: true, fecha: true, dosis: true, unidad: true, cantidadAnimales: true, animal: { select: { caravanaVisual: true } }, lote: { select: { nombre: true } } },
       orderBy: { fecha: "desc" }, take: 10,
     }),
-    prisma.evtSanidad.count({ where: { productoId, ...scopeEventoAnimalOLote(ctx.establecimientoIds) } }),
+    prisma.evtSanidad.count({ where: { productoId, anuladoAt: null, ...scopeEventoAnimalOLote(ctx.establecimientoIds) } }),
   ])
 
   // Galpones: solo los de campos a los que accede el usuario; el resto se agrupa

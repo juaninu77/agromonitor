@@ -7,12 +7,16 @@
 
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
-import { descontarAplicacion } from "@/lib/inventario/aplicaciones"
+import { randomUUID } from "node:crypto"
+import { descontarAplicacion, revertirAplicaciones } from "@/lib/inventario/aplicaciones"
 import { hoyArgentina } from "@/lib/inventario/fechas"
 import { InventarioError } from "@/lib/inventario/service"
 import { prisma } from "@/lib/prisma"
 import type { AuthContext } from "@/lib/api/with-auth"
-import { filtrosSanidadSchema, registroSanitarioSchema, resumenSanidadSchema, ROLES_SANIDAD } from "./validation"
+import {
+  anulacionSanitariaSchema, aplicacionMasivaSchema, destinoMasivoSchema, edicionSanitariaSchema, filtrosSanidadSchema,
+  registroSanitarioSchema, resumenSanidadSchema, ROLES_SANIDAD, type DestinoMasivo,
+} from "./validation"
 
 export class SanidadError extends Error { constructor(message: string, public status = 400, public codigo?: string) { super(message) } }
 
@@ -23,6 +27,34 @@ const fechaDia = (dia: string) => new Date(`${dia}T00:00:00Z`)
 const scopeCampos = (ids: string[]): Prisma.EvtSanidadWhereInput => ({
   OR: [{ animal: { establecimientoId: { in: ids } } }, { lote: { establecimientoId: { in: ids } } }],
 })
+/** Eventos vigentes (los anulados no cuentan en indicadores ni historial por defecto). */
+const vigentes: Prisma.EvtSanidadWhereInput = { anuladoAt: null }
+const ROLES_GESTION = ["admin", "encargado"] as const
+
+type Tx = Prisma.TransactionClient
+
+/**
+ * Costo de lo descontado en pesos: cada lote por su costo, y lo que salió sin lote (o de
+ * un lote sin costo) por el costo de referencia del producto. Si alguna parte no tiene
+ * costo en ARS no se calcula (no se mezclan monedas ni se inventan precios).
+ */
+export async function costoAplicacion(tx: Tx, productoId: string, lotes: { loteProductoId: string | null; cantidad: number }[]) {
+  if (!lotes.length) return null
+  const producto = await tx.producto.findUnique({ where: { id: productoId }, select: { costoReferencia: true, monedaCosto: true } })
+  const ids = lotes.map((l) => l.loteProductoId).filter((x): x is string => !!x)
+  const costos = ids.length ? await tx.loteProducto.findMany({ where: { id: { in: ids } }, select: { id: true, costo: true, moneda: true } }) : []
+  let total = new Prisma.Decimal(0)
+  for (const l of lotes) {
+    const lote = costos.find((c) => c.id === l.loteProductoId)
+    const [costo, moneda] = lote?.costo != null ? [lote.costo, lote.moneda] : [producto?.costoReferencia ?? null, producto?.monedaCosto ?? "ARS"]
+    if (costo == null || moneda !== "ARS") return null
+    total = total.plus(costo.times(l.cantidad))
+  }
+  return total.toDecimalPlaces(2).toNumber()
+}
+
+/** Campo de un evento (del animal o del grupo). */
+const campoDe = (e: { animal: { establecimientoId: string | null } | null; lote: { establecimientoId: string } | null }) => e.animal?.establecimientoId ?? e.lote?.establecimientoId ?? null
 
 /** Campo pedido (debe ser del usuario) o todos los suyos. */
 function camposConsulta(ctx: AuthContext, establecimientoId?: string) {
@@ -78,20 +110,24 @@ export async function registrarSanidad(ctx: AuthContext, raw: unknown) {
   }
 
   return prisma.$transaction(async (tx) => {
-    const evento = await tx.evtSanidad.create({
-      data: {
-        fecha: fechaDia(v.fecha), dosis: v.dosis, unidad: v.unidad, via: v.via, motivo: v.motivo, carenciaDias: v.carenciaDias,
-        aplicador: v.aplicador, veterinario: v.veterinario, costo: v.costo, observ: v.observ,
-        animalId: v.animalId, loteId: v.loteId, cantidadAnimales: v.loteId ? v.cantidadAnimales : null,
-        productoId: v.productoId, loteProductoId: v.loteProductoId,
-      },
-      include: includeEvento,
-    })
+    // El id se fija antes para que la salida de stock quede vinculada al evento
+    const id = randomUUID()
     const stock = v.descontarStock == null ? null : await descontarAplicacion(tx, {
       productoId: v.productoId, cantidad: v.descontarStock, loteProductoId: v.loteProductoId, sectorId: v.sectorStockId,
       fecha: new Date(`${v.fecha}T12:00:00-03:00`), motivo: `Aplicación sanitaria · ${etiqueta}`,
-      origenTipo: "sanidad", origenId: evento.id,
+      origenTipo: "sanidad", origenId: id,
     }, { establecimientoIds: ctx.establecimientoIds, establecimientoId, estricto: true, aceptarVencido: v.aceptarVencido })
+    // Costo: el cargado a mano, o el de lo que salió del stock
+    const costo = v.costo ?? (stock ? await costoAplicacion(tx, v.productoId, stock.lotes) : null)
+    const evento = await tx.evtSanidad.create({
+      data: {
+        id, fecha: fechaDia(v.fecha), dosis: v.dosis, unidad: v.unidad, via: v.via, motivo: v.motivo, carenciaDias: v.carenciaDias,
+        aplicador: v.aplicador, veterinario: v.veterinario, costo, observ: v.observ,
+        animalId: v.animalId, loteId: v.loteId, cantidadAnimales: v.loteId ? v.cantidadAnimales : null,
+        productoId: v.productoId, loteProductoId: v.loteProductoId ?? (stock?.lotes.length === 1 ? stock.lotes[0].loteProductoId : null),
+      },
+      include: includeEvento,
+    })
     await tx.auditLog.create({
       data: {
         usuarioId: ctx.userId, organizacionId, tabla: "evt_sanidad", rowPk: evento.id, accion: "INSERT",
@@ -106,6 +142,8 @@ export async function registrarSanidad(ctx: AuthContext, raw: unknown) {
 export async function listarSanidad(ctx: AuthContext, raw: unknown) {
   const f = filtrosSanidadSchema.parse(raw)
   const and: Prisma.EvtSanidadWhereInput[] = [scopeCampos(camposConsulta(ctx, f.establecimientoId))]
+  if (f.anulados !== "1") and.push(vigentes)
+  if (f.especie) and.push({ animal: { especie: { nombre: { equals: f.especie, mode: "insensitive" } } } })
   if (f.q) {
     const c = { contains: f.q, mode: "insensitive" as const }
     and.push({ OR: [
@@ -140,7 +178,7 @@ function rangoMes(mes: string) {
  */
 export async function resumenSanidad(ctx: AuthContext, raw: unknown) {
   const p = resumenSanidadSchema.parse(raw)
-  const base = scopeCampos(camposConsulta(ctx, p.establecimientoId))
+  const base: Prisma.EvtSanidadWhereInput = { AND: [scopeCampos(camposConsulta(ctx, p.establecimientoId)), vigentes] }
   const mesActual = hoyArgentina().slice(0, 7)
   const delMes: Prisma.EvtSanidadWhereInput = { AND: [base, { fecha: rangoMes(mesActual) }] }
   const [tratamientos, curativos, individuales, porGrupo, top, dias] = await Promise.all([
@@ -172,7 +210,7 @@ const porAnimalSchema = z.object({
 /** Animales con tratamientos individuales: cantidad y última fecha, paginado en la base. */
 export async function sanidadPorAnimal(ctx: AuthContext, raw: unknown) {
   const p = porAnimalSchema.parse(raw)
-  const where: Prisma.EvtSanidadWhereInput = { animalId: { not: null }, animal: { establecimientoId: { in: camposConsulta(ctx, p.establecimientoId) } } }
+  const where: Prisma.EvtSanidadWhereInput = { animalId: { not: null }, anuladoAt: null, animal: { establecimientoId: { in: camposConsulta(ctx, p.establecimientoId) } } }
   const [grupos, total] = await Promise.all([
     prisma.evtSanidad.groupBy({
       by: ["animalId"], where, _count: { _all: true }, _max: { fecha: true },
@@ -190,6 +228,163 @@ export async function sanidadPorAnimal(ctx: AuthContext, raw: unknown) {
     })),
     pagination: { page: p.page, limit: p.limit, total, totalPages },
   }
+}
+
+// ---------------------------------------------------------------------------
+// Aplicación masiva
+// ---------------------------------------------------------------------------
+
+const MAX_ANIMALES_MASIVA = 20_000
+
+/** Animales activos del campo que cumplen todos los filtros del destino. */
+async function animalesDestino(db: Tx | typeof prisma, d: DestinoMasivo) {
+  return db.animal.findMany({
+    where: {
+      establecimientoId: d.establecimientoId,
+      estadoVital: "activo",
+      ...(d.especie ? { especie: { nombre: { equals: d.especie, mode: "insensitive" } } } : {}),
+      ...(d.categoriaId ? { categoriaId: d.categoriaId } : {}),
+      ...(d.loteId ? { loteHist: { some: { loteId: d.loteId, hasta: null } } } : {}),
+      ...(d.sectorId ? { ubicacionHist: { some: { sectorId: d.sectorId, hasta: null } } } : {}),
+    },
+    select: { id: true },
+    orderBy: { id: "asc" },
+    take: MAX_ANIMALES_MASIVA + 1,
+  })
+}
+
+/** El destino debe ser de un campo del usuario (con rol sanitario para registrar) y sus filtros, de ese campo. */
+async function validarDestino(ctx: AuthContext, d: DestinoMasivo, registrar: boolean) {
+  if (!ctx.establecimientoIds.includes(d.establecimientoId)) throw new SanidadError("Campo no encontrado", 404)
+  if (registrar && !ctx.establecimientoIdsConRol([...ROLES_SANIDAD]).includes(d.establecimientoId)) {
+    throw new SanidadError("Solo un administrador, encargado o veterinario del campo puede registrar sanidad", 403)
+  }
+  if (d.loteId && !await prisma.lote.findFirst({ where: { id: d.loteId, establecimientoId: d.establecimientoId }, select: { id: true } })) throw new SanidadError("Grupo no encontrado en el campo", 404)
+  if (d.sectorId && !await prisma.sector.findFirst({ where: { id: d.sectorId, establecimientoId: d.establecimientoId }, select: { id: true } })) throw new SanidadError("Potrero no encontrado en el campo", 404)
+}
+
+/** Cuántos animales recibiría una aplicación masiva con ese destino (vista previa). */
+export async function contarDestino(ctx: AuthContext, raw: unknown) {
+  const d = destinoMasivoSchema.parse(raw)
+  await validarDestino(ctx, d, false)
+  const animales = await animalesDestino(prisma, d)
+  return { cantidad: Math.min(animales.length, MAX_ANIMALES_MASIVA), excede: animales.length > MAX_ANIMALES_MASIVA }
+}
+
+/**
+ * Aplicación masiva en una sola operación: un evento por animal (comparten operacionId =
+ * clave) y un único descuento de stock por el total. Todo o nada; un reintento con la
+ * misma clave devuelve lo ya registrado.
+ */
+export async function aplicarMasivo(ctx: AuthContext, raw: unknown) {
+  const v = aplicacionMasivaSchema.parse(raw)
+  const d = v.destino
+  await validarDestino(ctx, d, true)
+  const previos = await prisma.evtSanidad.count({ where: { operacionId: v.clave } })
+  if (previos) return { operacionId: v.clave, cantidad: previos, stock: null, repetido: true }
+
+  const animales = await animalesDestino(prisma, d)
+  if (!animales.length) throw new SanidadError("No hay animales activos que cumplan esos filtros", 400)
+  if (animales.length > MAX_ANIMALES_MASIVA) throw new SanidadError(`Son más de ${MAX_ANIMALES_MASIVA.toLocaleString("es-AR")} animales: aplicalo por grupo o potrero`, 400)
+  if (animales.length !== v.animalesEsperados) {
+    throw new SanidadError(`Ahora son ${animales.length} animales (antes ${v.animalesEsperados}): revisá y confirmá de nuevo`, 409, "destino_cambio")
+  }
+  const organizacionId = ctx.organizacionDeEstablecimiento[d.establecimientoId]
+  const producto = await prisma.producto.findFirst({ where: { id: v.productoId, OR: [{ organizacionId }, { organizacionId: null }] }, select: { id: true, activo: true, organizacionId: true } })
+  if (!producto) throw new SanidadError("Producto no encontrado en la organización del campo", 404)
+  if (v.descontarPorAnimal != null) {
+    if (!producto.organizacionId) throw new SanidadError("Es un producto del catálogo general: no tiene stock para descontar", 400)
+    if (!producto.activo) throw new SanidadError("El producto está archivado: no se puede descontar stock", 400)
+  }
+  if (v.loteProductoId && !await prisma.loteProducto.findFirst({ where: { id: v.loteProductoId, productoId: v.productoId }, select: { id: true } })) {
+    throw new SanidadError("El lote no pertenece al producto", 400)
+  }
+  const n = animales.length
+
+  return prisma.$transaction(async (tx) => {
+    const stock = v.descontarPorAnimal == null ? null : await descontarAplicacion(tx, {
+      productoId: v.productoId, cantidad: new Prisma.Decimal(v.descontarPorAnimal).times(n).toDecimalPlaces(3).toNumber(),
+      loteProductoId: v.loteProductoId, sectorId: v.sectorStockId, fecha: new Date(`${v.fecha}T12:00:00-03:00`),
+      motivo: `Aplicación sanitaria masiva · ${n} animales`, origenTipo: "sanidad", origenId: v.clave,
+    }, { establecimientoIds: ctx.establecimientoIds, establecimientoId: d.establecimientoId, estricto: true, aceptarVencido: v.aceptarVencido })
+    const costoTotal = stock ? await costoAplicacion(tx, v.productoId, stock.lotes) : null
+    const loteProductoId = v.loteProductoId ?? (stock?.lotes.length === 1 ? stock.lotes[0].loteProductoId : null)
+    await tx.evtSanidad.createMany({
+      data: animales.map((a) => ({
+        animalId: a.id, operacionId: v.clave, fecha: fechaDia(v.fecha), dosis: v.dosis, unidad: v.unidad, via: v.via, motivo: v.motivo,
+        carenciaDias: v.carenciaDias, veterinario: v.veterinario, aplicador: v.aplicador, observ: v.observ,
+        costo: costoTotal == null ? null : Math.round((costoTotal / n) * 100) / 100,
+        productoId: v.productoId, loteProductoId,
+      })),
+    })
+    await tx.auditLog.create({
+      data: {
+        usuarioId: ctx.userId, organizacionId, tabla: "evt_sanidad", rowPk: v.clave, accion: "INSERT",
+        detalle: { masiva: true, animales: n, destino: d, productoId: v.productoId, fecha: v.fecha, descontado: stock?.descontado ?? null },
+      },
+    })
+    return { operacionId: v.clave, cantidad: n, stock, repetido: false }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 60_000 })
+}
+
+// ---------------------------------------------------------------------------
+// Anular y editar
+// ---------------------------------------------------------------------------
+
+async function eventoEditable(id: string, campos: string[]) {
+  const evento = await prisma.evtSanidad.findFirst({
+    where: { id, ...scopeCampos(campos) },
+    include: { animal: { select: { establecimientoId: true } }, lote: { select: { establecimientoId: true } } },
+  })
+  return evento
+}
+
+/**
+ * Anula un tratamiento (no se borra): queda con fecha, usuario y motivo, y lo descontado
+ * vuelve al stock. Un tratamiento de una aplicación masiva anula toda la aplicación.
+ * Solo administrador o encargado del campo.
+ */
+export async function anularSanidad(ctx: AuthContext, id: string, raw: unknown) {
+  const { motivo } = anulacionSanitariaSchema.parse(raw)
+  const evento = await eventoEditable(id, ctx.establecimientoIds)
+  if (!evento) throw new SanidadError("Tratamiento no encontrado", 404)
+  const campo = campoDe(evento)
+  if (!campo || !ctx.establecimientoIdsConRol([...ROLES_GESTION]).includes(campo)) throw new SanidadError("Solo un administrador o encargado del campo puede anular tratamientos", 403)
+  if (evento.anuladoAt) throw new SanidadError("El tratamiento ya está anulado", 409)
+
+  return prisma.$transaction(async (tx) => {
+    const ids = evento.operacionId
+      ? (await tx.evtSanidad.findMany({ where: { operacionId: evento.operacionId, anuladoAt: null }, select: { id: true } })).map((e) => e.id)
+      : [evento.id]
+    const { count } = await tx.evtSanidad.updateMany({ where: { id: { in: ids }, anuladoAt: null }, data: { anuladoAt: new Date(), anuladoPorId: ctx.userId, motivoAnulacion: motivo } })
+    if (count !== ids.length) throw new SanidadError("Otro usuario modificó el tratamiento al mismo tiempo. Reintentá.", 409)
+    const stock = await revertirAplicaciones(tx, evento.operacionId ? [evento.operacionId] : [evento.id], motivo)
+    await tx.auditLog.create({
+      data: {
+        usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[campo], tabla: "evt_sanidad", rowPk: evento.id, accion: "UPDATE",
+        detalle: { anulado: true, motivo, eventos: ids.length, operacionId: evento.operacionId, stockDevuelto: stock.revertido },
+      },
+    })
+    return { anulados: ids.length, masiva: !!evento.operacionId, stockDevuelto: stock.revertido }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30_000 })
+}
+
+/** Edita datos no críticos (observaciones, veterinario, aplicador, vía, motivo). */
+export async function editarSanidad(ctx: AuthContext, id: string, raw: unknown) {
+  const v = edicionSanitariaSchema.parse(raw)
+  const evento = await eventoEditable(id, ctx.establecimientoIds)
+  if (!evento) throw new SanidadError("Tratamiento no encontrado", 404)
+  const campo = campoDe(evento)
+  if (!campo || !ctx.establecimientoIdsConRol([...ROLES_SANIDAD]).includes(campo)) throw new SanidadError("Solo un administrador, encargado o veterinario del campo puede editar tratamientos", 403)
+  if (evento.anuladoAt) throw new SanidadError("Un tratamiento anulado no se edita", 409)
+  const data = Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined)) as Prisma.EvtSanidadUpdateInput
+  const antes = Object.fromEntries(Object.keys(data).map((k) => [k, (evento as Record<string, unknown>)[k] ?? null]))
+  const actualizado = await prisma.$transaction(async (tx) => {
+    const e = await tx.evtSanidad.update({ where: { id }, data, include: includeEvento })
+    await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[campo], tabla: "evt_sanidad", rowPk: id, accion: "UPDATE", detalle: JSON.parse(JSON.stringify({ antes, despues: data })) } })
+    return e
+  })
+  return serializar(actualizado)
 }
 
 /** Respuesta de error uniforme para las rutas de Sanidad. */

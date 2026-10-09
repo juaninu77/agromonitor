@@ -157,6 +157,10 @@ BEGIN
       CHECK (origen_tipo IS NULL OR origen_tipo IN ('sanidad', 'manga', 'compra')) NOT VALID;
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evt_sanidad_anulacion_chk') THEN
+    ALTER TABLE evt_sanidad ADD CONSTRAINT evt_sanidad_anulacion_chk CHECK (anulado_at IS NULL OR motivo_anulacion IS NOT NULL);
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'lotes_producto_moneda_chk') THEN
     ALTER TABLE lotes_producto ADD CONSTRAINT lotes_producto_moneda_chk CHECK (moneda IN ('ARS', 'USD'));
   END IF;

@@ -55,6 +55,7 @@ export const GET = withAuth(async (req, ctx) => {
     const eventos = await prisma.evtSanidad.findMany({
       where: {
         animalId,
+        anuladoAt: null,
         ...scopeEventoAnimal(ctx.establecimientoIds),
       },
       include: { producto: true },

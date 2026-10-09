@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 import { Prisma } from "@prisma/client"
 import { alertasInventario, avisarStockBajo } from "@/lib/inventario/alertas"
-import { descontarAplicacion } from "@/lib/inventario/aplicaciones"
+import { descontarAplicacion, revertirAplicaciones } from "@/lib/inventario/aplicaciones"
 import { consumoSugerido } from "@/lib/inventario/consumo"
 
 const D = (n: number) => new Prisma.Decimal(n)
@@ -17,6 +17,7 @@ const tx = {
   sector: { findMany: vi.fn() },
   movimientoStock: {
     create: vi.fn(),
+    findMany: vi.fn(),
     groupBy: vi.fn(async (q: { by: string[] }) => {
       if (q.by.includes("loteProductoId")) {
         const sinLote = stock - Object.values(lotes).reduce((a, b) => a + b, 0)
@@ -83,6 +84,25 @@ describe("descuento de una aplicación", () => {
     await expect(descontarAplicacion(db, desc({ loteProductoId: "L1" }), ctx)).rejects.toMatchObject({ status: 409, codigo: "lote_vencido" })
     await descontarAplicacion(db, desc({ loteProductoId: "L1" }), { ...ctx, aceptarVencido: true })
     expect(tx.movimientoStock.create.mock.calls[0][0].data).toMatchObject({ loteProductoId: "L1" })
+  })
+  it("informa de qué lotes salió (para el costo)", async () => {
+    const r = await descontarAplicacion(db, desc(), ctx)
+    expect(r.lotes).toEqual([{ loteProductoId: null, cantidad: 10 }])
+  })
+  it("anular devuelve cada salida con una entrada enlazada", async () => {
+    tx.movimientoStock.findMany.mockResolvedValue([
+      { id: "m1", productoId: PROD, loteProductoId: "L1", sectorId: null, cantidad: D(4), origenId: "e1" },
+      { id: "m2", productoId: PROD, loteProductoId: null, sectorId: "g1", cantidad: D(1), origenId: "e1" },
+    ])
+    const r = await revertirAplicaciones(db, ["e1"], "error de carga")
+    expect(tx.movimientoStock.findMany.mock.calls[0][0].where).toMatchObject({ origenTipo: "sanidad", origenId: { in: ["e1"] }, tipo: "salida", anulaAId: null, anuladoPor: null })
+    const filas = tx.movimientoStock.create.mock.calls.map((c) => c[0].data)
+    expect(filas).toEqual([
+      expect.objectContaining({ tipo: "entrada", anulaAId: "m1", loteProductoId: "L1", motivo: "Anulación: error de carga" }),
+      expect.objectContaining({ tipo: "entrada", anulaAId: "m2", sectorId: "g1" }),
+    ])
+    expect(filas[0].operacionId).toBe(filas[1].operacionId)
+    expect(r.revertido).toBe(5)
   })
   it("un lote de otro producto se rechaza", async () => {
     tx.loteProducto.findFirst.mockResolvedValue(null)

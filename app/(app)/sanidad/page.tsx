@@ -31,7 +31,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { AplicacionMasivaDialog } from "@/components/sanidad/aplicacion-masiva-dialog"
+import { DatosAplicacion, camposExtra, datosExtraIniciales } from "@/components/sanidad/datos-aplicacion"
 import { DescuentoStock, camposDescuento, descuentoInicial, postSanidad, textoStock, type EstadoDescuento } from "@/components/sanidad/descuento-stock"
+import { exportarLibroSanitario } from "@/components/sanidad/exportar-libro"
+import { AnularTratamientoDialog, EditarTratamientoDialog, type TratamientoEditable } from "@/components/sanidad/tratamiento-acciones"
 import {
   Syringe,
   Plus,
@@ -47,9 +51,12 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
+  FileSpreadsheet,
+  FileText,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/context/tenant-context"
+import { usePermissions } from "@/lib/hooks/use-permissions"
 import { traerTodosLosAnimales } from "@/lib/ganado/listado-completo"
 import { formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import { esSanitario } from "@/lib/inventario/validation"
@@ -67,6 +74,13 @@ interface EventoSanidad {
   via: string | null
   motivo: string | null
   observ: string | null
+  carenciaDias: number | null
+  veterinario: string | null
+  aplicador: string | null
+  costo: number | null
+  operacionId: string | null
+  anuladoAt: string | null
+  motivoAnulacion: string | null
   cantidadAnimales: number | null
   animal: {
     id: string
@@ -80,6 +94,7 @@ interface EventoSanidad {
     id: string
     nombre: string
     tipo: string
+    retiroDias: number | null
   }
   loteProducto: { id: string; nroLote: string; vencimiento: string | null } | null
   lote: { id: string; nombre: string } | null
@@ -87,6 +102,7 @@ interface EventoSanidad {
 
 interface AnimalOption {
   id: string
+  especie?: string | null
   caravanaVisual: string | null
   cuig: string | null
   otroId: string | null
@@ -105,6 +121,7 @@ interface InventarioProducto {
   nombre: string
   tipo: string
   unidad: string
+  retiroDias?: number | null
   stockTotal: number
   lotes: {
     id: string
@@ -133,6 +150,7 @@ interface SanidadResponse {
 
 const VIAS = VIAS_SANIDAD.map((v) => ({ value: v, label: ETIQUETA_VIA[v] }))
 const MOTIVOS = MOTIVOS_SANIDAD.map((m) => ({ value: m, label: ETIQUETA_MOTIVO[m] }))
+const ESPECIES = [["bovino", "Bovinos"], ["ovino", "Ovinos"], ["equino", "Equinos"], ["caprino", "Caprinos"], ["porcino", "Porcinos"]] as const
 
 const UNIDADES = [
   { value: "ml", label: "ml" },
@@ -178,6 +196,7 @@ async function fetchBovinos(estId: string): Promise<AnimalOption[]> {
   const data = await traerTodosLosAnimales<any>({ establecimientoId: estId }).catch(() => [])
   return data.map((a: any) => ({
     id: a.id,
+    especie: a.especie?.nombre ?? null,
     caravanaVisual: a.caravanaVisual || a.tagNumber,
     cuig: a.cuig,
     otroId: a.otroId,
@@ -226,19 +245,42 @@ export default function SanidadPage() {
 
   const [tratamientoOpen, setTratamientoOpen] = useState(false)
   const [masivaOpen, setMasivaOpen] = useState(false)
+  const [especie, setEspecie] = useState("todas")
+  const [verAnulados, setVerAnulados] = useState(false)
+  const [editando, setEditando] = useState<TratamientoEditable | null>(null)
+  const [anulando, setAnulando] = useState<TratamientoEditable | null>(null)
+  const [exportando, setExportando] = useState(false)
+  const { hasRole } = usePermissions()
+  const puedeEditar = hasRole("admin", "encargado", "vet")
+  const puedeAnular = hasRole("admin", "encargado")
 
   // Al cambiar de campo o de filtros, volver a la primera página
-  useEffect(() => { setPage(1) }, [estId, busqueda, motivo])
+  useEffect(() => { setPage(1) }, [estId, busqueda, motivo, especie, verAnulados])
+
+  // Filtros del historial (los mismos para la lista y la exportación)
+  const filtros = useMemo(() => {
+    const f: Record<string, string> = { establecimientoId: estId }
+    if (busqueda) f.q = busqueda
+    if (motivo !== "todos") f.motivo = motivo
+    if (especie !== "todas") f.especie = especie
+    if (verAnulados) f.anulados = "1"
+    return f
+  }, [estId, busqueda, motivo, especie, verAnulados])
+
+  async function exportar(formato: "excel" | "pdf") {
+    setExportando(true)
+    try {
+      const n = await exportarLibroSanitario(formato, filtros, establecimientoActivo?.nombre ?? "")
+      toast.success(`${n} registros exportados`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo exportar")
+    } finally { setExportando(false) }
+  }
   useEffect(() => { setPageAnimal(1) }, [estId])
 
   const eventosQuery = useQuery({
-    queryKey: ["sanidad", "eventos", estId, page, busqueda, motivo],
-    queryFn: () => {
-      const params = new URLSearchParams({ establecimientoId: estId, page: String(page), limit: String(LIMIT) })
-      if (busqueda) params.set("q", busqueda)
-      if (motivo !== "todos") params.set("motivo", motivo)
-      return getJson<SanidadResponse>(`/api/sanidad?${params}`)
-    },
+    queryKey: ["sanidad", "eventos", filtros, page],
+    queryFn: () => getJson<SanidadResponse>(`/api/sanidad?${new URLSearchParams({ ...filtros, page: String(page), limit: String(LIMIT) })}`),
     enabled: !!estId,
     staleTime: 30_000,
     placeholderData: (prev) => prev,
@@ -439,6 +481,13 @@ export default function SanidadPage() {
                 onSearch={setSearch}
                 motivo={motivo}
                 onMotivo={setMotivo}
+                especie={especie}
+                onEspecie={setEspecie}
+                verAnulados={verAnulados}
+                onVerAnulados={setVerAnulados}
+                exportando={exportando}
+                onExportar={exportar}
+                acciones={{ puedeEditar, puedeAnular, onEditar: (e) => setEditando(aEditable(e)), onAnular: (e) => setAnulando(aEditable(e)) }}
                 page={page}
                 totalPages={pagination?.totalPages ?? 1}
                 total={pagination?.total ?? 0}
@@ -481,7 +530,7 @@ export default function SanidadPage() {
         productos={productos}
         onSuccess={invalidate}
       />
-      <MasivaDialog
+      <AplicacionMasivaDialog
         open={masivaOpen}
         onOpenChange={setMasivaOpen}
         lotes={lotes}
@@ -489,6 +538,8 @@ export default function SanidadPage() {
         estId={estId}
         onSuccess={invalidate}
       />
+      <EditarTratamientoDialog tratamiento={editando} onOpenChange={(o) => !o && setEditando(null)} onGuardado={invalidate} />
+      <AnularTratamientoDialog tratamiento={anulando} onOpenChange={(o) => !o && setAnulando(null)} onAnulado={invalidate} />
     </div>
   )
 }
@@ -515,7 +566,18 @@ function Paginador({ page, totalPages, onPageChange, texto }: { page: number; to
   )
 }
 
-function TablaEventos({ eventos, conAnimal = true }: { eventos: EventoSanidad[]; conAnimal?: boolean }) {
+interface AccionesTabla {
+  puedeEditar: boolean
+  puedeAnular: boolean
+  onEditar: (e: EventoSanidad) => void
+  onAnular: (e: EventoSanidad) => void
+}
+
+const destinoEvento = (ev: EventoSanidad) => (ev.animal ? animalLabel(ev.animal) : ev.lote ? `Grupo ${ev.lote.nombre}${ev.cantidadAnimales ? ` (${ev.cantidadAnimales})` : ""}` : "—")
+const aEditable = (ev: EventoSanidad): TratamientoEditable => ({ ...ev, destino: destinoEvento(ev) })
+
+function TablaEventos({ eventos, conAnimal = true, acciones }: { eventos: EventoSanidad[]; conAnimal?: boolean; acciones?: AccionesTabla }) {
+  const conAcciones = !!acciones && (acciones.puedeEditar || acciones.puedeAnular)
   return (
     <div className="overflow-x-auto rounded-lg border">
       <Table>
@@ -527,15 +589,20 @@ function TablaEventos({ eventos, conAnimal = true }: { eventos: EventoSanidad[];
             <TableHead>Dosis</TableHead>
             <TableHead>Vía</TableHead>
             <TableHead>Motivo</TableHead>
+            {conAcciones && <TableHead className="w-24"><span className="sr-only">Acciones</span></TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
           {eventos.map((ev) => (
-            <TableRow key={ev.id}>
-              <TableCell className="whitespace-nowrap">{formatoDia(ev.fecha)}</TableCell>
+            <TableRow key={ev.id} className={ev.anuladoAt ? "text-muted-foreground" : undefined}>
+              <TableCell className="whitespace-nowrap">
+                <span className={ev.anuladoAt ? "line-through" : undefined}>{formatoDia(ev.fecha)}</span>
+                {ev.anuladoAt && <Badge variant="outline" className="ml-2 border-destructive/40 text-destructive" title={ev.motivoAnulacion ?? undefined}>Anulado</Badge>}
+              </TableCell>
               {conAnimal && (
                 <TableCell className="font-medium">
-                  {ev.animal ? animalLabel(ev.animal) : ev.lote ? `Grupo ${ev.lote.nombre}${ev.cantidadAnimales ? ` (${ev.cantidadAnimales})` : ""}` : "—"}
+                  {destinoEvento(ev)}
+                  {ev.operacionId && <span className="block text-xs font-normal text-muted-foreground">Aplicación masiva</span>}
                 </TableCell>
               )}
               <TableCell>
@@ -545,6 +612,12 @@ function TablaEventos({ eventos, conAnimal = true }: { eventos: EventoSanidad[];
               <TableCell>{ev.dosis != null ? `${ev.dosis.toLocaleString("es-AR")} ${ev.unidad || ""}` : "—"}</TableCell>
               <TableCell>{ev.via ? ETIQUETA_VIA[ev.via as keyof typeof ETIQUETA_VIA] ?? ev.via : "—"}</TableCell>
               <TableCell>{ev.motivo ? ETIQUETA_MOTIVO[ev.motivo as keyof typeof ETIQUETA_MOTIVO] ?? ev.motivo : "—"}</TableCell>
+              {conAcciones && (
+                <TableCell className="whitespace-nowrap text-right">
+                  {!ev.anuladoAt && acciones!.puedeEditar && <Button size="sm" variant="ghost" onClick={() => acciones!.onEditar(ev)}>Editar</Button>}
+                  {!ev.anuladoAt && acciones!.puedeAnular && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => acciones!.onAnular(ev)}>Anular</Button>}
+                </TableCell>
+              )}
             </TableRow>
           ))}
         </TableBody>
@@ -560,6 +633,13 @@ function HistorialTab({
   onSearch,
   motivo,
   onMotivo,
+  especie,
+  onEspecie,
+  verAnulados,
+  onVerAnulados,
+  exportando,
+  onExportar,
+  acciones,
   page,
   totalPages,
   total,
@@ -572,6 +652,13 @@ function HistorialTab({
   onSearch: (v: string) => void
   motivo: string
   onMotivo: (v: string) => void
+  especie: string
+  onEspecie: (v: string) => void
+  verAnulados: boolean
+  onVerAnulados: (v: boolean) => void
+  exportando: boolean
+  onExportar: (f: "excel" | "pdf") => void
+  acciones: AccionesTabla
   page: number
   totalPages: number
   total: number
@@ -598,6 +685,20 @@ function HistorialTab({
             {MOTIVOS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
           </SelectContent>
         </Select>
+        <Select value={especie} onValueChange={onEspecie}>
+          <SelectTrigger className="sm:w-44" aria-label="Filtrar por especie"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todas">Todas las especies</SelectItem>
+            {ESPECIES.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={verAnulados} onChange={(e) => onVerAnulados(e.target.checked)} />Ver también los anulados</label>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" disabled={exportando || !total} onClick={() => onExportar("excel")}><FileSpreadsheet className="mr-2 h-4 w-4" />Excel</Button>
+          <Button variant="outline" size="sm" disabled={exportando || !total} onClick={() => onExportar("pdf")}><FileText className="mr-2 h-4 w-4" />PDF</Button>
+        </div>
       </div>
 
       {loading ? (
@@ -607,11 +708,11 @@ function HistorialTab({
       ) : eventos.length === 0 ? (
         <div className="text-center py-12">
           <Syringe className="h-12 w-12 mx-auto text-muted-foreground/40 mb-4" />
-          <p className="text-muted-foreground">{search || motivo !== "todos" ? "Ningún tratamiento coincide con la búsqueda" : "No hay tratamientos registrados en este campo"}</p>
+          <p className="text-muted-foreground">{search || motivo !== "todos" || especie !== "todas" ? "Ningún tratamiento coincide con la búsqueda" : "No hay tratamientos registrados en este campo"}</p>
         </div>
       ) : (
         <>
-          <TablaEventos eventos={eventos} />
+          <TablaEventos eventos={eventos} acciones={acciones} />
           <Paginador page={page} totalPages={totalPages} onPageChange={onPageChange} texto={`${(page - 1) * limit + 1}–${Math.min(page * limit, total)} de ${total}`} />
           {totalPages <= 1 && <p className="text-sm text-muted-foreground">{total} {total === 1 ? "tratamiento" : "tratamientos"}</p>}
         </>
@@ -790,11 +891,15 @@ function TratamientoDialog({
   const [busqueda, setBusqueda] = useState("")
   const [showDropdown, setShowDropdown] = useState(false)
   const [descuento, setDescuento] = useState<EstadoDescuento>(descuentoInicial)
+  const [extra, setExtra] = useState(datosExtraIniciales)
+  const [especieBusqueda, setEspecieBusqueda] = useState("todas")
   const producto = productos.find((p) => p.id === productoId)
   const animalesAplicados = animalId ? 1 : lotes.find((l) => l.id === loteId)?.cantidadAnimales ?? 0
+  const especiesPresentes = useMemo(() => [...new Set(animales.map((a) => a.especie).filter(Boolean))] as string[], [animales])
 
   const reset = () => {
     setDescuento(descuentoInicial)
+    setExtra(datosExtraIniciales)
     setAnimalId("")
     setLoteId("")
     setProductoId("")
@@ -812,6 +917,7 @@ function TratamientoDialog({
     if (!busqueda.trim()) return []
     const q = busqueda.toLowerCase()
     return animales
+      .filter((a) => especieBusqueda === "todas" || a.especie?.toLowerCase() === especieBusqueda)
       .filter(
         (a) =>
           a.caravanaVisual?.toLowerCase().includes(q) ||
@@ -819,7 +925,7 @@ function TratamientoDialog({
           a.otroId?.toLowerCase().includes(q)
       )
       .slice(0, 10)
-  }, [busqueda, animales])
+  }, [busqueda, animales, especieBusqueda])
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -831,6 +937,7 @@ function TratamientoDialog({
         motivo: motivo || undefined,
         fecha,
         observ: observaciones || undefined,
+        ...camposExtra(extra),
         ...camposDescuento(descuento),
       }
       if (animalId) payload.animalId = animalId
@@ -879,8 +986,16 @@ function TratamientoDialog({
         <div className="space-y-4 mt-4">
           {/* Animal search */}
           <div>
-            <Label>Animal (buscar por caravana)</Label>
-            <div className="relative">
+            <div className="flex items-end justify-between gap-2">
+              <Label>Animal (buscar por caravana)</Label>
+              {especiesPresentes.length > 1 && (
+                <select aria-label="Especie del animal" className="h-8 rounded-md border border-input bg-background px-2 text-xs" value={especieBusqueda} onChange={(e) => setEspecieBusqueda(e.target.value)}>
+                  <option value="todas">Todas las especies</option>
+                  {especiesPresentes.map((e) => <option key={e} value={e.toLowerCase()}>{e}</option>)}
+                </select>
+              )}
+            </div>
+            <div className="relative mt-1.5">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Escribí la caravana..."
@@ -908,7 +1023,7 @@ function TratamientoDialog({
                       setLoteId("")
                     }}
                   >
-                    {animalLabel(a)}
+                    {animalLabel(a)}{a.especie && <span className="ml-2 text-xs text-muted-foreground">{a.especie}</span>}
                   </button>
                 ))}
               </div>
@@ -1007,6 +1122,8 @@ function TratamientoDialog({
             onChange={setDescuento}
           />
 
+          <DatosAplicacion valor={extra} onChange={setExtra} retiroDias={producto?.retiroDias} />
+
           {/* Motivo + Fecha */}
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -1022,7 +1139,7 @@ function TratamientoDialog({
             </div>
             <div>
               <Label>Fecha</Label>
-              <Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+              <Input type="date" max={todayISO()} value={fecha} onChange={(e) => setFecha(e.target.value)} />
             </div>
           </div>
 
@@ -1054,268 +1171,6 @@ function TratamientoDialog({
                 </>
               ) : (
                 "Registrar tratamiento"
-              )}
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Dialog: Aplicación Masiva
-// ---------------------------------------------------------------------------
-
-function MasivaDialog({
-  open,
-  onOpenChange,
-  lotes,
-  productos,
-  estId,
-  onSuccess,
-}: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  lotes: LoteOption[]
-  productos: InventarioProducto[]
-  estId: string
-  onSuccess: () => void
-}) {
-  const [loteId, setLoteId] = useState("")
-  const [productoId, setProductoId] = useState("")
-  const [dosis, setDosis] = useState("")
-  const [unidad, setUnidad] = useState("")
-  const [via, setVia] = useState("")
-  const [motivo, setMotivo] = useState("")
-  const [fecha, setFecha] = useState(todayISO())
-
-  const selectedLote = lotes.find((l) => l.id === loteId)
-
-  const bovinosInLote = useQuery({
-    queryKey: ["bovinos", "lote", loteId],
-    queryFn: async () => {
-      return traerTodosLosAnimales<AnimalOption>({ establecimientoId: estId, loteId })
-    },
-    enabled: !!loteId,
-    staleTime: 30_000,
-  })
-
-  const animalCount = bovinosInLote.data?.length ?? selectedLote?.cantidadAnimales ?? 0
-  const [descuento, setDescuento] = useState<EstadoDescuento>(descuentoInicial)
-  const producto = productos.find((p) => p.id === productoId)
-
-  const reset = () => {
-    setDescuento(descuentoInicial)
-    setLoteId("")
-    setProductoId("")
-    setDosis("")
-    setUnidad("")
-    setVia("")
-    setMotivo("")
-    setFecha(todayISO())
-  }
-
-  const mutation = useMutation({
-    mutationFn: async () => {
-      const animals = bovinosInLote.data ?? []
-      if (animals.length === 0) throw new Error("No hay animales en el lote seleccionado")
-
-      // Un lote vencido se confirma una sola vez para toda la aplicación
-      const loteElegido = producto?.lotes.find((l) => l.id === descuento.loteProductoId)
-      const aceptarVencido = !!(descuento.activo && loteElegido?.vencido)
-      if (aceptarVencido && !window.confirm(`El lote ${loteElegido!.nroLote} está vencido. ¿Registrar la aplicación igual?`)) {
-        throw new Error("Aplicación cancelada: el lote está vencido")
-      }
-      // De a uno, para que el stock se descuente en orden y un faltante corte la carga
-      let ok = 0
-      let descontado = 0
-      let error = ""
-      for (const a of animals) {
-        try {
-          const json = await postSanidad({
-            animalId: a.id,
-            productoId,
-            dosis: dosis ? parseFloat(dosis) : undefined,
-            unidad: unidad || undefined,
-            via: via || undefined,
-            motivo: motivo || undefined,
-            fecha,
-            ...camposDescuento(descuento, aceptarVencido),
-          })
-          ok++
-          descontado += json?.data?.stock?.descontado ?? 0
-        } catch (e) {
-          error = e instanceof Error ? e.message : "Error al registrar"
-          break
-        }
-      }
-      return { ok, total: animals.length, error, descontado }
-    },
-    onSuccess: (data) => {
-      const stock = textoStock(data.descontado ? { descontado: Math.round(data.descontado * 1000) / 1000, unidad: producto?.unidad ?? "" } : null)
-      if (data.error) {
-        toast.warning(`${data.ok} de ${data.total} tratamientos registrados${stock}. Se detuvo: ${data.error}`)
-      } else {
-        toast.success(`${data.ok} tratamientos registrados correctamente${stock}`)
-      }
-      reset()
-      onOpenChange(false)
-      onSuccess()
-    },
-    onError: (err: Error) => {
-      toast.error(err.message)
-    },
-  })
-
-  const handleSubmit = () => {
-    if (!loteId) return toast.error("Seleccioná un lote")
-    if (!productoId) return toast.error("Seleccioná un producto")
-    mutation.mutate()
-  }
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) reset()
-        onOpenChange(v)
-      }}
-    >
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-purple-600" />
-            Aplicación masiva
-          </DialogTitle>
-          <DialogDescription>
-            Aplicá el mismo tratamiento a todos los animales de un lote
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 mt-4">
-          {/* Lote */}
-          <div>
-            <Label>Lote *</Label>
-            <Select value={loteId} onValueChange={setLoteId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleccionar lote" />
-              </SelectTrigger>
-              <SelectContent>
-                {lotes.map((l) => (
-                  <SelectItem key={l.id} value={l.id}>
-                    {l.nombre} ({l.cantidadAnimales} animales)
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {loteId && (
-            <div className="rounded-lg bg-purple-50 border border-purple-200 p-3">
-              <p className="text-sm text-purple-800 font-medium">
-                {bovinosInLote.isLoading ? (
-                  <span className="flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Cargando animales...
-                  </span>
-                ) : (
-                  `Se aplicará el tratamiento a ${animalCount} animal${animalCount !== 1 ? "es" : ""}`
-                )}
-              </p>
-            </div>
-          )}
-
-          {/* Producto */}
-          <div>
-            <Label>Producto *</Label>
-            <Select value={productoId} onValueChange={setProductoId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleccionar producto" />
-              </SelectTrigger>
-              <SelectContent>
-                {productos.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <Label>Dosis</Label>
-              <Input type="number" step="0.1" placeholder="Ej: 5" value={dosis} onChange={(e) => setDosis(e.target.value)} />
-            </div>
-            <div>
-              <Label>Unidad</Label>
-              <Select value={unidad} onValueChange={setUnidad}>
-                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                <SelectContent>
-                  {UNIDADES.map((u) => (
-                    <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Vía</Label>
-              <Select value={via} onValueChange={setVia}>
-                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                <SelectContent>
-                  {VIAS.map((v) => (
-                    <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>Motivo</Label>
-              <Select value={motivo} onValueChange={setMotivo}>
-                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                <SelectContent>
-                  {MOTIVOS.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Fecha</Label>
-              <Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
-            </div>
-          </div>
-
-          <DescuentoStock
-            producto={producto}
-            dosis={dosis}
-            unidadDosis={unidad}
-            animales={1}
-            porAnimal={animalCount}
-            valor={descuento}
-            onChange={setDescuento}
-          />
-
-          <div className="flex justify-end gap-2 pt-4">
-            <Button variant="outline" className="border-2" onClick={() => onOpenChange(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={mutation.isPending || bovinosInLote.isLoading}
-              className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700"
-            >
-              {mutation.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Aplicando a {animalCount} animales...
-                </>
-              ) : (
-                `Confirmar (${animalCount} animales)`
               )}
             </Button>
           </div>

@@ -60,7 +60,7 @@ export async function descontarAplicacion(tx: Tx, d: Descuento, ctx: { estableci
   if (!ctx.estricto) {
     const disponible = (await saldosPorProducto(tx, [d.productoId], { sectorId: galpon?.id ?? null })).get(d.productoId) ?? CERO
     if (disponible.lt(cantidad)) { faltante = cantidad.minus(Prisma.Decimal.max(disponible, 0)); cantidad = Prisma.Decimal.max(disponible, 0) }
-    if (cantidad.lte(0)) return { descontado: 0, faltante: faltante.toNumber(), unidad: producto.unidad, ubicacion: galpon?.nombre ?? null }
+    if (cantidad.lte(0)) return { descontado: 0, faltante: faltante.toNumber(), unidad: producto.unidad, ubicacion: galpon?.nombre ?? null, lotes: [] as { loteProductoId: string | null; cantidad: number }[] }
   }
   const asignaciones = await asignarSalida(tx, producto, cantidad, { galpon, lote: lote ? { id: lote.id, nroLote: lote.nroLote } : null })
   const operacionId = asignaciones.length > 1 ? crypto.randomUUID() : null
@@ -68,5 +68,33 @@ export async function descontarAplicacion(tx: Tx, d: Descuento, ctx: { estableci
     await tx.movimientoStock.create({ data: { productoId: d.productoId, loteProductoId: a.loteProductoId, sectorId: galpon?.id ?? null, tipo: "salida", cantidad: a.cantidad, motivo: d.motivo, fecha: d.fecha, operacionId, origenTipo: d.origenTipo, origenId: d.origenId } })
   }
   await avisarStockBajo(tx, [d.productoId])
-  return { descontado: cantidad.toNumber(), faltante: faltante.toNumber(), unidad: producto.unidad, ubicacion: galpon?.nombre ?? null }
+  return {
+    descontado: cantidad.toNumber(), faltante: faltante.toNumber(), unidad: producto.unidad, ubicacion: galpon?.nombre ?? null,
+    // De qué lotes salió (para calcular el costo de la aplicación)
+    lotes: asignaciones.map((a) => ({ loteProductoId: a.loteProductoId, cantidad: a.cantidad.toNumber() })),
+  }
+}
+
+/**
+ * Devuelve al stock lo descontado por aplicaciones sanitarias anuladas (eventos individuales
+ * u operaciones masivas, por su origenId): una entrada inversa por cada salida, enlazada con
+ * anulaAId. No puede dejar stock negativo porque solo suma.
+ */
+export async function revertirAplicaciones(tx: Tx, origenIds: string[], motivo: string) {
+  if (!origenIds.length) return { revertido: 0, productoIds: [] as string[] }
+  const filas = await tx.movimientoStock.findMany({
+    where: { origenTipo: "sanidad", origenId: { in: origenIds }, tipo: "salida", anulaAId: null, anuladoPor: null },
+  })
+  let revertido = new Prisma.Decimal(0)
+  const operacionId = filas.length > 1 ? crypto.randomUUID() : null
+  for (const f of filas) {
+    await tx.movimientoStock.create({
+      data: {
+        productoId: f.productoId, loteProductoId: f.loteProductoId, sectorId: f.sectorId, tipo: "entrada", cantidad: f.cantidad,
+        motivo: `Anulación: ${motivo}`.slice(0, 1000), anulaAId: f.id, operacionId, origenTipo: "sanidad", origenId: f.origenId,
+      },
+    })
+    revertido = revertido.plus(f.cantidad)
+  }
+  return { revertido: revertido.toNumber(), productoIds: [...new Set(filas.map((f) => f.productoId))] }
 }

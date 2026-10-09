@@ -12,7 +12,7 @@ export const GET=withAuth(async(_request,ctx)=>{
     loteHist:{where:{hasta:null},include:{lote:{select:{nombre:true}}}},
     ubicacionHist:{where:{hasta:null},include:{sector:{select:{nombre:true}}}},
     eventosPesada:{orderBy:[{fecha:"desc"},{createdAt:"desc"},{id:"desc"}],take:1},
-    eventosSanidad:{orderBy:{fecha:"desc"},take:5,include:{producto:{select:{nombre:true}}}},
+    eventosSanidad:{where:{anuladoAt:null},orderBy:{fecha:"desc"},take:5,include:{producto:{select:{nombre:true}}}},
   }})
   if(!animal)return NextResponse.json({error:"Animal no encontrado"},{status:404})
   const checks=checklistAnimal(animal)

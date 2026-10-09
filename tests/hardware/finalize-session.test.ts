@@ -8,7 +8,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   vi.stubGlobal("fetch", fetchMock)
   mocks.getPendingItems.mockResolvedValue([])
-  fetchMock.mockResolvedValue({ ok: true })
+  fetchMock.mockResolvedValue({ ok: true, json: async () => ({ success: true, data: { totalSanidad: 0 } }) })
 })
 afterEach(() => vi.unstubAllGlobals())
 

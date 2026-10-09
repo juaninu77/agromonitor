@@ -35,6 +35,7 @@ import { SyncStatus } from "./sync-status"
 import { saveHerd, findAnimalByEID, getHerdCount } from "@/lib/hardware/herd-cache"
 import { normalizeEID } from "@/lib/hardware/eid"
 import { finalizeSession } from "@/lib/hardware/finalize-session"
+import { traerTodosLosAnimales } from "@/lib/ganado/listado-completo"
 
 interface MangaWorkspaceProps {
   session: any
@@ -161,12 +162,7 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
       }
 
       try {
-        const res = await fetch(
-          `/api/ganado/bovinos?establecimientoId=${encodeURIComponent(establecimientoId)}&limit=5000`
-        )
-        if (!res.ok) throw new Error("Error descargando rodeo")
-        const json = await res.json()
-        const animales = json.data || json || []
+        const animales = await traerTodosLosAnimales({ establecimientoId })
         const saved = await saveHerd(establecimientoId, animales)
         setHerdCacheCount(saved)
       } catch {
@@ -308,8 +304,9 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
     }
 
     try {
-      await finalizeSession(session.id)
-      toast.success("Sesión finalizada")
+      const r = await finalizeSession(session.id)
+      toast.success("Sesión finalizada", r.stock?.descontado ? { description: `Se descontaron ${r.stock.descontado.toLocaleString("es-AR")} ${r.stock.unidad} del inventario.` } : undefined)
+      if (r.avisoStock) toast.warning("Inventario", { description: r.avisoStock, duration: 10000 })
       onFinalize()
     } catch (err: any) {
       toast.error("Error", { description: err.message })

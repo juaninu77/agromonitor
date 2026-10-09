@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { withAuth } from "@/lib/api/with-auth"
 import { scopeEstablecimiento } from "@/lib/api/tenant"
 import { MangaSessionError, withMangaSession } from "@/lib/api/manga-session"
+import { consumoSugerido, descontarAplicacion } from "@/lib/inventario/aplicaciones"
 
 export const POST = withAuth(async (request, ctx) => {
   try {
@@ -80,12 +81,34 @@ export const POST = withAuth(async (request, ctx) => {
         }
       }
 
+      // Lo aplicado sale del inventario. La sesión no se traba por stock: si no alcanza se
+      // descuenta lo que hay y se informa el faltante; si la unidad no permite calcularlo, se avisa.
+      let stock: { descontado: number; faltante: number; unidad: string; ubicacion: string | null } | null = null
+      let avisoStock: string | null = null
+      if (totalSanidad > 0 && sesion.productoSanidadId) {
+        const producto = await tx.producto.findUnique({ where: { id: sesion.productoSanidadId }, select: { unidad: true, activo: true, nombre: true, organizacionId: true } })
+        // Los productos del catálogo general no tienen stock
+        const consumo = producto?.activo && producto.organizacionId ? consumoSugerido(producto.unidad, sesion.dosisSanidad, null, totalSanidad) : null
+        if (consumo == null) {
+          avisoStock = `No se descontó stock de ${producto?.nombre ?? "el producto"}: registrá la salida en Inventario.`
+        } else {
+          stock = await descontarAplicacion(tx, {
+            productoId: sesion.productoSanidadId, cantidad: consumo, fecha: ahora,
+            motivo: `Manga ${sesion.fecha.toISOString().slice(0, 10)} · ${totalSanidad} animales`,
+            origenTipo: "manga", origenId: sesion.id,
+          }, { establecimientoIds: ctx.establecimientoIds, establecimientoId: sesion.establecimientoId, estricto: false })
+          if (stock.faltante > 0) avisoStock = `Faltó stock: se descontaron ${stock.descontado.toLocaleString("es-AR")} de ${consumo.toLocaleString("es-AR")} ${stock.unidad}. Registrá la entrada o un ajuste en Inventario.`
+        }
+      }
+
       const resultado = {
         totalProcesados: sesion.items.length,
         totalPesados,
         totalSanidad,
         totalTactos,
         totalNuevos,
+        stock,
+        avisoStock,
       }
 
       return NextResponse.json({ success: true, data: resultado })

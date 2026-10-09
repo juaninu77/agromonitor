@@ -12,10 +12,11 @@ import { anulacionSchema, loteSchema, loteUpdateSchema, movimientoStockSchema, p
 import { randomUUID } from "node:crypto"
 import { estadoVencimiento, hoyArgentina } from "./fechas"
 import { CERO, repartirFefo, saldosPorLote, saldosPorProducto, type Asignacion } from "./stock"
+import { avisarStockBajo } from "./alertas"
 import { prisma } from "@/lib/prisma"
 import type { AuthContext } from "@/lib/api/with-auth"
 
-export class InventarioError extends Error { constructor(message: string, public status = 400) { super(message) } }
+export class InventarioError extends Error { constructor(message: string, public status = 400, public codigo?: string) { super(message) } }
 
 const ROLES_ESCRITURA = ["admin", "encargado"] as const
 /** Organizaciones en las que el usuario puede escribir inventario. */
@@ -55,7 +56,7 @@ export async function galponEditable(tx: Prisma.TransactionClient, ctx: AuthCont
  * Cómo se descuenta `cantidad` de una ubicación (galpón o sin galpón): del lote elegido
  * o repartido FEFO entre los lotes que hay ahí. Error 409 si no alcanza.
  */
-async function asignarSalida(tx: Prisma.TransactionClient, producto: { id: string; unidad: string }, cantidad: Prisma.Decimal, ubic: { galpon: { id: string; nombre: string } | null; lote: { id: string; nroLote: string } | null }): Promise<Asignacion[]> {
+export async function asignarSalida(tx: Prisma.TransactionClient, producto: { id: string; unidad: string }, cantidad: Prisma.Decimal, ubic: { galpon: { id: string; nombre: string } | null; lote: { id: string; nroLote: string } | null }): Promise<Asignacion[]> {
   const where = { sectorId: ubic.galpon?.id ?? null }
   const saldo = (await saldosPorProducto(tx, [producto.id], where)).get(producto.id) ?? CERO
   if (saldo.lt(cantidad)) throw new InventarioError(`Stock insuficiente${enUbicacion(ubic.galpon)}: hay ${fmt(Prisma.Decimal.max(saldo, 0))} ${producto.unidad}`, 409)
@@ -74,7 +75,7 @@ async function asignarSalida(tx: Prisma.TransactionClient, producto: { id: strin
 }
 
 /** Fecha del día elegido (mediodía de Argentina, para que no cambie de día por zona horaria) o ahora. */
-const fechaMovimiento = (dia: string | null) => (dia && dia !== hoyArgentina() ? new Date(`${dia}T12:00:00-03:00`) : new Date())
+export const fechaMovimiento = (dia: string | null) => (dia && dia !== hoyArgentina() ? new Date(`${dia}T12:00:00-03:00`) : new Date())
 
 export async function registrarMovimientoStock(ctx: AuthContext, raw: unknown) {
   const v = movimientoStockSchema.parse(raw)
@@ -121,6 +122,7 @@ export async function registrarMovimientoStock(ctx: AuthContext, raw: unknown) {
         detalle: { productoId: v.productoId, productoNombre: producto.nombre, tipo: v.tipo, cantidad: cantidad.times(signo).toNumber(), motivo: v.motivo, lotes: asignaciones.map((a) => ({ loteProductoId: a.loteProductoId, cantidad: a.cantidad.toNumber() })) },
       },
     })
+    if (resta) await avisarStockBajo(tx, [v.productoId])
     return { movimiento: filas[0], filas, producto, repetido: false }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15000 })
 }
@@ -235,6 +237,7 @@ export async function anularMovimiento(ctx: AuthContext, movimientoId: string, r
       }))
     }
     await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: producto.organizacionId, tabla: "movimientos_stock", rowPk: mov.id, accion: "UPDATE", detalle: { anulado: filas.map((f) => f.id), contramovimientos: creadas.map((c) => c.id), motivo } } })
+    if (descuentos.size) await avisarStockBajo(tx, [mov.productoId])
     return { anulados: filas.length, contramovimientos: creadas.map((c) => c.id) }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15000 })
 }
@@ -314,6 +317,7 @@ export async function registrarRecuento(ctx: AuthContext, raw: unknown): Promise
         await tx.movimientoStock.create({ data: { productoId: producto.id, loteProductoId: a.loteProductoId, sectorId: galpon?.id ?? null, tipo: "ajuste", concepto: "recuento", cantidad: a.cantidad, motivo, fecha, operacionId } })
       }
     }
+    await avisarStockBajo(tx, resultado.filter((r) => r.diferencia < 0).map((r) => r.productoId))
     const resumen: ResumenRecuento = { operacionId, ubicacion: galpon?.nombre ?? "Sin galpón asignado", items: resultado, ajustados: resultado.filter((r) => r.diferencia !== 0).length }
     // El registro de auditoría también sirve para que reenviar el mismo recuento no lo duplique
     await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId, tabla: "recuentos_stock", rowPk: v.clave ?? operacionId, accion: "INSERT", detalle: JSON.parse(JSON.stringify(resumen)) } })

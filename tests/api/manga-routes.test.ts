@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(), lock: vi.fn(), session: vi.fn(), update: vi.fn(),
   animal: vi.fn(), animals: vi.fn(), createAnimal: vi.fn(), especie: vi.fn(), aggregate: vi.fn(),
   item: vi.fn(), createMany: vi.fn(), lastItem: vi.fn(), pesada: vi.fn(), sanidad: vi.fn(), tacto: vi.fn(),
+  producto: vi.fn(), descontar: vi.fn(),
 }))
 vi.mock("@/lib/api/with-auth", () => ({ withAuth: (handler: Function) => (request: unknown) => handler(request, {
   params: { id: "00000000-0000-4000-8000-000000000001" }, establecimientoIds: ["est1", "est2"],
@@ -11,6 +12,7 @@ vi.mock("@/lib/api/with-auth", () => ({ withAuth: (handler: Function) => (reques
 }) }))
 vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: mocks.transaction } }))
 vi.mock("@/lib/api/audit-log", () => ({ logAudit: vi.fn() }))
+vi.mock("@/lib/inventario/aplicaciones", async () => ({ consumoSugerido: (await import("@/lib/inventario/consumo")).consumoSugerido, descontarAplicacion: mocks.descontar }))
 import { POST as addItemRoute } from "@/app/api/manga/[id]/items/route"
 import { POST as finalizeRoute } from "@/app/api/manga/[id]/finalizar/route"
 import { POST as importCSVRoute } from "@/app/api/manga/importar-csv/route"
@@ -27,6 +29,7 @@ const tx = {
   animal: { findFirst: mocks.animal, findMany: mocks.animals, create: mocks.createAnimal }, especie: { findFirst: mocks.especie },
   sesionMangaItem: { aggregate: mocks.aggregate, create: mocks.item, createMany: mocks.createMany, findFirst: mocks.lastItem },
   evtPesada: { create: mocks.pesada }, evtSanidad: { create: mocks.sanidad }, evtTacto: { create: mocks.tacto },
+  producto: { findUnique: mocks.producto },
 }
 function request(body: object = {}) {
   return new NextRequest("http://localhost/api/manga/test", { method: "POST", body: JSON.stringify(body) })
@@ -83,6 +86,24 @@ describe("rutas de manga", () => {
     expect(mocks.pesada).toHaveBeenCalledOnce()
     expect(mocks.sanidad).toHaveBeenCalledOnce()
     expect(mocks.tacto).toHaveBeenCalledOnce()
+  })
+  it("descuenta del stock lo aplicado sin trabar el cierre si falta", async () => {
+    mocks.session.mockResolvedValue({ id, estado: "activa", establecimientoId: "est1", fecha: new Date(), productoSanidadId: "producto", dosisSanidad: 5, items: [
+      { animalId: "a1", accionSanidad: true }, { animalId: "a2", accionSanidad: true },
+    ] })
+    mocks.producto.mockResolvedValue({ unidad: "ml", activo: true, nombre: "Ivermectina", organizacionId: "org1" })
+    mocks.descontar.mockResolvedValue({ descontado: 6, faltante: 4, unidad: "ml", ubicacion: null })
+    const response = await finalize(request())
+    expect(response.status).toBe(200)
+    expect(mocks.descontar).toHaveBeenCalledWith(tx, expect.objectContaining({ productoId: "producto", cantidad: 10, origenTipo: "manga", origenId: id }), expect.objectContaining({ estricto: false, establecimientoId: "est1" }))
+    expect((await response.json()).data).toMatchObject({ stock: { descontado: 6, faltante: 4 }, avisoStock: expect.stringContaining("Faltó stock") })
+  })
+  it("un producto del catálogo general no descuenta stock y avisa", async () => {
+    mocks.session.mockResolvedValue({ id, estado: "activa", establecimientoId: "est1", fecha: new Date(), productoSanidadId: "producto", dosisSanidad: 5, items: [{ animalId: "a1", accionSanidad: true }] })
+    mocks.producto.mockResolvedValue({ unidad: "ml", activo: true, nombre: "Global", organizacionId: null })
+    const response = await finalize(request())
+    expect(mocks.descontar).not.toHaveBeenCalled()
+    expect((await response.json()).data.avisoStock).toMatch(/No se descontó/)
   })
   it("un segundo cierre no genera eventos", async () => {
     mocks.lock.mockResolvedValue({ count: 0 })

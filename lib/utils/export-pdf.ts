@@ -180,3 +180,29 @@ function calculateStats(data: any[]) {
     ccPromedio,
   }
 }
+
+/** Tabla genérica a PDF (título, subtítulo con la fecha y columnas libres). */
+export function exportarTablaPDF({ titulo, subtitulo, columnas, filas, archivo, horizontal = false }: {
+  titulo: string
+  subtitulo?: string
+  columnas: string[]
+  filas: (string | number)[][]
+  archivo: string
+  horizontal?: boolean
+}) {
+  const doc = new jsPDF(horizontal ? 'landscape' : 'portrait')
+  doc.setFontSize(16)
+  doc.setFont('helvetica', 'bold')
+  doc.text(titulo, 14, 16)
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.text(subtitulo ?? `Generado el ${new Date().toLocaleString('es-AR')}`, 14, 23)
+  autoTable(doc, {
+    head: [columnas],
+    body: filas.map((f) => f.map((c) => (typeof c === 'number' ? c.toLocaleString('es-AR') : c))),
+    startY: 28,
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [22, 101, 52] },
+  })
+  doc.save(archivo)
+}

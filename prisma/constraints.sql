@@ -147,6 +147,11 @@ BEGIN
       CHECK (estado IN ('pendiente', 'aceptada', 'revocada')) NOT VALID;
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'movimientos_stock_concepto_chk') THEN
+    ALTER TABLE movimientos_stock ADD CONSTRAINT movimientos_stock_concepto_chk
+      CHECK (concepto IS NULL OR (concepto = 'transferencia' AND tipo IN ('entrada', 'salida')) OR (concepto = 'recuento' AND tipo = 'ajuste')) NOT VALID;
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sesiones_manga_estado_chk') THEN
     ALTER TABLE sesiones_manga ADD CONSTRAINT sesiones_manga_estado_chk
       CHECK (estado IN ('activa', 'pausada', 'finalizada')) NOT VALID;

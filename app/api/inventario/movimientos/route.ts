@@ -75,6 +75,8 @@ export const GET = withAuth(async (request, ctx) => {
         tipo: m.tipo,
         cantidad: Number(m.cantidad),
         operacionId: m.operacionId,
+        concepto: m.concepto,
+        anulaAId: m.anulaAId,
         motivo: m.motivo,
         fecha: m.fecha.toISOString(),
         createdAt: m.createdAt.toISOString(),

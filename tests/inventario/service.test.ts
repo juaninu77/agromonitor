@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const m = vi.hoisted(() => ({
   producto: vi.fn(), prodCreate: vi.fn(), lote: vi.fn(), loteCreate: vi.fn(), proveedor: vi.fn(),
   movUnique: vi.fn(), movCreate: vi.fn(), movMany: vi.fn(), groupBy: vi.fn(), audit: vi.fn(), lotes: vi.fn(), prodUpdate: vi.fn(),
-  nombreDup: vi.fn(), loteUpdate: vi.fn(),
+  nombreDup: vi.fn(), loteUpdate: vi.fn(), sector: vi.fn(), auditFirst: vi.fn(),
 }))
 vi.mock("@/lib/prisma", () => {
   const tx = {
@@ -12,12 +12,13 @@ vi.mock("@/lib/prisma", () => {
     loteProducto: { findFirst: m.lote, create: m.loteCreate, findMany: m.lotes, update: m.loteUpdate },
     proveedor: { findFirst: m.proveedor },
     movimientoStock: { findUnique: m.movUnique, create: m.movCreate, findMany: m.movMany, groupBy: m.groupBy },
-    auditLog: { create: m.audit },
+    auditLog: { create: m.audit, findFirst: m.auditFirst },
+    sector: { findFirst: m.sector },
   }
   return { prisma: { $transaction: (cb: (t: unknown) => unknown) => cb(tx) } }
 })
 import { Prisma } from "@prisma/client"
-import { actualizarLote, anularMovimiento, configurarProducto, crearLote, crearProducto, registrarMovimientoStock } from "@/lib/inventario/service"
+import { actualizarLote, anularMovimiento, configurarProducto, crearLote, crearProducto, registrarMovimientoStock, registrarRecuento, transferirStock } from "@/lib/inventario/service"
 import { productoConfigSchema } from "@/lib/inventario/validation"
 import { repartirFefo } from "@/lib/inventario/stock"
 import { estadoVencimiento, formatoDia, textoVencimiento } from "@/lib/inventario/fechas"
@@ -229,5 +230,64 @@ describe("Fase C: edición, anulación y categorías", () => {
     await actualizarLote(ctx, PROD, LOTE, { vencimiento: "2027-05-31", costo: "" })
     expect(m.loteUpdate.mock.calls[0][0].data).toEqual({ vencimiento: new Date("2027-05-31T00:00:00Z"), costo: null })
     await expect(actualizarLote(ctx, PROD, LOTE, { cantidad: 99 })).rejects.toThrow()
+  })
+})
+
+describe("Fase C-2: galpones, transferencias y recuento", () => {
+  const G1 = uuid(31), G2 = uuid(32)
+  const ctxG = { ...ctx, establecimientoIdsConRol: () => ["e1"], organizacionDeEstablecimiento: { e1: "o1" } } as unknown as AuthContext
+  // Saldo por ubicación: { [sectorId|"sin"]: cantidad } (sin lotes)
+  const porUbic = (u: Record<string, number>) => async (q: { by: string[]; where: { sectorId?: string | null } }) => {
+    const k = q.where.sectorId === undefined ? null : (q.where.sectorId ?? "sin")
+    const total = k === null ? Object.values(u).reduce((a, b) => a + b, 0) : u[k] ?? 0
+    return q.by.includes("loteProductoId") ? [{ productoId: PROD, loteProductoId: null, tipo: "entrada", _sum: { cantidad: D(total) } }] : [{ productoId: PROD, tipo: "entrada", _sum: { cantidad: D(total) } }]
+  }
+  beforeEach(() => { m.sector.mockImplementation(async ({ where }) => ({ id: where.id, nombre: where.id === G1 ? "Galpón 1" : "Galpón 2", establecimientoId: "e1" })) })
+
+  it("una salida se controla contra el saldo del galpón elegido", async () => {
+    m.groupBy.mockImplementation(porUbic({ [G1]: 3, sin: 50 }))
+    await expect(registrarMovimientoStock(ctxG, mov({ cantidad: 5, sectorId: G1 }))).rejects.toThrow(/en Galpón 1: hay 3/)
+    await registrarMovimientoStock(ctxG, mov({ cantidad: 5 }))
+    expect(m.movCreate.mock.calls[0][0].data).toMatchObject({ sectorId: null })
+  })
+
+  it("un galpón de otra organización o sin permisos se rechaza", async () => {
+    m.sector.mockResolvedValueOnce(null)
+    await expect(registrarMovimientoStock(ctxG, mov({ tipo: "entrada", sectorId: G1 }))).rejects.toMatchObject({ status: 404 })
+    m.sector.mockResolvedValueOnce({ id: G1, nombre: "Ajeno", establecimientoId: "eX" })
+    await expect(registrarMovimientoStock(ctxG, mov({ tipo: "entrada", sectorId: G1 }))).rejects.toMatchObject({ status: 404 })
+  })
+
+  it("transferir: salida en origen + entrada en destino con el mismo operacionId; el total no cambia", async () => {
+    m.groupBy.mockImplementation(porUbic({ sin: 20 }))
+    const r = await transferirStock(ctxG, { productoId: PROD, desdeSectorId: null, haciaSectorId: G2, cantidad: 8, clave: uuid(40) })
+    const [sal, ent] = m.movCreate.mock.calls.map((c) => c[0].data)
+    expect(sal).toMatchObject({ tipo: "salida", concepto: "transferencia", sectorId: null, clave: uuid(40) })
+    expect(ent).toMatchObject({ tipo: "entrada", concepto: "transferencia", sectorId: G2 })
+    expect(sal.cantidad.toNumber()).toBe(8); expect(ent.cantidad.toNumber()).toBe(8)
+    expect(sal.operacionId).toBe(ent.operacionId); expect(r.operacionId).toBe(sal.operacionId)
+    await expect(transferirStock(ctxG, { productoId: PROD, desdeSectorId: G1, haciaSectorId: G1, cantidad: 1 })).rejects.toThrow(/distintos/)
+    m.groupBy.mockImplementation(porUbic({ [G1]: 2 }))
+    await expect(transferirStock(ctxG, { productoId: PROD, desdeSectorId: G1, haciaSectorId: G2, cantidad: 5 })).rejects.toMatchObject({ status: 409 })
+  })
+
+  it("recuento: ajusta solo las diferencias (faltante negativo, sobrante positivo) en una operación", async () => {
+    const P2 = uuid(50)
+    m.producto.mockImplementation(async ({ where }) => ({ id: where.id, nombre: where.id === PROD ? "Ivermectina" : "Vacuna", organizacionId: "o1", unidad: "dosis", activo: true }))
+    m.groupBy.mockImplementation(async (q) => {
+      const id = q.where.productoId.in[0]; const n = id === PROD ? 10 : 4
+      return q.by.includes("loteProductoId") ? [{ productoId: id, loteProductoId: null, tipo: "entrada", _sum: { cantidad: D(n) } }] : [{ productoId: id, tipo: "entrada", _sum: { cantidad: D(n) } }]
+    })
+    const r = await registrarRecuento(ctxG, { sectorId: G1, clave: uuid(60), items: [{ productoId: PROD, contado: 7 }, { productoId: P2, contado: 4 }] })
+    expect(r.ajustados).toBe(1)
+    expect(r.items.map((i) => [i.sistema, i.contado, i.diferencia])).toEqual([[10, 7, -3], [4, 4, 0]])
+    const aj = m.movCreate.mock.calls.map((c) => c[0].data)
+    expect(aj).toHaveLength(1)
+    expect(aj[0]).toMatchObject({ tipo: "ajuste", concepto: "recuento", sectorId: G1, productoId: PROD })
+    expect(aj[0].cantidad.toNumber()).toBe(-3)
+    // Reenviar el mismo recuento no lo duplica
+    m.auditFirst.mockResolvedValueOnce({ detalle: { ajustados: 1 } })
+    await expect(registrarRecuento(ctxG, { sectorId: G1, clave: uuid(60), items: [{ productoId: PROD, contado: 7 }] })).resolves.toMatchObject({ repetido: true })
+    await expect(registrarRecuento(ctxG, { items: [{ productoId: PROD, contado: 1 }, { productoId: PROD, contado: 2 }] })).rejects.toThrow(/repetidos/)
   })
 })

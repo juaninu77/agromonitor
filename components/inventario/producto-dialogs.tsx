@@ -33,12 +33,12 @@ const mensaje = (e: unknown) => (e instanceof Error && e.message !== "Failed to 
 
 /** Ingreso de un lote: con cantidad, entra al stock en la misma operación. */
 export function IngresarLoteDialog({ producto, onOpenChange, onGuardado }: { producto: ProductoInventario | null; onOpenChange: (o: boolean) => void; onGuardado: () => void }) {
-  const vacio = { nroLote: "", vencimiento: "", cantidad: "", costo: "", proveedor: "" }
+  const vacio = { nroLote: "", vencimiento: "", cantidad: "", costo: "", moneda: "ARS", proveedor: "" }
   const [form, setForm] = useState(vacio)
   const [clave, setClave] = useState("")
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState("")
-  useEffect(() => { if (producto) { setForm(vacio); setError(""); setClave(crypto.randomUUID()) } }, [producto]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (producto) { setForm({ ...vacio, moneda: producto.monedaCosto ?? "ARS" }); setError(""); setClave(crypto.randomUUID()) } }, [producto]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -47,7 +47,7 @@ export function IngresarLoteDialog({ producto, onOpenChange, onGuardado }: { pro
     try {
       await enviar(`/api/productos/${producto.id}/lotes`, "POST", {
         clave, nroLote: form.nroLote, vencimiento: form.vencimiento || null, cantidad: form.cantidad || null,
-        unidad: producto.unidad, costo: form.costo || null, proveedor: form.proveedor || null,
+        unidad: producto.unidad, costo: form.costo || null, moneda: form.moneda, proveedor: form.proveedor || null,
       })
       toast.success(form.cantidad ? `Lote ${form.nroLote} ingresado: +${form.cantidad} ${producto.unidad}` : `Lote ${form.nroLote} registrado`)
       onOpenChange(false); onGuardado()
@@ -78,8 +78,11 @@ export function IngresarLoteDialog({ producto, onOpenChange, onGuardado }: { pro
               <Input id="lote-cant" type="number" min="0" step="0.001" inputMode="decimal" value={form.cantidad} onChange={(e) => setForm({ ...form, cantidad: e.target.value })} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="lote-costo">Costo del lote (opcional)</Label>
-              <Input id="lote-costo" type="number" min="0" step="0.01" inputMode="decimal" value={form.costo} onChange={(e) => setForm({ ...form, costo: e.target.value })} />
+              <Label htmlFor="lote-costo">Costo por {producto?.unidad ?? "unidad"} (opcional)</Label>
+              <div className="flex gap-2">
+                <Input id="lote-costo" type="number" min="0" step="0.01" inputMode="decimal" value={form.costo} onChange={(e) => setForm({ ...form, costo: e.target.value })} />
+                <select aria-label="Moneda del costo" className="h-10 rounded-md border border-input bg-background px-2 text-sm" value={form.moneda} onChange={(e) => setForm({ ...form, moneda: e.target.value })}><option value="ARS">ARS</option><option value="USD">USD</option></select>
+              </div>
             </div>
           </div>
           <div className="space-y-1.5">

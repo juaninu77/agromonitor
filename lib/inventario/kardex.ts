@@ -8,6 +8,7 @@ import { decimalToNumber } from "@/lib/api/serialize"
 import { scopeEventoAnimalOLote } from "@/lib/api/tenant"
 import { estadoVencimiento, hoyArgentina } from "./fechas"
 import { InventarioError, orgsEscritura } from "./service"
+import { valorizarProducto } from "./valorizacion"
 import { aNumero, CERO, saldosPorLote, saldosPorProducto } from "./stock"
 
 interface FilaKardex {
@@ -68,12 +69,14 @@ export async function fichaProducto(ctx: AuthContext, productoId: string, { page
       esGlobal: !producto.organizacionId,
     },
     puedeEditar: editable,
+    // Valor del stock por moneda (solo para quien gestiona la organización)
+    valorizacion: editable ? valorizarProducto(producto, porLote, sinLote.get(productoId) ?? CERO) : null,
     stock: aNumero(saldos.get(productoId) ?? CERO)!,
     sinLote: aNumero(sinLote.get(productoId) ?? CERO)!,
     lotes: producto.lotes.map((l) => {
       const saldo = porLote.get(l.id) ?? CERO
       const v = estadoVencimiento(l.vencimiento, { hoy })
-      return { id: l.id, nroLote: l.nroLote, vencimiento: l.vencimiento?.toISOString() ?? null, proveedor: l.proveedor, costo: decimalToNumber(l.costo), cantidadInicial: aNumero(l.cantidad), saldo: aNumero(saldo)!, vencido: saldo.gt(0) && v.vencido, diasRestantes: v.diasRestantes }
+      return { id: l.id, nroLote: l.nroLote, vencimiento: l.vencimiento?.toISOString() ?? null, proveedor: l.proveedor, costo: decimalToNumber(l.costo), moneda: l.moneda, cantidadInicial: aNumero(l.cantidad), saldo: aNumero(saldo)!, vencido: saldo.gt(0) && v.vencido, diasRestantes: v.diasRestantes }
     }),
     ubicaciones: [...ubic].map(([nombre, saldo]) => ({ nombre, saldo: aNumero(saldo)! })).filter((u) => u.saldo !== 0),
     kardex: {

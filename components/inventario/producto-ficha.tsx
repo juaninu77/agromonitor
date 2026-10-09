@@ -15,13 +15,15 @@ import { PageHeading } from "@/components/ui/page-heading"
 import { IngresarLoteDialog } from "./producto-dialogs"
 import { EditarLoteDialog, ProductoFormDialog, type ProductoEditable } from "./producto-form-dialog"
 import { formatoDia, textoVencimiento } from "@/lib/inventario/fechas"
+import { textoValores, type Valores } from "@/lib/inventario/formato-valor"
 import { esSanitario, etiquetaTipo } from "@/lib/inventario/validation"
 
-interface Lote { id: string; nroLote: string; vencimiento: string | null; proveedor: string | null; costo: number | null; cantidadInicial: number | null; saldo: number; vencido: boolean; diasRestantes: number | null }
+interface Lote { id: string; nroLote: string; vencimiento: string | null; proveedor: string | null; costo: number | null; moneda: string; cantidadInicial: number | null; saldo: number; vencido: boolean; diasRestantes: number | null }
 interface Fila { id: string; tipo: string; cantidad: number; motivo: string | null; fecha: string; lote: string | null; galpon: string | null; saldo: number; operacionId: string | null; esAnulacion: boolean; anulado: boolean }
 interface Ficha {
   producto: ProductoEditable & { esGlobal: boolean; organizacionId: string | null }
   puedeEditar: boolean
+  valorizacion: { valores: Valores; sinCosto: number } | null
   stock: number
   sinLote: number
   lotes: Lote[]
@@ -72,7 +74,7 @@ export function ProductoFicha({ id }: { id: string }) {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card><CardHeader className="pb-1"><CardDescription>Stock</CardDescription><CardTitle className={bajo ? "text-destructive" : ""}>{num(d.stock)} <span className="text-sm font-normal text-muted-foreground">{p.unidad}</span></CardTitle></CardHeader><CardContent className="text-xs text-muted-foreground">{p.stockMinimo != null ? `Mínimo ${num(p.stockMinimo)}${bajo ? " · reponer" : ""}` : "Sin stock mínimo"}</CardContent></Card>
         <Card><CardHeader className="pb-1"><CardDescription>Lotes con saldo</CardDescription><CardTitle>{d.lotes.filter((l) => l.saldo > 0).length}</CardTitle></CardHeader><CardContent className="text-xs text-muted-foreground">{d.sinLote ? `${num(d.sinLote)} ${p.unidad} sin lote` : "Todo el stock tiene lote"}</CardContent></Card>
-        <Card><CardHeader className="pb-1"><CardDescription>Costo de referencia</CardDescription><CardTitle>{p.costoReferencia != null ? `${p.monedaCosto} ${num(p.costoReferencia)}` : "—"}</CardTitle></CardHeader><CardContent className="text-xs text-muted-foreground">por {p.unidad}{p.costoReferencia != null ? ` · stock ≈ ${p.monedaCosto} ${num(p.costoReferencia * d.stock)}` : ""}</CardContent></Card>
+        <Card><CardHeader className="pb-1"><CardDescription>Valor del stock</CardDescription><CardTitle>{d.valorizacion ? textoValores(d.valorizacion.valores) : "—"}</CardTitle></CardHeader><CardContent className="text-xs text-muted-foreground">{p.costoReferencia != null ? `Costo de referencia ${p.monedaCosto} ${num(p.costoReferencia)} por ${p.unidad}` : "Por costo de cada lote"}{d.valorizacion?.sinCosto ? ` · ${num(d.valorizacion.sinCosto)} ${p.unidad} sin costo` : ""}</CardContent></Card>
         <Card><CardHeader className="pb-1"><CardDescription>Aplicaciones en Sanidad</CardDescription><CardTitle>{d.aplicaciones.total}</CardTitle></CardHeader><CardContent className="text-xs text-muted-foreground">{d.aplicaciones.ultimas[0] ? `Última: ${formatoDia(d.aplicaciones.ultimas[0].fecha)}` : "Sin aplicaciones"}</CardContent></Card>
       </div>
 
@@ -86,7 +88,7 @@ export function ProductoFicha({ id }: { id: string }) {
                   <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                     <span>
                       <strong>{l.nroLote}</strong>{l.vencimiento && <> · vence {formatoDia(l.vencimiento)}{l.diasRestantes != null && l.saldo > 0 && <span className={l.vencido ? "text-destructive" : "text-muted-foreground"}> ({textoVencimiento(l.diasRestantes)})</span>}</>}
-                      {l.proveedor && <span className="block text-xs text-muted-foreground">{l.proveedor}{l.costo != null ? ` · costo ${num(l.costo)}` : ""}</span>}
+                      {(l.proveedor || l.costo != null) && <span className="block text-xs text-muted-foreground">{[l.proveedor, l.costo != null && `${l.moneda} ${num(l.costo)} por ${p.unidad}`].filter(Boolean).join(" · ")}</span>}
                     </span>
                     <span className="flex items-center gap-2"><span className="tabular-nums">{num(l.saldo)} {p.unidad}</span>{d.puedeEditar && <Button size="sm" variant="ghost" onClick={() => setLoteEditado(l)}>Editar</Button>}</span>
                   </li>

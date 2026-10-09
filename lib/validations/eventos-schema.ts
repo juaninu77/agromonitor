@@ -2,7 +2,7 @@ import { z } from "zod"
 import { ccOpcional, fechaPasadaOpcional, pesoOpcional, uuidOpcional } from "@/lib/validations/animal-schema"
 
 // ============================================================
-// Eventos sobre animales (servidor): pesadas, sanidad, movimientos, bajas.
+// Eventos sobre animales (servidor): pesadas, movimientos, bajas.
 // Reglas comunes: la fecha no puede ser futura ni de más de 30 años; el
 // animal debe estar activo (eso lo verifica la ruta contra la base).
 // ============================================================
@@ -44,43 +44,7 @@ export const pesadaSchema = animalIdDesdeBody.pipe(
 )
 export type PesadaInput = z.output<typeof pesadaSchema>
 
-export const TIPOS_EVENTO_SANITARIO = ["vacunacion", "desparasitacion", "tratamiento", "curacion", "otro"] as const
-export const VIAS_APLICACION = ["subcutanea", "intramuscular", "oral", "pour-on", "topica", "intravenosa"] as const
-
-export const eventoSanitarioSchema = animalIdDesdeBody.pipe(
-  z
-    .object({
-      animalId: z.string({ required_error: "El animal es requerido" }).uuid("ID de animal inválido"),
-      tipoEvento: z.enum(TIPOS_EVENTO_SANITARIO).default("otro"),
-      descripcion: texto(500),
-      fecha: fechaEvento("Fecha del evento"),
-      /** Id de producto del catálogo (org o global). */
-      productoId: uuidOpcional,
-      /** Nombre de producto (texto libre): se busca o se crea en la organización. */
-      producto: texto(120),
-      dosis: z.preprocess(
-        (v) => (v === null || v === undefined || v === "" ? undefined : typeof v === "string" ? Number(v.replace(",", ".")) : v),
-        z.number({ invalid_type_error: "La dosis debe ser un número" }).positive("La dosis debe ser mayor a 0").max(100000).optional(),
-      ),
-      unidad: texto(20),
-      via: z.enum(VIAS_APLICACION).optional(),
-      veterinario: texto(120),
-      costo: z.preprocess(
-        (v) => (v === null || v === undefined || v === "" ? undefined : typeof v === "string" ? Number(v.replace(",", ".")) : v),
-        z.number().min(0, "El costo no puede ser negativo").optional(),
-      ),
-    })
-    .superRefine((e, ctx) => {
-      if (!e.productoId && !e.producto && !e.descripcion) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Indicá el producto aplicado o una descripción del evento",
-          path: ["descripcion"],
-        })
-      }
-    }),
-)
-export type EventoSanitarioInput = z.output<typeof eventoSanitarioSchema>
+// Sanidad: ver lib/sanidad/validation.ts (registro único de tratamientos).
 
 export const movimientoLoteSchema = z.object({
   animalIds: z

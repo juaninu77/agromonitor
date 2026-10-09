@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import {
   ESTADO_VITAL_POR_MOTIVO,
   bajaSchema,
-  eventoSanitarioSchema,
   movimientoLoteSchema,
   pesadaSchema,
 } from "@/lib/validations/eventos-schema"
@@ -26,19 +25,6 @@ describe("pesadaSchema", () => {
     expect(pesadaSchema.safeParse({ animalId, peso: 0, fecha: "2024-01-01" }).success).toBe(false)
     expect(pesadaSchema.safeParse({ animalId, peso: 300, cc: 12, fecha: "2024-01-01" }).success).toBe(false)
     expect(pesadaSchema.safeParse({ animalId, fecha: "2024-01-01" }).success).toBe(false)
-  })
-})
-
-describe("eventoSanitarioSchema", () => {
-  it("acepta productoId sin descripción (ficha del animal)", () => {
-    const r = eventoSanitarioSchema.safeParse({ bovinoId: animalId, productoId: animalId, dosis: "5", fecha: new Date().toISOString() })
-    expect(r.success).toBe(true)
-    if (r.success) expect(r.data.tipoEvento).toBe("otro")
-  })
-  it("exige producto o descripción y rechaza dosis negativa", () => {
-    expect(eventoSanitarioSchema.safeParse({ animalId, fecha: "2024-01-01" }).success).toBe(false)
-    expect(eventoSanitarioSchema.safeParse({ animalId, fecha: "2024-01-01", descripcion: "Revisación", dosis: -1 }).success).toBe(false)
-    expect(eventoSanitarioSchema.safeParse({ animalId, fecha: "2024-01-01", descripcion: "Revisación" }).success).toBe(true)
   })
 })
 

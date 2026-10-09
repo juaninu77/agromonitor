@@ -1,5 +1,6 @@
 "use client"
 
+import { useQuery } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -10,6 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { Loader2, Syringe } from "lucide-react"
 import { AnimalPicker } from "@/components/ganado/animal-picker"
+import { useTenant } from "@/lib/context/tenant-context"
+import { hoyArgentina } from "@/lib/inventario/fechas"
+import { esSanitario } from "@/lib/inventario/validation"
 
 // Schema para registro rápido de evento sanitario
 const quickHealthSchema = z.object({
@@ -17,9 +21,9 @@ const quickHealthSchema = z.object({
   tipoEvento: z.enum(["vacunacion", "desparasitacion", "tratamiento", "curacion", "otro"], {
     required_error: "El tipo de evento es requerido",
   }),
-  descripcion: z.string().min(1, "La descripción es requerida"),
+  descripcion: z.string().optional(),
   fecha: z.string().min(1, "La fecha es requerida"),
-  producto: z.string().optional(),
+  productoId: z.string().min(1, "Elegí el producto aplicado"),
   dosis: z.string().optional(),
   veterinario: z.string().optional(),
 })
@@ -42,6 +46,18 @@ const TIPO_EVENTO_LABELS: Record<string, string> = {
 }
 
 export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps) {
+  const { organizacionActiva } = useTenant()
+  // Insumos sanitarios activos del inventario de la organización
+  const { data: productos = [] } = useQuery({
+    queryKey: ["inventario", "sanitarios", "lista"],
+    queryFn: async () => {
+      const res = await fetch("/api/inventario?limit=500")
+      const json = await res.json().catch(() => ({}))
+      return (json.data ?? []) as { id: string; nombre: string; tipo: string; activo: boolean; organizacionId: string | null }[]
+    },
+    staleTime: 60_000,
+  })
+  const sanitarios = productos.filter((p) => esSanitario(p.tipo) && p.activo && (!organizacionActiva || p.organizacionId === organizacionActiva.id))
   const {
     register,
     handleSubmit,
@@ -52,19 +68,20 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
   } = useForm<QuickHealthData>({
     resolver: zodResolver(quickHealthSchema),
     defaultValues: {
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: hoyArgentina(),
       tipoEvento: "vacunacion",
     },
   })
 
   const selectedAnimalId = watch("animalId")
   const tipoEvento = watch("tipoEvento")
+  const productoId = watch("productoId")
 
   const handleFormSubmit = async (data: QuickHealthData) => {
     try { await onSubmit(data) } catch { return }
     reset({
-      animalId: "", descripcion: "", producto: "", dosis: "", veterinario: "",
-      fecha: new Date().toISOString().split('T')[0],
+      animalId: "", descripcion: "", productoId: "", dosis: "", veterinario: "",
+      fecha: hoyArgentina(),
       tipoEvento: "vacunacion",
     })
 
@@ -117,15 +134,12 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
         {/* Descripción */}
         <div className="space-y-2">
           <Label htmlFor="descripcion">
-            Descripción *
-            <span className="text-xs text-muted-foreground ml-1">
-              (Nombre de la vacuna, tratamiento aplicado, etc.)
-            </span>
+            Observaciones <span className="text-xs text-muted-foreground">(Opcional)</span>
           </Label>
           <Input
             id="descripcion"
             {...register("descripcion")}
-            placeholder="Ej: Vacuna antiaftosa, Tratamiento antibiótico, etc."
+            placeholder="Ej: refuerzo, herida en mano derecha…"
             className={errors.descripcion ? "border-red-500" : ""}
             autoFocus={!!selectedAnimalId}
           />
@@ -137,25 +151,32 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Producto */}
           <div className="space-y-2">
-            <Label htmlFor="producto">
-              Producto/Medicamento <span className="text-xs text-muted-foreground">(Opcional)</span>
-            </Label>
-            <Input
-              id="producto"
-              {...register("producto")}
-              placeholder="Ej: Nombre comercial del producto"
-            />
+            <Label htmlFor="productoId">Producto aplicado *</Label>
+            <Select value={productoId || ""} onValueChange={(v) => setValue("productoId", v, { shouldValidate: true })}>
+              <SelectTrigger id="productoId" className={errors.productoId ? "border-red-500" : ""}>
+                <SelectValue placeholder={sanitarios.length ? "Elegir del inventario" : "Sin insumos sanitarios"} />
+              </SelectTrigger>
+              <SelectContent>
+                {sanitarios.map((p) => <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {errors.productoId && <p className="text-sm text-red-600">{errors.productoId.message}</p>}
+            {!sanitarios.length && <p className="text-xs text-muted-foreground">Cargá el producto en Inventario para poder registrarlo.</p>}
           </div>
 
           {/* Dosis */}
           <div className="space-y-2">
             <Label htmlFor="dosis">
-              Dosis <span className="text-xs text-muted-foreground">(Opcional)</span>
+              Dosis en ml <span className="text-xs text-muted-foreground">(Opcional)</span>
             </Label>
             <Input
               id="dosis"
               {...register("dosis")}
-              placeholder="Ej: 5ml, 10mg/kg, etc."
+              type="number"
+              min="0"
+              step="0.1"
+              inputMode="decimal"
+              placeholder="Ej: 5"
             />
           </div>
         </div>

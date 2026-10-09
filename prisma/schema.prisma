@@ -1244,6 +1244,9 @@ model MovimientoStock {
   operacionId String?          @map("operacion_id") @db.Uuid
   /// transferencia (entre galpones, o reubicar stock sin galpón) | recuento (ajuste por conteo físico); null = movimiento común
   concepto    String?
+  /// Qué lo generó: sanidad (EvtSanidad), manga (SesionManga) o compra (MovimientoFinanciero del egreso, o null)
+  origenTipo  String?          @map("origen_tipo")
+  origenId    String?          @map("origen_id") @db.Uuid
   /// Contramovimiento: anula al movimiento indicado (cada movimiento se anula una sola vez)
   anulaAId    String?          @unique @map("anula_a_id") @db.Uuid
   anulaA      MovimientoStock? @relation("Anulacion", fields: [anulaAId], references: [id], onDelete: Restrict)
@@ -1262,6 +1265,7 @@ model MovimientoStock {
 
   @@index([productoId])
   @@index([operacionId])
+  @@index([origenTipo, origenId])
   @@index([loteProductoId])
   @@index([sectorId])
   @@index([fecha])

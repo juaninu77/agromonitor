@@ -3,12 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const m = vi.hoisted(() => ({
   producto: vi.fn(), prodCreate: vi.fn(), lote: vi.fn(), loteCreate: vi.fn(), proveedor: vi.fn(),
   movUnique: vi.fn(), movCreate: vi.fn(), movMany: vi.fn(), groupBy: vi.fn(), audit: vi.fn(), lotes: vi.fn(), prodUpdate: vi.fn(),
-  nombreDup: vi.fn(), loteUpdate: vi.fn(), sector: vi.fn(), auditFirst: vi.fn(),
+  nombreDup: vi.fn(), loteUpdate: vi.fn(), sector: vi.fn(), auditFirst: vi.fn(), prodMany: vi.fn(),
 }))
 vi.mock("@/lib/prisma", () => {
   const tx = {
     // findFirst con `nombre` es el control de nombre único; el resto, el producto
-    producto: { findFirst: (q: { where: { nombre?: unknown } }) => (q.where.nombre ? m.nombreDup(q) : m.producto(q)), create: m.prodCreate, update: m.prodUpdate },
+    producto: { findFirst: (q: { where: { nombre?: unknown } }) => (q.where.nombre ? m.nombreDup(q) : m.producto(q)), create: m.prodCreate, update: m.prodUpdate, findMany: m.prodMany },
     loteProducto: { findFirst: m.lote, create: m.loteCreate, findMany: m.lotes, update: m.loteUpdate },
     proveedor: { findFirst: m.proveedor },
     movimientoStock: { findUnique: m.movUnique, create: m.movCreate, findMany: m.movMany, groupBy: m.groupBy },
@@ -49,6 +49,7 @@ beforeEach(() => {
   m.movUnique.mockResolvedValue(null)
   m.groupBy.mockImplementation(async (q) => saldo(10)(q))
   m.lotes.mockResolvedValue([])
+  m.prodMany.mockResolvedValue([]) // productos con mínimo para el aviso de stock bajo
   m.movCreate.mockImplementation(async ({ data }) => ({ id: "m1", ...data, createdAt: new Date() }))
 })
 

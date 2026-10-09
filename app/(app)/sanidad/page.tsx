@@ -31,6 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { DescuentoStock, camposDescuento, descuentoInicial, type EstadoDescuento } from "@/components/sanidad/descuento-stock"
 import {
   Syringe,
   Plus,
@@ -50,6 +51,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/context/tenant-context"
+import { traerTodosLosAnimales } from "@/lib/ganado/listado-completo"
 import { esSanitario } from "@/lib/inventario/validation"
 
 // ---------------------------------------------------------------------------
@@ -99,13 +101,38 @@ interface InventarioProducto {
   id: string
   nombre: string
   tipo: string
+  unidad: string
+  stockTotal: number
   lotes: {
     id: string
     nroLote: string
     vencimiento: string | null
+    saldo: number
     proximoAVencer: boolean
     vencido: boolean
   }[]
+}
+
+/**
+ * Registra una aplicación sanitaria. Si el lote del producto está vencido, pide
+ * confirmación y reintenta aceptándolo.
+ */
+async function postSanidad(payload: Record<string, unknown>) {
+  const enviar = (extra: Record<string, unknown> = {}) =>
+    fetch("/api/sanidad", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, ...extra }) })
+  let res = await enviar()
+  let json = await res.json().catch(() => ({}))
+  if (res.status === 409 && json.codigo === "lote_vencido") {
+    if (!window.confirm(`${json.error}\n\n¿Registrar la aplicación igual?`)) throw new Error("Aplicación cancelada: el lote está vencido")
+    res = await enviar({ aceptarVencido: true })
+    json = await res.json().catch(() => ({}))
+  }
+  if (!res.ok) throw new Error(json.error || "Error al registrar")
+  return json
+}
+
+function textoStock(stock?: { descontado: number; unidad: string } | null) {
+  return stock && stock.descontado ? ` · se descontaron ${stock.descontado.toLocaleString("es-AR")} ${stock.unidad} del stock` : ""
 }
 
 interface SanidadResponse {
@@ -188,11 +215,8 @@ async function fetchAllSanidad(estId: string): Promise<EventoSanidad[]> {
 }
 
 async function fetchBovinos(estId: string): Promise<AnimalOption[]> {
-  const res = await fetch(`/api/ganado/bovinos?establecimientoId=${estId}&limit=2000`)
-  if (!res.ok) return []
-  const json = await res.json()
-  if (!json.success) return []
-  return json.data.map((a: any) => ({
+  const data = await traerTodosLosAnimales<any>({ establecimientoId: estId }).catch(() => [])
+  return data.map((a: any) => ({
     id: a.id,
     caravanaVisual: a.caravanaVisual || a.tagNumber,
     cuig: a.cuig,
@@ -856,8 +880,12 @@ function TratamientoDialog({
   const [observaciones, setObservaciones] = useState("")
   const [busqueda, setBusqueda] = useState("")
   const [showDropdown, setShowDropdown] = useState(false)
+  const [descuento, setDescuento] = useState<EstadoDescuento>(descuentoInicial)
+  const producto = productos.find((p) => p.id === productoId)
+  const animalesAplicados = animalId ? 1 : lotes.find((l) => l.id === loteId)?.cantidadAnimales ?? 0
 
   const reset = () => {
+    setDescuento(descuentoInicial)
     setAnimalId("")
     setLoteId("")
     setProductoId("")
@@ -894,23 +922,17 @@ function TratamientoDialog({
         motivo: motivo || undefined,
         fecha,
         observ: observaciones || undefined,
+        ...camposDescuento(descuento),
       }
       if (animalId) payload.animalId = animalId
-      if (loteId) payload.loteId = loteId
-
-      const res = await fetch("/api/sanidad", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      if (!res.ok) {
-        const json = await res.json()
-        throw new Error(json.error || "Error al registrar")
+      if (loteId) {
+        payload.loteId = loteId
+        if (animalesAplicados) payload.cantidadAnimales = animalesAplicados
       }
-      return res.json()
+      return postSanidad(payload)
     },
-    onSuccess: () => {
-      toast.success("Tratamiento registrado correctamente")
+    onSuccess: (json) => {
+      toast.success(`Tratamiento registrado correctamente${textoStock(json?.data?.stock)}`)
       reset()
       onOpenChange(false)
       onSuccess()
@@ -1067,6 +1089,15 @@ function TratamientoDialog({
             </div>
           </div>
 
+          <DescuentoStock
+            producto={producto}
+            dosis={dosis}
+            unidadDosis={unidad}
+            animales={animalesAplicados}
+            valor={descuento}
+            onChange={setDescuento}
+          />
+
           {/* Motivo + Fecha */}
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -1155,18 +1186,18 @@ function MasivaDialog({
   const bovinosInLote = useQuery({
     queryKey: ["bovinos", "lote", loteId],
     queryFn: async () => {
-      const res = await fetch(`/api/ganado/bovinos?establecimientoId=${estId}&loteId=${loteId}&limit=2000`)
-      if (!res.ok) return []
-      const json = await res.json()
-      return json.success ? (json.data as AnimalOption[]) : []
+      return traerTodosLosAnimales<AnimalOption>({ establecimientoId: estId, loteId })
     },
     enabled: !!loteId,
     staleTime: 30_000,
   })
 
   const animalCount = bovinosInLote.data?.length ?? selectedLote?.cantidadAnimales ?? 0
+  const [descuento, setDescuento] = useState<EstadoDescuento>(descuentoInicial)
+  const producto = productos.find((p) => p.id === productoId)
 
   const reset = () => {
+    setDescuento(descuentoInicial)
     setLoteId("")
     setProductoId("")
     setDosis("")
@@ -1181,34 +1212,43 @@ function MasivaDialog({
       const animals = bovinosInLote.data ?? []
       if (animals.length === 0) throw new Error("No hay animales en el lote seleccionado")
 
-      const results = await Promise.allSettled(
-        animals.map((a: any) =>
-          fetch("/api/sanidad", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              animalId: a.id,
-              productoId,
-              dosis: dosis ? parseFloat(dosis) : undefined,
-              unidad: unidad || undefined,
-              via: via || undefined,
-              motivo: motivo || undefined,
-              fecha,
-              loteId,
-            }),
+      // Un lote vencido se confirma una sola vez para toda la aplicación
+      const loteElegido = producto?.lotes.find((l) => l.id === descuento.loteProductoId)
+      const aceptarVencido = !!(descuento.activo && loteElegido?.vencido)
+      if (aceptarVencido && !window.confirm(`El lote ${loteElegido!.nroLote} está vencido. ¿Registrar la aplicación igual?`)) {
+        throw new Error("Aplicación cancelada: el lote está vencido")
+      }
+      // De a uno, para que el stock se descuente en orden y un faltante corte la carga
+      let ok = 0
+      let descontado = 0
+      let error = ""
+      for (const a of animals) {
+        try {
+          const json = await postSanidad({
+            animalId: a.id,
+            productoId,
+            dosis: dosis ? parseFloat(dosis) : undefined,
+            unidad: unidad || undefined,
+            via: via || undefined,
+            motivo: motivo || undefined,
+            fecha,
+            ...camposDescuento(descuento, aceptarVencido),
           })
-        )
-      )
-
-      const ok = results.filter((r) => r.status === "fulfilled").length
-      const failed = results.length - ok
-      return { ok, failed, total: results.length }
+          ok++
+          descontado += json?.data?.stock?.descontado ?? 0
+        } catch (e) {
+          error = e instanceof Error ? e.message : "Error al registrar"
+          break
+        }
+      }
+      return { ok, total: animals.length, error, descontado }
     },
     onSuccess: (data) => {
-      if (data.failed > 0) {
-        toast.warning(`${data.ok} de ${data.total} tratamientos registrados (${data.failed} fallaron)`)
+      const stock = textoStock(data.descontado ? { descontado: Math.round(data.descontado * 1000) / 1000, unidad: producto?.unidad ?? "" } : null)
+      if (data.error) {
+        toast.warning(`${data.ok} de ${data.total} tratamientos registrados${stock}. Se detuvo: ${data.error}`)
       } else {
-        toast.success(`${data.ok} tratamientos registrados correctamente`)
+        toast.success(`${data.ok} tratamientos registrados correctamente${stock}`)
       }
       reset()
       onOpenChange(false)
@@ -1340,6 +1380,16 @@ function MasivaDialog({
               <Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
             </div>
           </div>
+
+          <DescuentoStock
+            producto={producto}
+            dosis={dosis}
+            unidadDosis={unidad}
+            animales={1}
+            porAnimal={animalCount}
+            valor={descuento}
+            onChange={setDescuento}
+          />
 
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="outline" className="border-2" onClick={() => onOpenChange(false)}>

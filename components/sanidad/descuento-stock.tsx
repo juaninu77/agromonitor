@@ -85,3 +85,26 @@ export function camposDescuento(v: EstadoDescuento, aceptarVencido = false) {
   if (!v.activo || !v.cantidad) return {}
   return { descontarStock: v.cantidad, ...(v.loteProductoId ? { loteProductoId: v.loteProductoId } : {}), ...(aceptarVencido ? { aceptarVencido: true } : {}) }
 }
+
+/**
+ * Registra una aplicación sanitaria. Si el lote del producto está vencido, pide
+ * confirmación y reintenta aceptándolo.
+ */
+export async function postSanidad(payload: Record<string, unknown>, url = "/api/sanidad") {
+  const enviar = (extra: Record<string, unknown> = {}) =>
+    fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, ...extra }) })
+  let res = await enviar()
+  let json = await res.json().catch(() => ({}))
+  if (res.status === 409 && json.codigo === "lote_vencido") {
+    if (!window.confirm(`${json.error}\n\n¿Registrar la aplicación igual?`)) throw new Error("Aplicación cancelada: el lote está vencido")
+    res = await enviar({ aceptarVencido: true })
+    json = await res.json().catch(() => ({}))
+  }
+  if (!res.ok) throw new Error(json.error || "Error al registrar")
+  return json
+}
+
+/** " · se descontaron 5 ml del stock" (o nada si no se descontó). */
+export function textoStock(stock?: { descontado: number; unidad: string } | null) {
+  return stock && stock.descontado ? ` · se descontaron ${stock.descontado.toLocaleString("es-AR")} ${stock.unidad} del stock` : ""
+}

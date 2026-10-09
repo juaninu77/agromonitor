@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { DescuentoStock, camposDescuento, descuentoInicial, type EstadoDescuento } from "@/components/sanidad/descuento-stock"
+import { DescuentoStock, camposDescuento, descuentoInicial, postSanidad, textoStock, type EstadoDescuento } from "@/components/sanidad/descuento-stock"
 import {
   Syringe,
   Plus,
@@ -44,7 +44,6 @@ import {
   ChevronRight,
   Activity,
   TrendingUp,
-  Clock,
   ChevronDown,
   ChevronUp,
   Loader2,
@@ -52,7 +51,9 @@ import {
 import { toast } from "sonner"
 import { useTenant } from "@/lib/context/tenant-context"
 import { traerTodosLosAnimales } from "@/lib/ganado/listado-completo"
+import { formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import { esSanitario } from "@/lib/inventario/validation"
+import { ETIQUETA_MOTIVO, ETIQUETA_VIA, MOTIVOS_SANIDAD, VIAS_SANIDAD } from "@/lib/sanidad/validation"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,7 +81,7 @@ interface EventoSanidad {
     nombre: string
     tipo: string
   }
-  loteProducto: { id: string; nroLote: string } | null
+  loteProducto: { id: string; nroLote: string; vencimiento: string | null } | null
   lote: { id: string; nombre: string } | null
 }
 
@@ -99,6 +100,8 @@ interface LoteOption {
 
 interface InventarioProducto {
   id: string
+  organizacionId: string | null
+  activo?: boolean
   nombre: string
   tipo: string
   unidad: string
@@ -111,28 +114,6 @@ interface InventarioProducto {
     proximoAVencer: boolean
     vencido: boolean
   }[]
-}
-
-/**
- * Registra una aplicación sanitaria. Si el lote del producto está vencido, pide
- * confirmación y reintenta aceptándolo.
- */
-async function postSanidad(payload: Record<string, unknown>) {
-  const enviar = (extra: Record<string, unknown> = {}) =>
-    fetch("/api/sanidad", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, ...extra }) })
-  let res = await enviar()
-  let json = await res.json().catch(() => ({}))
-  if (res.status === 409 && json.codigo === "lote_vencido") {
-    if (!window.confirm(`${json.error}\n\n¿Registrar la aplicación igual?`)) throw new Error("Aplicación cancelada: el lote está vencido")
-    res = await enviar({ aceptarVencido: true })
-    json = await res.json().catch(() => ({}))
-  }
-  if (!res.ok) throw new Error(json.error || "Error al registrar")
-  return json
-}
-
-function textoStock(stock?: { descontado: number; unidad: string } | null) {
-  return stock && stock.descontado ? ` · se descontaron ${stock.descontado.toLocaleString("es-AR")} ${stock.unidad} del stock` : ""
 }
 
 interface SanidadResponse {
@@ -150,18 +131,8 @@ interface SanidadResponse {
 // Constants
 // ---------------------------------------------------------------------------
 
-const VIAS = [
-  { value: "subcutanea", label: "Subcutánea" },
-  { value: "intramuscular", label: "Intramuscular" },
-  { value: "oral", label: "Oral" },
-  { value: "pour-on", label: "Pour-on" },
-]
-
-const MOTIVOS = [
-  { value: "preventivo", label: "Preventivo" },
-  { value: "curativo", label: "Curativo" },
-  { value: "metafilaxis", label: "Metafilaxis" },
-]
+const VIAS = VIAS_SANIDAD.map((v) => ({ value: v, label: ETIQUETA_VIA[v] }))
+const MOTIVOS = MOTIVOS_SANIDAD.map((m) => ({ value: m, label: ETIQUETA_MOTIVO[m] }))
 
 const UNIDADES = [
   { value: "ml", label: "ml" },
@@ -169,49 +140,38 @@ const UNIDADES = [
   { value: "comprimido", label: "Comprimido" },
 ]
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString("es-AR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  })
-}
-
 function animalLabel(a: { caravanaVisual: string | null; cuig: string | null; otroId: string | null }) {
   return a.caravanaVisual || a.cuig || a.otroId || "Sin ID"
 }
 
 function todayISO() {
-  return new Date().toISOString().split("T")[0]
+  return hoyArgentina()
 }
 
 // ---------------------------------------------------------------------------
 // Data-fetching helpers
 // ---------------------------------------------------------------------------
 
-async function fetchSanidad(estId: string, page: number, limit: number): Promise<SanidadResponse> {
-  const params = new URLSearchParams({
-    establecimientoId: estId,
-    page: String(page),
-    limit: String(limit),
-  })
-  const res = await fetch(`/api/sanidad?${params}`)
-  if (!res.ok) throw new Error("Error al cargar eventos")
-  const json = await res.json()
-  if (!json.success) throw new Error(json.error || "Error")
-  return json
+interface Resumen {
+  mes: string
+  tratamientosMes: number
+  curativosMes: number
+  animalesTratadosMes: number
+  topProductos: { productoId: string; nombre: string; cantidad: number }[]
+  calendario: { mes: string; dias: { dia: string; cantidad: number }[] }
 }
 
-async function fetchAllSanidad(estId: string): Promise<EventoSanidad[]> {
-  const params = new URLSearchParams({
-    establecimientoId: estId,
-    page: "1",
-    limit: "5000",
-  })
-  const res = await fetch(`/api/sanidad?${params}`)
-  if (!res.ok) return []
-  const json = await res.json()
-  return json.success ? json.data : []
+interface PorAnimalFila {
+  animal: { id: string; caravanaVisual: string | null; cuig: string | null; otroId: string | null }
+  cantidad: number
+  ultimaFecha: string | null
+}
+
+async function getJson<T>(url: string): Promise<T> {
+  const res = await fetch(url)
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok || json.success === false) throw new Error(json.error || "No se pudieron cargar los datos")
+  return json as T
 }
 
 async function fetchBovinos(estId: string): Promise<AnimalOption[]> {
@@ -232,11 +192,18 @@ async function fetchLotes(estId: string): Promise<LoteOption[]> {
   return json.map((l: any) => ({ id: l.id, nombre: l.nombre, cantidadAnimales: l.cantidadAnimales ?? 0 }))
 }
 
-async function fetchInventario(estId: string): Promise<InventarioProducto[]> {
-  const res = await fetch(`/api/inventario?establecimientoId=${estId}`)
+async function fetchInventario(): Promise<InventarioProducto[]> {
+  const res = await fetch(`/api/inventario?limit=500`)
   if (!res.ok) return []
   const json = await res.json()
   return json.success ? json.data : []
+}
+
+/** Valor que se actualiza recién cuando el usuario deja de escribir. */
+function useDiferido<T>(valor: T, ms = 300) {
+  const [v, setV] = useState(valor)
+  useEffect(() => { const t = setTimeout(() => setV(valor), ms); return () => clearTimeout(t) }, [valor, ms])
+  return v
 }
 
 // ---------------------------------------------------------------------------
@@ -244,37 +211,59 @@ async function fetchInventario(estId: string): Promise<InventarioProducto[]> {
 // ---------------------------------------------------------------------------
 
 export default function SanidadPage() {
-  const { establecimientoActivo } = useTenant()
+  const { establecimientoActivo, organizacionActiva } = useTenant()
   const estId = establecimientoActivo?.id ?? ""
   const queryClient = useQueryClient()
 
   const [activeTab, setActiveTab] = useState("historial")
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState("")
+  const [motivo, setMotivo] = useState("todos")
+  const [mesCalendario, setMesCalendario] = useState(() => hoyArgentina().slice(0, 7))
+  const [pageAnimal, setPageAnimal] = useState(1)
+  const busqueda = useDiferido(search.trim())
   const LIMIT = 20
 
   const [tratamientoOpen, setTratamientoOpen] = useState(false)
   const [masivaOpen, setMasivaOpen] = useState(false)
 
+  // Al cambiar de campo o de filtros, volver a la primera página
+  useEffect(() => { setPage(1) }, [estId, busqueda, motivo])
+  useEffect(() => { setPageAnimal(1) }, [estId])
+
   const eventosQuery = useQuery({
-    queryKey: ["sanidad", "eventos", estId, page, LIMIT],
-    queryFn: () => fetchSanidad(estId, page, LIMIT),
+    queryKey: ["sanidad", "eventos", estId, page, busqueda, motivo],
+    queryFn: () => {
+      const params = new URLSearchParams({ establecimientoId: estId, page: String(page), limit: String(LIMIT) })
+      if (busqueda) params.set("q", busqueda)
+      if (motivo !== "todos") params.set("motivo", motivo)
+      return getJson<SanidadResponse>(`/api/sanidad?${params}`)
+    },
     enabled: !!estId,
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   })
 
-  const allEventosQuery = useQuery({
-    queryKey: ["sanidad", "all", estId],
-    queryFn: () => fetchAllSanidad(estId),
+  const resumenQuery = useQuery({
+    queryKey: ["sanidad", "resumen", estId, mesCalendario],
+    queryFn: () => getJson<{ data: Resumen }>(`/api/sanidad/resumen?establecimientoId=${estId}&mes=${mesCalendario}`).then((r) => r.data),
     enabled: !!estId,
     staleTime: 60_000,
+    placeholderData: (prev) => prev,
+  })
+
+  const porAnimalQuery = useQuery({
+    queryKey: ["sanidad", "por-animal", estId, pageAnimal],
+    queryFn: () => getJson<{ data: PorAnimalFila[]; pagination: { page: number; totalPages: number; total: number } }>(`/api/sanidad/por-animal?establecimientoId=${estId}&page=${pageAnimal}&limit=${LIMIT}`),
+    enabled: !!estId && activeTab === "por-animal",
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
   })
 
   const bovinosQuery = useQuery({
     queryKey: ["bovinos", estId],
     queryFn: () => fetchBovinos(estId),
-    enabled: !!estId,
+    enabled: !!estId && tratamientoOpen,
     staleTime: 60_000,
   })
 
@@ -286,78 +275,27 @@ export default function SanidadPage() {
   })
 
   const inventarioQuery = useQuery({
-    queryKey: ["inventario", estId],
-    queryFn: () => fetchInventario(estId),
+    queryKey: ["inventario", "sanitarios"],
+    queryFn: fetchInventario,
     enabled: !!estId,
     staleTime: 60_000,
   })
 
   const eventos = eventosQuery.data?.data ?? []
   const pagination = eventosQuery.data?.pagination
-  const allEventos = allEventosQuery.data ?? []
+  const resumen = resumenQuery.data
   const animales = bovinosQuery.data ?? []
   const lotes = lotesQuery.data ?? []
-  // Solo insumos sanitarios (no combustible, semillas, repuestos…)
-  const productos = useMemo(() => (inventarioQuery.data ?? []).filter((p) => esSanitario(p.tipo)), [inventarioQuery.data])
+  // Insumos sanitarios activos de la organización del campo (no combustible, semillas…)
+  const productos = useMemo(
+    () => (inventarioQuery.data ?? []).filter((p) => esSanitario(p.tipo) && p.activo !== false && (!organizacionActiva || p.organizacionId === organizacionActiva.id)),
+    [inventarioQuery.data, organizacionActiva],
+  )
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["sanidad"] })
+    queryClient.invalidateQueries({ queryKey: ["inventario"] })
   }
-
-  // --------------- KPI computations ---------------
-
-  const kpis = useMemo(() => {
-    const now = new Date()
-    const mesActual = now.getMonth()
-    const anioActual = now.getFullYear()
-
-    const eventosMes = allEventos.filter((e) => {
-      const d = new Date(e.fecha)
-      return d.getMonth() === mesActual && d.getFullYear() === anioActual
-    })
-
-    const animalesTratados = new Set(
-      eventosMes.filter((e) => e.animal?.id).map((e) => e.animal!.id)
-    ).size
-
-    const productoCount: Record<string, number> = {}
-    eventosMes.forEach((e) => {
-      const name = e.producto.nombre
-      productoCount[name] = (productoCount[name] || 0) + 1
-    })
-    const topProductos = Object.entries(productoCount)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([name]) => name)
-
-    let proximosVenc = 0
-    productos.forEach((p) => {
-      p.lotes.forEach((l) => {
-        if (l.proximoAVencer && !l.vencido) proximosVenc++
-      })
-    })
-
-    return {
-      totalTratamientosMes: eventosMes.length,
-      animalesTratados,
-      topProductos,
-      proximosVencimientos: proximosVenc,
-    }
-  }, [allEventos, productos])
-
-  // --------------- Filtered historial ---------------
-
-  const filteredEventos = useMemo(() => {
-    if (!search.trim()) return eventos
-    const q = search.toLowerCase()
-    return eventos.filter((e) => {
-      const caravana = e.animal?.caravanaVisual?.toLowerCase() ?? ""
-      const cuig = e.animal?.cuig?.toLowerCase() ?? ""
-      const otro = e.animal?.otroId?.toLowerCase() ?? ""
-      const prod = e.producto.nombre.toLowerCase()
-      return caravana.includes(q) || cuig.includes(q) || otro.includes(q) || prod.includes(q)
-    })
-  }, [eventos, search])
 
   // --------------- Guard: no establecimiento ---------------
 
@@ -369,6 +307,8 @@ export default function SanidadPage() {
     )
   }
 
+  const kpi = (n: number | undefined) => (resumenQuery.isPending ? "…" : n ?? 0)
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -379,7 +319,7 @@ export default function SanidadPage() {
             Sanidad
           </h1>
           <p className="text-muted-foreground mt-1">
-            Control sanitario y tratamientos veterinarios
+            Control sanitario y tratamientos veterinarios · {establecimientoActivo?.nombre}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -401,7 +341,7 @@ export default function SanidadPage() {
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* KPI Cards (mes actual, calculados en el servidor) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="border-2">
           <CardHeader className="pb-2">
@@ -411,9 +351,7 @@ export default function SanidadPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-700">
-              {kpis.totalTratamientosMes}
-            </div>
+            <div className="text-2xl font-bold text-purple-700">{kpi(resumen?.tratamientosMes)}</div>
           </CardContent>
         </Card>
 
@@ -421,13 +359,11 @@ export default function SanidadPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />
-              Animales tratados
+              Animales tratados (mes)
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-700">
-              {kpis.animalesTratados}
-            </div>
+            <div className="text-2xl font-bold text-blue-700">{kpi(resumen?.animalesTratadosMes)}</div>
           </CardContent>
         </Card>
 
@@ -435,20 +371,20 @@ export default function SanidadPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Pill className="h-4 w-4" />
-              Productos más usados
+              Productos más usados (mes)
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {kpis.topProductos.length > 0 ? (
+            {resumen?.topProductos.length ? (
               <div className="flex flex-wrap gap-1">
-                {kpis.topProductos.map((n) => (
-                  <Badge key={n} variant="outline" className="text-xs">
-                    {n}
+                {resumen.topProductos.map((p) => (
+                  <Badge key={p.productoId} variant="outline" className="text-xs">
+                    {p.nombre} · {p.cantidad}
                   </Badge>
                 ))}
               </div>
             ) : (
-              <span className="text-sm text-gray-400">—</span>
+              <span className="text-sm text-muted-foreground">—</span>
             )}
           </CardContent>
         </Card>
@@ -456,20 +392,24 @@ export default function SanidadPage() {
         <Card className="border-2">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              Próximos vencimientos
+              <AlertTriangle className="h-4 w-4" />
+              Casos curativos (mes)
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-bold ${kpis.proximosVencimientos > 0 ? "text-orange-600" : "text-green-700"}`}>
-              {kpis.proximosVencimientos}
-              {kpis.proximosVencimientos > 0 && (
-                <AlertTriangle className="inline h-5 w-5 ml-2 text-orange-500" />
-              )}
+            <div className={`text-2xl font-bold ${(resumen?.curativosMes ?? 0) > 0 ? "text-orange-600" : "text-green-700"}`}>
+              {kpi(resumen?.curativosMes)}
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {(eventosQuery.isError || resumenQuery.isError) && (
+        <p role="alert" className="erp-error">
+          {(eventosQuery.error ?? resumenQuery.error)?.message}{" "}
+          <button className="underline" onClick={() => { eventosQuery.refetch(); resumenQuery.refetch() }}>Reintentar</button>
+        </p>
+      )}
 
       {/* Tabs */}
       <Card className="border border-border">
@@ -493,10 +433,12 @@ export default function SanidadPage() {
             {/* --- Historial Tab --- */}
             <TabsContent value="historial" className="mt-6">
               <HistorialTab
-                eventos={filteredEventos}
-                loading={eventosQuery.isLoading}
+                eventos={eventos}
+                loading={eventosQuery.isPending}
                 search={search}
                 onSearch={setSearch}
+                motivo={motivo}
+                onMotivo={setMotivo}
                 page={page}
                 totalPages={pagination?.totalPages ?? 1}
                 total={pagination?.total ?? 0}
@@ -507,12 +449,24 @@ export default function SanidadPage() {
 
             {/* --- Por Animal Tab --- */}
             <TabsContent value="por-animal" className="mt-6">
-              <PorAnimalTab eventos={allEventos} loading={allEventosQuery.isLoading} />
+              <PorAnimalTab
+                estId={estId}
+                filas={porAnimalQuery.data?.data ?? []}
+                loading={porAnimalQuery.isPending}
+                page={pageAnimal}
+                totalPages={porAnimalQuery.data?.pagination.totalPages ?? 1}
+                onPageChange={setPageAnimal}
+              />
             </TabsContent>
 
             {/* --- Calendario Tab --- */}
             <TabsContent value="calendario" className="mt-6">
-              <CalendarioTab eventos={allEventos} loading={allEventosQuery.isLoading} />
+              <CalendarioTab
+                mes={mesCalendario}
+                onMes={setMesCalendario}
+                dias={resumen?.calendario.mes === mesCalendario ? resumen.calendario.dias : []}
+                loading={resumenQuery.isPending}
+              />
             </TabsContent>
           </Tabs>
         </CardContent>
@@ -543,11 +497,69 @@ export default function SanidadPage() {
 // Tab: Historial
 // ---------------------------------------------------------------------------
 
+function Paginador({ page, totalPages, onPageChange, texto }: { page: number; totalPages: number; onPageChange: (p: number) => void; texto?: string }) {
+  if (totalPages <= 1) return null
+  return (
+    <div className="flex items-center justify-between pt-2">
+      <p className="text-sm text-muted-foreground">{texto}</p>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" aria-label="Página anterior" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <span className="flex items-center px-3 text-sm">{page} / {totalPages}</span>
+        <Button variant="outline" size="sm" aria-label="Página siguiente" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function TablaEventos({ eventos, conAnimal = true }: { eventos: EventoSanidad[]; conAnimal?: boolean }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Fecha</TableHead>
+            {conAnimal && <TableHead>Animal o grupo</TableHead>}
+            <TableHead>Producto</TableHead>
+            <TableHead>Dosis</TableHead>
+            <TableHead>Vía</TableHead>
+            <TableHead>Motivo</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {eventos.map((ev) => (
+            <TableRow key={ev.id}>
+              <TableCell className="whitespace-nowrap">{formatoDia(ev.fecha)}</TableCell>
+              {conAnimal && (
+                <TableCell className="font-medium">
+                  {ev.animal ? animalLabel(ev.animal) : ev.lote ? `Grupo ${ev.lote.nombre}${ev.cantidadAnimales ? ` (${ev.cantidadAnimales})` : ""}` : "—"}
+                </TableCell>
+              )}
+              <TableCell>
+                <Badge variant="outline">{ev.producto.nombre}</Badge>
+                {ev.loteProducto && <span className="ml-1 text-xs text-muted-foreground">lote {ev.loteProducto.nroLote}</span>}
+              </TableCell>
+              <TableCell>{ev.dosis != null ? `${ev.dosis.toLocaleString("es-AR")} ${ev.unidad || ""}` : "—"}</TableCell>
+              <TableCell>{ev.via ? ETIQUETA_VIA[ev.via as keyof typeof ETIQUETA_VIA] ?? ev.via : "—"}</TableCell>
+              <TableCell>{ev.motivo ? ETIQUETA_MOTIVO[ev.motivo as keyof typeof ETIQUETA_MOTIVO] ?? ev.motivo : "—"}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
 function HistorialTab({
   eventos,
   loading,
   search,
   onSearch,
+  motivo,
+  onMotivo,
   page,
   totalPages,
   total,
@@ -558,6 +570,8 @@ function HistorialTab({
   loading: boolean
   search: string
   onSearch: (v: string) => void
+  motivo: string
+  onMotivo: (v: string) => void
   page: number
   totalPages: number
   total: number
@@ -566,14 +580,24 @@ function HistorialTab({
 }) {
   return (
     <div className="space-y-4">
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <Input
-          placeholder="Buscar por caravana o producto..."
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-          className="pl-10"
-        />
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="relative max-w-md flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            aria-label="Buscar en el historial"
+            placeholder="Buscar por caravana, grupo o producto..."
+            value={search}
+            onChange={(e) => onSearch(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <Select value={motivo} onValueChange={onMotivo}>
+          <SelectTrigger className="sm:w-48" aria-label="Filtrar por motivo"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos los motivos</SelectItem>
+            {MOTIVOS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </div>
 
       {loading ? (
@@ -582,64 +606,14 @@ function HistorialTab({
         </div>
       ) : eventos.length === 0 ? (
         <div className="text-center py-12">
-          <Syringe className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-          <p className="text-muted-foreground">No se encontraron eventos sanitarios</p>
+          <Syringe className="h-12 w-12 mx-auto text-muted-foreground/40 mb-4" />
+          <p className="text-muted-foreground">{search || motivo !== "todos" ? "Ningún tratamiento coincide con la búsqueda" : "No hay tratamientos registrados en este campo"}</p>
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Animal</TableHead>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Dosis</TableHead>
-                  <TableHead>Vía</TableHead>
-                  <TableHead>Motivo</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {eventos.map((ev) => (
-                  <TableRow key={ev.id}>
-                    <TableCell className="whitespace-nowrap">{formatDate(ev.fecha)}</TableCell>
-                    <TableCell className="font-medium">
-                      {ev.animal
-                        ? animalLabel(ev.animal)
-                        : ev.lote
-                          ? `Lote: ${ev.lote.nombre}`
-                          : "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{ev.producto.nombre}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      {ev.dosis != null ? `${ev.dosis} ${ev.unidad || ""}` : "—"}
-                    </TableCell>
-                    <TableCell className="capitalize">{ev.via || "—"}</TableCell>
-                    <TableCell className="capitalize">{ev.motivo || "—"}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between pt-2">
-              <p className="text-sm text-muted-foreground">
-                {(page - 1) * limit + 1}–{Math.min(page * limit, total)} de {total}
-              </p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="flex items-center px-3 text-sm">{page} / {totalPages}</span>
-                <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+          <TablaEventos eventos={eventos} />
+          <Paginador page={page} totalPages={totalPages} onPageChange={onPageChange} texto={`${(page - 1) * limit + 1}–${Math.min(page * limit, total)} de ${total}`} />
+          {totalPages <= 1 && <p className="text-sm text-muted-foreground">{total} {total === 1 ? "tratamiento" : "tratamientos"}</p>}
         </>
       )}
     </div>
@@ -650,38 +624,21 @@ function HistorialTab({
 // Tab: Por Animal
 // ---------------------------------------------------------------------------
 
-interface AnimalGroup {
-  animalId: string
-  label: string
-  count: number
-  lastDate: string
-  eventos: EventoSanidad[]
-}
-
-function PorAnimalTab({ eventos, loading }: { eventos: EventoSanidad[]; loading: boolean }) {
+function PorAnimalTab({ estId, filas, loading, page, totalPages, onPageChange }: {
+  estId: string
+  filas: PorAnimalFila[]
+  loading: boolean
+  page: number
+  totalPages: number
+  onPageChange: (p: number) => void
+}) {
   const [expanded, setExpanded] = useState<string | null>(null)
-
-  const groups: AnimalGroup[] = useMemo(() => {
-    const map = new Map<string, AnimalGroup>()
-    eventos.forEach((ev) => {
-      if (!ev.animal) return
-      const key = ev.animal.id
-      if (!map.has(key)) {
-        map.set(key, {
-          animalId: key,
-          label: animalLabel(ev.animal),
-          count: 0,
-          lastDate: ev.fecha,
-          eventos: [],
-        })
-      }
-      const g = map.get(key)!
-      g.count++
-      g.eventos.push(ev)
-      if (new Date(ev.fecha) > new Date(g.lastDate)) g.lastDate = ev.fecha
-    })
-    return Array.from(map.values()).sort((a, b) => b.count - a.count)
-  }, [eventos])
+  const detalle = useQuery({
+    queryKey: ["sanidad", "animal", estId, expanded],
+    queryFn: () => getJson<SanidadResponse>(`/api/sanidad?establecimientoId=${estId}&animalId=${expanded}&limit=100`),
+    enabled: !!expanded,
+    staleTime: 30_000,
+  })
 
   if (loading) {
     return (
@@ -691,63 +648,44 @@ function PorAnimalTab({ eventos, loading }: { eventos: EventoSanidad[]; loading:
     )
   }
 
-  if (groups.length === 0) {
+  if (filas.length === 0) {
     return (
       <div className="text-center py-12">
-        <Users className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-        <p className="text-muted-foreground">No hay tratamientos registrados por animal</p>
+        <Users className="h-12 w-12 mx-auto text-muted-foreground/40 mb-4" />
+        <p className="text-muted-foreground">No hay tratamientos individuales registrados en este campo</p>
       </div>
     )
   }
 
   return (
     <div className="space-y-2">
-      {groups.map((g) => {
-        const isOpen = expanded === g.animalId
+      {filas.map((g) => {
+        const isOpen = expanded === g.animal.id
         return (
-          <div key={g.animalId} className="border rounded-lg">
+          <div key={g.animal.id} className="border rounded-lg">
             <button
-              className="w-full flex items-center justify-between p-4 hover:bg-gray-50 text-left"
-              onClick={() => setExpanded(isOpen ? null : g.animalId)}
+              className="w-full flex items-center justify-between p-4 hover:bg-muted/50 text-left"
+              aria-expanded={isOpen}
+              onClick={() => setExpanded(isOpen ? null : g.animal.id)}
             >
               <div className="flex items-center gap-3">
-                <span className="font-semibold">{g.label}</span>
-                <Badge variant="outline">{g.count} tratamiento{g.count !== 1 && "s"}</Badge>
+                <span className="font-semibold">{animalLabel(g.animal)}</span>
+                <Badge variant="outline">{g.cantidad} tratamiento{g.cantidad !== 1 && "s"}</Badge>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-sm text-muted-foreground">Último: {formatDate(g.lastDate)}</span>
+                {g.ultimaFecha && <span className="text-sm text-muted-foreground">Último: {formatoDia(g.ultimaFecha)}</span>}
                 {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </div>
             </button>
             {isOpen && (
-              <div className="border-t px-4 pb-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Fecha</TableHead>
-                      <TableHead>Producto</TableHead>
-                      <TableHead>Dosis</TableHead>
-                      <TableHead>Vía</TableHead>
-                      <TableHead>Motivo</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {g.eventos.map((ev) => (
-                      <TableRow key={ev.id}>
-                        <TableCell>{formatDate(ev.fecha)}</TableCell>
-                        <TableCell>{ev.producto.nombre}</TableCell>
-                        <TableCell>{ev.dosis != null ? `${ev.dosis} ${ev.unidad || ""}` : "—"}</TableCell>
-                        <TableCell className="capitalize">{ev.via || "—"}</TableCell>
-                        <TableCell className="capitalize">{ev.motivo || "—"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <div className="border-t p-4">
+                {detalle.isPending ? <Loader2 className="mx-auto h-5 w-5 animate-spin text-purple-600" /> : <TablaEventos eventos={detalle.data?.data ?? []} conAnimal={false} />}
               </div>
             )}
           </div>
         )
       })}
+      <Paginador page={page} totalPages={totalPages} onPageChange={onPageChange} />
     </div>
   )
 }
@@ -756,45 +694,17 @@ function PorAnimalTab({ eventos, loading }: { eventos: EventoSanidad[]; loading:
 // Tab: Calendario
 // ---------------------------------------------------------------------------
 
-function CalendarioTab({ eventos, loading }: { eventos: EventoSanidad[]; loading: boolean }) {
-  const now = new Date()
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth())
-
-  const eventsByDay = useMemo(() => {
-    const map = new Map<number, number>()
-    eventos.forEach((ev) => {
-      const d = new Date(ev.fecha)
-      if (d.getFullYear() === year && d.getMonth() === month) {
-        const day = d.getDate()
-        map.set(day, (map.get(day) || 0) + 1)
-      }
-    })
-    return map
-  }, [eventos, year, month])
-
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const firstDayOfWeek = new Date(year, month, 1).getDay()
-  const monthLabel = new Date(year, month).toLocaleDateString("es-AR", {
-    month: "long",
-    year: "numeric",
-  })
-
-  const goPrev = () => {
-    if (month === 0) { setMonth(11); setYear(year - 1) }
-    else setMonth(month - 1)
-  }
-  const goNext = () => {
-    if (month === 11) { setMonth(0); setYear(year + 1) }
-    else setMonth(month + 1)
-  }
-
-  if (loading) {
-    return (
-      <div className="flex justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
-      </div>
-    )
+function CalendarioTab({ mes, onMes, dias, loading }: { mes: string; onMes: (m: string) => void; dias: { dia: string; cantidad: number }[]; loading: boolean }) {
+  const [year, month] = mes.split("-").map(Number) // month 1-12
+  const hoy = hoyArgentina()
+  const porDia = new Map(dias.map((d) => [Number(d.dia.slice(8, 10)), d.cantidad]))
+  // Días del mes y día de la semana del 1.º, en calendario (UTC), sin zona horaria
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const firstDayOfWeek = new Date(Date.UTC(year, month - 1, 1)).getUTCDay()
+  const monthLabel = new Date(Date.UTC(year, month - 1, 15)).toLocaleDateString("es-AR", { month: "long", year: "numeric", timeZone: "UTC" })
+  const mover = (delta: number) => {
+    const d = new Date(Date.UTC(year, month - 1 + delta, 1))
+    onMes(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`)
   }
 
   const dayCells: (number | null)[] = []
@@ -804,11 +714,11 @@ function CalendarioTab({ eventos, loading }: { eventos: EventoSanidad[]; loading
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <Button variant="outline" size="sm" onClick={goPrev}>
+        <Button variant="outline" size="sm" aria-label="Mes anterior" onClick={() => mover(-1)}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <h3 className="text-lg font-semibold capitalize">{monthLabel}</h3>
-        <Button variant="outline" size="sm" onClick={goNext}>
+        <h3 className="text-lg font-semibold capitalize">{monthLabel}{loading && <Loader2 className="ml-2 inline h-4 w-4 animate-spin" />}</h3>
+        <Button variant="outline" size="sm" aria-label="Mes siguiente" onClick={() => mover(1)}>
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
@@ -821,16 +731,15 @@ function CalendarioTab({ eventos, loading }: { eventos: EventoSanidad[]; loading
         ))}
         {dayCells.map((day, idx) => {
           if (day === null) return <div key={`empty-${idx}`} />
-          const count = eventsByDay.get(day) || 0
-          const isToday =
-            day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
+          const count = porDia.get(day) || 0
+          const isToday = `${mes}-${String(day).padStart(2, "0")}` === hoy
           return (
             <div
               key={day}
               className={`
                 relative flex flex-col items-center justify-center rounded-lg p-2 min-h-[56px]
                 border transition-colors
-                ${isToday ? "border-purple-400 bg-purple-50" : "border-gray-100"}
+                ${isToday ? "border-purple-400 bg-purple-50" : "border-border"}
                 ${count > 0 ? "bg-purple-50/50" : ""}
               `}
             >
@@ -838,7 +747,7 @@ function CalendarioTab({ eventos, loading }: { eventos: EventoSanidad[]; loading
                 {day}
               </span>
               {count > 0 && (
-                <Badge className="mt-1 text-[10px] px-1.5 py-0 bg-purple-600 hover:bg-purple-600">
+                <Badge className="mt-1 text-[10px] px-1.5 py-0 bg-purple-600 hover:bg-purple-600" title={`${count} tratamientos`}>
                   {count}
                 </Badge>
               )}

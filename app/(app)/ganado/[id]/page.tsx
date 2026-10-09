@@ -71,6 +71,9 @@ import { leerEspecie } from "@/lib/ganado/query"
 import { useTenant } from "@/lib/context/tenant-context"
 import { formatDate } from "@/lib/utils"
 import { PreparacionSenasa } from "@/components/ganado/preparacion-senasa"
+import { DescuentoStock, camposDescuento, descuentoInicial, postSanidad, textoStock, type EstadoDescuento, type ProductoConStock } from "@/components/sanidad/descuento-stock"
+import { hoyArgentina } from "@/lib/inventario/fechas"
+import { esSanitario } from "@/lib/inventario/validation"
 import { usePermissions } from "@/lib/hooks/use-permissions"
 import { AnimalDialog } from "../components/animal-dialog"
 import { MOTIVOS_BAJA } from "@/lib/validations/eventos-schema"
@@ -249,11 +252,12 @@ async function fetchLotes(establecimientoId: string): Promise<Lote[]> {
   return res.json()
 }
 
-async function fetchProductos(): Promise<{ id: string; nombre: string }[]> {
-  const res = await fetch("/api/productos")
+/** Insumos sanitarios activos del inventario (con stock y lotes para el descuento). */
+async function fetchProductos(): Promise<(ProductoConStock & { tipo: string; activo: boolean; organizacionId: string | null })[]> {
+  const res = await fetch("/api/inventario?limit=500")
   if (!res.ok) return []
   const json = await res.json()
-  return Array.isArray(json) ? json : json.data ?? []
+  return (json.data ?? []).filter((p: { tipo: string; activo: boolean }) => esSanitario(p.tipo) && p.activo)
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +270,7 @@ export default function AnimalDetailPage() {
   const searchParams = useSearchParams()
   const regreso = `/ganado?especie=${leerEspecie(searchParams.get("especie"))}`
   const queryClient = useQueryClient()
-  const { establecimientoActivo } = useTenant()
+  const { establecimientoActivo, organizacionActiva } = useTenant()
 
   const [activeTab, setActiveTab] = useState("senasa")
 
@@ -292,6 +296,7 @@ export default function AnimalDetailPage() {
   // Form state: sanidad
   const [productoId, setProductoId] = useState("")
   const [dosis, setDosis] = useState("")
+  const [descuento, setDescuento] = useState<EstadoDescuento>(descuentoInicial)
   const [sanidadSubmitting, setSanidadSubmitting] = useState(false)
 
   // Form state: mover lote
@@ -311,12 +316,13 @@ export default function AnimalDetailPage() {
     enabled: !!animal?.establecimientoId && moverDialogOpen,
   })
 
-  const { data: productos = [] } = useQuery({
-    queryKey: ["productos"],
+  const { data: inventario = [] } = useQuery({
+    queryKey: ["inventario", "sanitarios"],
     queryFn: fetchProductos,
     enabled: sanidadDialogOpen,
     staleTime: 60_000,
   })
+  const productos = useMemo(() => inventario.filter((p) => !organizacionActiva || p.organizacionId === organizacionActiva.id), [inventario, organizacionActiva])
 
   const invalidateAnimal = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["ganado", "bovino", id] })
@@ -358,31 +364,28 @@ export default function AnimalDetailPage() {
     if (!productoId) return
     setSanidadSubmitting(true)
     try {
-      const res = await fetch("/api/ganado/eventos-sanitarios", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bovinoId: id,
-          productoId,
-          dosis: dosis ? parseFloat(dosis) : undefined,
-          fecha: new Date().toISOString(),
-        }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || "Error al registrar evento sanitario")
-      }
-      toast.success("Sanidad registrada", { description: "Evento sanitario guardado correctamente." })
+      const json = await postSanidad({
+        animalId: id,
+        productoId,
+        dosis: dosis || undefined,
+        unidad: dosis ? "ml" : undefined,
+        fecha: hoyArgentina(),
+        ...camposDescuento(descuento),
+      }, "/api/ganado/eventos-sanitarios")
+      toast.success("Sanidad registrada", { description: `Evento sanitario guardado${textoStock(json?.data?.stock)}.` })
       setSanidadDialogOpen(false)
       setProductoId("")
       setDosis("")
+      setDescuento(descuentoInicial)
       invalidateAnimal()
+      queryClient.invalidateQueries({ queryKey: ["inventario"] })
+      queryClient.invalidateQueries({ queryKey: ["sanidad"] })
     } catch (err: any) {
       toast.error("Error", { description: err.message })
     } finally {
       setSanidadSubmitting(false)
     }
-  }, [id, productoId, dosis, invalidateAnimal])
+  }, [id, productoId, dosis, descuento, invalidateAnimal, queryClient])
 
   // ----- Baja submit -----
   const handleBajaSubmit = useCallback(async () => {
@@ -1040,6 +1043,8 @@ export default function AnimalDetailPage() {
                 onChange={(e) => setDosis(e.target.value)}
               />
             </div>
+            {productos.length === 0 && <p className="text-xs text-muted-foreground">No hay insumos sanitarios en el inventario. <Link className="underline" href="/inventario">Cargá el producto en Inventario</Link>.</p>}
+            <DescuentoStock producto={productos.find((p) => p.id === productoId)} dosis={dosis} unidadDosis="ml" animales={1} valor={descuento} onChange={setDescuento} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSanidadDialogOpen(false)}>

@@ -108,7 +108,7 @@ export const POST = withAuth(
       return NextResponse.json({ success: true, data }, { status: 201 })
     } catch (error) {
       if (error instanceof BajaError) {
-        return NextResponse.json({ success: false, error: error.message }, { status: error.status })
+        return NextResponse.json({ success: false, error: error.message, codigo: error.codigo }, { status: error.status })
       }
       const conocido = mapearErrorPrisma(error)
       if (conocido) return NextResponse.json({ success: false, error: conocido.error }, { status: conocido.status })

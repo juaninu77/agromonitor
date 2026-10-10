@@ -72,7 +72,8 @@ import { useTenant } from "@/lib/context/tenant-context"
 import { formatDate } from "@/lib/utils"
 import { PreparacionSenasa } from "@/components/ganado/preparacion-senasa"
 import { DescuentoStock, camposDescuento, descuentoInicial, postSanidad, textoStock, type EstadoDescuento, type ProductoConStock } from "@/components/sanidad/descuento-stock"
-import { hoyArgentina } from "@/lib/inventario/fechas"
+import { postConRetiro } from "@/components/sanidad/retiro-cliente"
+import { formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import { esSanitario } from "@/lib/inventario/validation"
 import { usePermissions } from "@/lib/hooks/use-permissions"
 import { AnimalDialog } from "../components/animal-dialog"
@@ -106,6 +107,8 @@ interface AnimalDetail {
   genealogia: { padreId: string | null; madreId: string | null } | null
   eventosPesada: PesadaEvent[]
   eventosSanidad: SanidadEvent[]
+  /** Carencia vigente: no se puede faenar hasta `hasta` (AAAA-MM-DD). */
+  retiro: { hasta: string; producto: string; fechaAplicacion: string } | null
   serviciosHembra: ServicioEvent[]
   tactos: TactoEvent[]
   partosComoMadre: PartoEvent[]
@@ -391,13 +394,7 @@ export default function AnimalDetailPage() {
   const handleBajaSubmit = useCallback(async () => {
     setBajaSubmitting(true)
     try {
-      const res = await fetch("/api/ventas/bajas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ animalId: id, motivo: bajaMotivo, fecha: bajaFecha, observ: bajaObserv || undefined }),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.error || "No se pudo registrar la baja")
+      await postConRetiro("/api/ventas/bajas", { animalId: id, motivo: bajaMotivo, fecha: bajaFecha, observ: bajaObserv || undefined }, "aceptarRetiro")
       toast.success("Animal dado de baja", { description: "Se cerró su historial de lote y ubicación." })
       setBajaDialogOpen(false)
       invalidateAnimal()
@@ -548,6 +545,11 @@ export default function AnimalDetailPage() {
               <Badge variant={badge.variant} className={badge.className}>
                 {badge.label}
               </Badge>
+              {animal.retiro && (
+                <Badge variant="outline" className="border-red-300 bg-red-50 text-red-700" title={`${animal.retiro.producto}, aplicado el ${formatoDia(animal.retiro.fechaAplicacion)}`}>
+                  Bajo retiro hasta {formatoDia(animal.retiro.hasta)}
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">
               {animal.especie?.nombre ? `${animal.especie.nombre} — ` : ""}

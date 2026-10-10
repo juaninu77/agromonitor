@@ -89,5 +89,7 @@ export const bajaSchema = z.object({
   clienteId: uuidOpcional,
   /** Cuenta donde se cobra la venta: genera el ingreso en Finanzas. */
   cuentaId: uuidOpcional,
+  /** Venta de un animal bajo retiro: el usuario confirmó que no es a faena. */
+  aceptarRetiro: z.boolean().optional(),
 })
 export type BajaInput = z.output<typeof bajaSchema>

@@ -26,6 +26,7 @@ vi.mock("@/lib/prisma", () => {
   }
 })
 vi.mock("@/lib/inventario/aplicaciones", () => ({ descontarAplicacion: m.descontar, revertirAplicaciones: m.revertir }))
+vi.mock("@/lib/sanidad/retiro", () => ({ retirosVigentes: async () => new Map([["a1", { animalId: "a1", hasta: "2099-01-01" }]]) }))
 import { Prisma } from "@prisma/client"
 import { anularSanidad, aplicarMasivo, contarDestino, costoAplicacion, editarSanidad, listarSanidad, registrarSanidad, resumenSanidad } from "@/lib/sanidad/service"
 import { registroSanitarioSchema } from "@/lib/sanidad/validation"
@@ -125,7 +126,7 @@ describe("consultas por campo", () => {
     m.aggregate.mockResolvedValue({ _sum: { cantidadAnimales: 30 } })
     m.productos.mockResolvedValue([{ id: PROD, nombre: "Ivermectina" }])
     const r = await resumenSanidad(ctx, { establecimientoId: EST1, mes: "2025-12" })
-    expect(r).toMatchObject({ tratamientosMes: 7, curativosMes: 2, animalesTratadosMes: 32, topProductos: [{ nombre: "Ivermectina", cantidad: 5 }], calendario: { mes: "2025-12", dias: [{ dia: "2025-12-03", cantidad: 4 }] } })
+    expect(r).toMatchObject({ tratamientosMes: 7, curativosMes: 2, animalesTratadosMes: 32, animalesBajoRetiro: 1, topProductos: [{ nombre: "Ivermectina", cantidad: 5 }], calendario: { mes: "2025-12", dias: [{ dia: "2025-12-03", cantidad: 4 }] } })
     expect(r.mes).toBe(hoyArgentina().slice(0, 7))
     // Diciembre termina el 1/1 del año siguiente
     const cal = m.groupBy.mock.calls.find((c) => c[0].by[0] === "fecha")![0]

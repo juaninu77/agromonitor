@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -53,12 +54,13 @@ import {
   Loader2,
   FileSpreadsheet,
   FileText,
+  ShieldAlert,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/context/tenant-context"
 import { usePermissions } from "@/lib/hooks/use-permissions"
 import { traerTodosLosAnimales } from "@/lib/ganado/listado-completo"
-import { formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
+import { diasEntre, formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import { esSanitario } from "@/lib/inventario/validation"
 import { ETIQUETA_MOTIVO, ETIQUETA_VIA, MOTIVOS_SANIDAD, VIAS_SANIDAD } from "@/lib/sanidad/validation"
 
@@ -175,6 +177,7 @@ interface Resumen {
   tratamientosMes: number
   curativosMes: number
   animalesTratadosMes: number
+  animalesBajoRetiro: number
   topProductos: { productoId: string; nombre: string; cantidad: number }[]
   calendario: { mes: string; dias: { dia: string; cantidad: number }[] }
 }
@@ -384,7 +387,7 @@ export default function SanidadPage() {
       </div>
 
       {/* KPI Cards (mes actual, calculados en el servidor) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <Card className="border-2">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
@@ -444,6 +447,23 @@ export default function SanidadPage() {
             </div>
           </CardContent>
         </Card>
+
+        <button type="button" className="text-left" onClick={() => setActiveTab("retiros")} aria-label="Ver animales bajo retiro">
+          <Card className={`h-full border-2 ${(resumen?.animalesBajoRetiro ?? 0) > 0 ? "border-red-200" : ""}`}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4" />
+                Bajo retiro (hoy)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${(resumen?.animalesBajoRetiro ?? 0) > 0 ? "text-red-600" : "text-green-700"}`}>
+                {kpi(resumen?.animalesBajoRetiro)}
+              </div>
+              <p className="text-xs text-muted-foreground">No faenar hasta su liberación</p>
+            </CardContent>
+          </Card>
+        </button>
       </div>
 
       {(eventosQuery.isError || resumenQuery.isError) && (
@@ -457,7 +477,7 @@ export default function SanidadPage() {
       <Card className="border border-border">
         <CardContent className="p-4 md:p-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-3 border border-border">
+            <TabsList className="grid w-full grid-cols-4 border border-border">
               <TabsTrigger value="historial" className="flex items-center gap-2">
                 <Syringe className="h-4 w-4" />
                 <span className="hidden sm:inline">Historial</span>
@@ -469,6 +489,10 @@ export default function SanidadPage() {
               <TabsTrigger value="calendario" className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
                 <span className="hidden sm:inline">Calendario</span>
+              </TabsTrigger>
+              <TabsTrigger value="retiros" className="flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4" />
+                <span className="hidden sm:inline">Bajo retiro</span>
               </TabsTrigger>
             </TabsList>
 
@@ -506,6 +530,11 @@ export default function SanidadPage() {
                 totalPages={porAnimalQuery.data?.pagination.totalPages ?? 1}
                 onPageChange={setPageAnimal}
               />
+            </TabsContent>
+
+            {/* --- Bajo retiro --- */}
+            <TabsContent value="retiros" className="mt-6">
+              <RetirosTab estId={estId} activo={activeTab === "retiros"} />
             </TabsContent>
 
             {/* --- Calendario Tab --- */}
@@ -787,6 +816,70 @@ function PorAnimalTab({ estId, filas, loading, page, totalPages, onPageChange }:
         )
       })}
       <Paginador page={page} totalPages={totalPages} onPageChange={onPageChange} />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Tab: Bajo retiro
+// ---------------------------------------------------------------------------
+
+interface RetiroFila {
+  animalId: string
+  hasta: string
+  producto: string
+  fechaAplicacion: string
+  animal: { id: string; caravanaVisual: string | null; cuig: string | null; otroId: string | null; especie: string | null; categoria: string | null }
+}
+
+function RetirosTab({ estId, activo }: { estId: string; activo: boolean }) {
+  const q = useQuery({
+    queryKey: ["sanidad", "retiros", estId],
+    queryFn: () => getJson<{ data: RetiroFila[] }>(`/api/sanidad/retiros?establecimientoId=${estId}`).then((r) => r.data),
+    enabled: activo && !!estId,
+    staleTime: 60_000,
+  })
+  const hoy = hoyArgentina()
+  if (q.isPending) return <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-purple-600" /></div>
+  if (q.isError) return <p role="alert" className="erp-error">{q.error.message}</p>
+  if (!q.data.length) {
+    return (
+      <div className="text-center py-12">
+        <ShieldAlert className="h-12 w-12 mx-auto text-muted-foreground/40 mb-4" />
+        <p className="text-muted-foreground">Ningún animal activo está bajo retiro hoy</p>
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">Animales con carencia vigente: no se pueden faenar (la venta pide confirmación) hasta su fecha de liberación. Se calcula con la carencia cargada en el tratamiento o los días de retiro del producto.</p>
+      <div className="overflow-x-auto rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Animal</TableHead>
+              <TableHead>Producto</TableHead>
+              <TableHead>Aplicado</TableHead>
+              <TableHead>Libre desde</TableHead>
+              <TableHead className="text-right">Días</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {q.data.map((r) => (
+              <TableRow key={r.animalId}>
+                <TableCell className="font-medium">
+                  <Link className="hover:underline" href={`/ganado/${r.animalId}`}>{animalLabel(r.animal)}</Link>
+                  <span className="block text-xs font-normal text-muted-foreground">{[r.animal.especie, r.animal.categoria].filter(Boolean).join(" · ")}</span>
+                </TableCell>
+                <TableCell>{r.producto}</TableCell>
+                <TableCell>{formatoDia(r.fechaAplicacion)}</TableCell>
+                <TableCell className="font-medium text-red-700">{formatoDia(r.hasta)}</TableCell>
+                <TableCell className="text-right tabular-nums">{diasEntre(hoy, r.hasta)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   )
 }

@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma"
 import { validarRazaYCategoriaParaEspecie } from "@/lib/ganado/validate-especie"
 import { erroresZod, mapearErrorPrisma } from "@/lib/ganado/alta"
 import { BajaError, registrarBaja } from "@/lib/ganado/baja"
+import { retiroDeAnimal } from "@/lib/sanidad/retiro"
 import { animalActualizacionSchema } from "@/lib/validations/animal-schema"
 import { bajaSchema } from "@/lib/validations/eventos-schema"
 import { Prisma } from "@prisma/client"
@@ -79,6 +80,8 @@ export const GET = withAuth(async (request, ctx) => {
     // Coerción de campos Decimal (dinero) a number para el contrato de la API
     const data = {
       ...animal,
+      // Carencia vigente (null si no está bajo retiro)
+      retiro: await retiroDeAnimal(prisma, animal.id),
       eventosSanidad: animal.eventosSanidad.map((e) => ({
         ...e,
         costo: decimalToNumber(e.costo),
@@ -297,6 +300,7 @@ export const DELETE = withAuth(
         fecha: body.fecha ?? new Date(),
         observ: body.observ ?? body.notas,
         pesoVivoKg: body.pesoVivoKg,
+        aceptarRetiro: body.aceptarRetiro === true ? true : undefined,
       })
       if (!parsed.success) {
         const errores = erroresZod(parsed.error)
@@ -334,7 +338,7 @@ export const DELETE = withAuth(
       })
     } catch (error) {
       if (error instanceof BajaError) {
-        return NextResponse.json({ success: false, error: error.message }, { status: error.status })
+        return NextResponse.json({ success: false, error: error.message, codigo: error.codigo }, { status: error.status })
       }
       const conocido = mapearErrorPrisma(error)
       if (conocido) return NextResponse.json({ success: false, error: conocido.error }, { status: conocido.status })

@@ -23,6 +23,9 @@ export interface CachedAnimal {
   ccActual?: number | null
   lote?: string | null
   ubicacion?: string | null
+  /** Carencia: bajo retiro hasta esta fecha (AAAA-MM-DD), según la última descarga del rodeo */
+  bajoRetiroHasta?: string | null
+  retiroProducto?: string | null
   [key: string]: unknown
 }
 
@@ -100,6 +103,8 @@ export async function saveHerd(
       ccActual: (animal.ccActual as number) ?? (animal.bodyConditionScore as number) ?? null,
       lote: (animal.lote as string) ?? null,
       ubicacion: (animal.ubicacion as string) ?? (animal.location as string) ?? null,
+      bajoRetiroHasta: (animal.bajoRetiroHasta as string) ?? null,
+      retiroProducto: (animal.retiroProducto as string) ?? null,
     }
 
     store.put(entry)

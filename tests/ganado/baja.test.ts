@@ -12,7 +12,9 @@ const mocks = vi.hoisted(() => ({
     movimientoFinanciero: { create: vi.fn() },
   },
   cuenta: vi.fn(),
+  retiro: vi.fn(),
 }))
+vi.mock("@/lib/sanidad/retiro", () => ({ retiroDeAnimal: mocks.retiro }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     animal: { findFirst: mocks.animal },
@@ -33,6 +35,7 @@ beforeEach(() => {
   mocks.animal.mockResolvedValue({ id: animalId, estadoVital: "activo", establecimientoId: "est1", caravanaVisual: "A-1" })
   mocks.pesadasPosteriores.mockResolvedValue(0)
   mocks.tx.evtBaja.create.mockResolvedValue({ id: "baja1" })
+  mocks.retiro.mockResolvedValue(null)
 })
 
 describe("registrarBaja", () => {
@@ -108,6 +111,28 @@ describe("registrarBaja", () => {
       mocks.cuenta.mockResolvedValueOnce({ activa: true, moneda: "USD" })
       await expect(registrarBaja(venta, ctx)).rejects.toThrow(/ARS/)
       expect(mocks.tx.evtBaja.create).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("carencia sanitaria", () => {
+    const retiro = { animalId, hasta: "2024-06-01", producto: "Ivermectina", fechaAplicacion: "2024-05-01" }
+    it("no deja faenar un animal bajo retiro (se consulta al día de la baja)", async () => {
+      mocks.retiro.mockResolvedValue(retiro)
+      await expect(registrarBaja({ animalId, motivo: "faena", fecha }, ctx)).rejects.toMatchObject({ status: 409, codigo: "bajo_retiro" })
+      expect(mocks.retiro).toHaveBeenCalledWith(expect.anything(), animalId, "2024-05-10")
+      expect(mocks.tx.evtBaja.create).not.toHaveBeenCalled()
+      // Ni aunque se intente confirmar
+      await expect(registrarBaja({ animalId, motivo: "faena", fecha, aceptarRetiro: true }, ctx)).rejects.toMatchObject({ codigo: "bajo_retiro" })
+    })
+    it("una venta bajo retiro pide confirmar y con la confirmación se registra", async () => {
+      mocks.retiro.mockResolvedValue(retiro)
+      await expect(registrarBaja({ animalId, motivo: "venta", fecha }, ctx)).rejects.toMatchObject({ status: 409, codigo: "bajo_retiro_confirmar" })
+      await registrarBaja({ animalId, motivo: "venta", fecha, aceptarRetiro: true }, ctx)
+      expect(mocks.tx.evtBaja.create).toHaveBeenCalledTimes(1)
+    })
+    it("una muerte no consulta el retiro", async () => {
+      await registrarBaja({ animalId, motivo: "muerte", fecha }, ctx)
+      expect(mocks.retiro).not.toHaveBeenCalled()
     })
   })
 })

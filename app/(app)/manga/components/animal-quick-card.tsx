@@ -3,7 +3,8 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Beef, Tag, Hash, Calendar, Scale, AlertTriangle, UserPlus } from "lucide-react"
+import { Beef, Tag, Hash, Calendar, Scale, AlertTriangle, UserPlus, ShieldAlert } from "lucide-react"
+import { formatoDia } from "@/lib/inventario/fechas"
 
 interface AnimalQuickCardProps {
   animal: any | null
@@ -66,10 +67,17 @@ export function AnimalQuickCard({ animal, eid, isNew, onRegister }: AnimalQuickC
 
   const ultimoPeso = animal.ultimoPeso || animal.pesoActual || null
   const edad = calcularEdad(animal.fechaNacimiento)
+  const retiroHasta: string | null = animal.bajoRetiroHasta ?? null
 
   return (
-    <Card className="border-2 border-blue-200 bg-primary/10/50">
+    <Card className={`border-2 ${retiroHasta ? "border-red-400" : "border-blue-200"} bg-primary/10/50`}>
       <CardContent className="p-4">
+        {retiroHasta && (
+          <div role="alert" className="mb-3 flex items-start gap-2 rounded-md bg-red-50 p-3 text-sm text-red-800">
+            <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
+            <span><strong>Bajo retiro hasta el {formatoDia(retiroHasta)}</strong>{animal.retiroProducto ? ` (${animal.retiroProducto})` : ""}: no apartar para faena ni venta a frigorífico.</span>
+          </div>
+        )}
         <div className="flex items-start gap-4">
           <div className="h-14 w-14 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
             <Beef className="h-7 w-7 text-blue-700" />

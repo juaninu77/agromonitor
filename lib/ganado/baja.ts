@@ -5,12 +5,16 @@
 
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { diaCalendario, formatoDia } from "@/lib/inventario/fechas"
+import { retiroDeAnimal } from "@/lib/sanidad/retiro"
 import { ESTADO_VITAL_POR_MOTIVO, type BajaInput } from "@/lib/validations/eventos-schema"
 
 export class BajaError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    /** "bajo_retiro": faena bloqueada; "bajo_retiro_confirmar": venta que hay que confirmar. */
+    public readonly codigo?: string,
   ) {
     super(message)
   }
@@ -62,6 +66,16 @@ export async function registrarBaja(input: BajaInput, ctx: ContextoBaja) {
     if (!cuenta || !animal.establecimientoId) throw new BajaError("La cuenta de cobro no pertenece al campo del animal", 400)
     if (!cuenta.activa) throw new BajaError("La cuenta de cobro está desactivada", 400)
     if (cuenta.moneda !== "ARS") throw new BajaError("El precio de la venta está en pesos: elegí una cuenta en ARS", 400)
+  }
+
+  // Carencia: no se faena un animal bajo retiro; una venta pide confirmar que no es a faena
+  if (input.motivo === "faena" || input.motivo === "venta") {
+    const retiro = await retiroDeAnimal(prisma, animal.id, diaCalendario(input.fecha))
+    if (retiro) {
+      const detalle = `está bajo retiro por ${retiro.producto} hasta el ${formatoDia(retiro.hasta)} (aplicado el ${formatoDia(retiro.fechaAplicacion)})`
+      if (input.motivo === "faena") throw new BajaError(`No se puede faenar: ${detalle}.`, 409, "bajo_retiro")
+      if (!input.aceptarRetiro) throw new BajaError(`El animal ${detalle}. Si la venta no es a faena, confirmá para registrarla.`, 409, "bajo_retiro_confirmar")
+    }
   }
 
   // No se puede dar de baja antes de un evento ya registrado

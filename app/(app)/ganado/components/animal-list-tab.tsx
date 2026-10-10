@@ -13,6 +13,17 @@ import {
 import { List, Grid3x3, ArrowUpDown, Plus, Pencil } from "lucide-react"
 import type { AnimalAPI, PaginationInfo } from "@/lib/hooks/use-ganado"
 import { DataPagination } from "./data-pagination"
+import { formatoDia } from "@/lib/inventario/fechas"
+
+/** Carencia sanitaria vigente: no faenar ni vender a faena hasta la fecha. */
+function RetiroBadge({ animal }: { animal: AnimalAPI }) {
+  if (!animal.bajoRetiroHasta) return null
+  return (
+    <Badge variant="outline" className="ml-1 border-red-300 bg-red-50 text-red-700" title={animal.retiroProducto ? `Retiro por ${animal.retiroProducto}` : undefined}>
+      Retiro hasta {formatoDia(animal.bajoRetiroHasta)}
+    </Badge>
+  )
+}
 
 interface AnimalListTabProps {
   animals: AnimalAPI[]
@@ -195,6 +206,7 @@ export function AnimalListTab({
                         <Badge variant="outline" className="capitalize">
                           {a.estadoVital}
                         </Badge>
+                        <RetiroBadge animal={a} />
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
@@ -231,9 +243,12 @@ export function AnimalListTab({
                   <h3 className="font-semibold">
                     {a.caravanaVisual || a.caravanaRfid || a.nombre}
                   </h3>
-                  <Badge variant="outline" className="capitalize">
-                    {a.estadoVital}
-                  </Badge>
+                  <span className="flex flex-wrap justify-end gap-1">
+                    <Badge variant="outline" className="capitalize">
+                      {a.estadoVital}
+                    </Badge>
+                    <RetiroBadge animal={a} />
+                  </span>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {a.especie?.nombre} · {a.categoria?.nombre || "Sin categoría"}{" "}

@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto"
 import { descontarAplicacion, revertirAplicaciones } from "@/lib/inventario/aplicaciones"
 import { hoyArgentina } from "@/lib/inventario/fechas"
 import { InventarioError } from "@/lib/inventario/service"
+import { retirosVigentes } from "./retiro"
 import { prisma } from "@/lib/prisma"
 import type { AuthContext } from "@/lib/api/with-auth"
 import {
@@ -178,16 +179,18 @@ function rangoMes(mes: string) {
  */
 export async function resumenSanidad(ctx: AuthContext, raw: unknown) {
   const p = resumenSanidadSchema.parse(raw)
-  const base: Prisma.EvtSanidadWhereInput = { AND: [scopeCampos(camposConsulta(ctx, p.establecimientoId)), vigentes] }
+  const campos = camposConsulta(ctx, p.establecimientoId)
+  const base: Prisma.EvtSanidadWhereInput = { AND: [scopeCampos(campos), vigentes] }
   const mesActual = hoyArgentina().slice(0, 7)
   const delMes: Prisma.EvtSanidadWhereInput = { AND: [base, { fecha: rangoMes(mesActual) }] }
-  const [tratamientos, curativos, individuales, porGrupo, top, dias] = await Promise.all([
+  const [tratamientos, curativos, individuales, porGrupo, top, dias, retiros] = await Promise.all([
     prisma.evtSanidad.count({ where: delMes }),
     prisma.evtSanidad.count({ where: { AND: [delMes, { motivo: "curativo" }] } }),
     prisma.evtSanidad.groupBy({ by: ["animalId"], where: { AND: [delMes, { animalId: { not: null } }] } }),
     prisma.evtSanidad.aggregate({ where: { AND: [delMes, { loteId: { not: null } }] }, _sum: { cantidadAnimales: true } }),
     prisma.evtSanidad.groupBy({ by: ["productoId"], where: delMes, _count: { _all: true }, orderBy: { _count: { productoId: "desc" } }, take: 3 }),
     prisma.evtSanidad.groupBy({ by: ["fecha"], where: { AND: [base, { fecha: rangoMes(p.mes ?? mesActual) }] }, _count: { _all: true } }),
+    retirosVigentes(prisma, { establecimientoIds: campos }),
   ])
   const nombres = top.length ? await prisma.producto.findMany({ where: { id: { in: top.map((t) => t.productoId) } }, select: { id: true, nombre: true } }) : []
   return {
@@ -196,6 +199,7 @@ export async function resumenSanidad(ctx: AuthContext, raw: unknown) {
     curativosMes: curativos,
     // Animales distintos tratados de a uno + los declarados en aplicaciones por grupo
     animalesTratadosMes: individuales.length + (porGrupo._sum.cantidadAnimales ?? 0),
+    animalesBajoRetiro: retiros.size,
     topProductos: top.map((t) => ({ productoId: t.productoId, nombre: nombres.find((n) => n.id === t.productoId)?.nombre ?? "—", cantidad: t._count._all })),
     calendario: { mes: p.mes ?? mesActual, dias: dias.map((d) => ({ dia: d.fecha.toISOString().slice(0, 10), cantidad: d._count._all })) },
   }
@@ -228,6 +232,21 @@ export async function sanidadPorAnimal(ctx: AuthContext, raw: unknown) {
     })),
     pagination: { page: p.page, limit: p.limit, total, totalPages },
   }
+}
+
+/** Animales activos del campo bajo retiro, ordenados por fecha de liberación. */
+export async function animalesBajoRetiro(ctx: AuthContext, raw: unknown) {
+  const p = z.object({ establecimientoId: z.string().uuid() }).parse(raw)
+  const retiros = [...(await retirosVigentes(prisma, { establecimientoIds: camposConsulta(ctx, p.establecimientoId) })).values()]
+  const animales = retiros.length
+    ? await prisma.animal.findMany({ where: { id: { in: retiros.map((r) => r.animalId) } }, select: { id: true, caravanaVisual: true, cuig: true, otroId: true, especie: { select: { nombre: true } }, categoria: { select: { nombre: true } } } })
+    : []
+  return retiros
+    .map((r) => {
+      const a = animales.find((x) => x.id === r.animalId)
+      return { ...r, animal: { id: r.animalId, caravanaVisual: a?.caravanaVisual ?? null, cuig: a?.cuig ?? null, otroId: a?.otroId ?? null, especie: a?.especie?.nombre ?? null, categoria: a?.categoria?.nombre ?? null } }
+    })
+    .sort((x, y) => x.hasta.localeCompare(y.hasta))
 }
 
 // ---------------------------------------------------------------------------

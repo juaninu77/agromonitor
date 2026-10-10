@@ -36,6 +36,7 @@ import { saveHerd, findAnimalByEID, getHerdCount } from "@/lib/hardware/herd-cac
 import { normalizeEID } from "@/lib/hardware/eid"
 import { finalizeSession } from "@/lib/hardware/finalize-session"
 import { traerTodosLosAnimales } from "@/lib/ganado/listado-completo"
+import { formatoDia } from "@/lib/inventario/fechas"
 
 interface MangaWorkspaceProps {
   session: any
@@ -119,6 +120,10 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
   const [eidInput, setEidInput] = useState("")
   const [currentEid, setCurrentEid] = useState("")
   const [currentAnimal, setCurrentAnimal] = useState<any | null>(null)
+  // Aviso de carencia al leer un animal bajo retiro (también desde el caché sin conexión)
+  useEffect(() => {
+    if (currentAnimal?.bajoRetiroHasta) toast.warning(`${currentAnimal.caravanaVisual ?? "Animal"} bajo retiro hasta el ${formatoDia(currentAnimal.bajoRetiroHasta)}`)
+  }, [currentAnimal])
   const [isAnimalNew, setIsAnimalNew] = useState(false)
   const [searching, setSearching] = useState(false)
   const [confirmingFinalize, setConfirmingFinalize] = useState(false)

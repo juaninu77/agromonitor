@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolverEstablecimientoDestino } from "@/lib/api/tenant"
 import { withAuth } from "@/lib/api/with-auth"
+import { avisoRetiroDte } from "@/lib/sanidad/retiro"
 import { prisma } from "@/lib/prisma"
 
 export const GET = withAuth(async (request, ctx) => {
@@ -94,6 +95,12 @@ export const POST = withAuth(async (request, ctx) => {
         { error: "Debe indicar un establecimiento válido" },
         { status: 400 }
       )
+    }
+
+    // Carencia: un DT-e a faena con animales de esa especie bajo retiro se confirma
+    const avisoRetiro = await avisoRetiroDte(prisma, { establecimientoId, especie: String(body.especie), motivo: body.motivo ?? "venta" })
+    if (avisoRetiro && body.confirmarRetiro !== true) {
+      return NextResponse.json({ success: false, error: avisoRetiro.mensaje, codigo: "bajo_retiro_confirmar" }, { status: 409 })
     }
 
     const existente = await prisma.documentoTransito.findUnique({

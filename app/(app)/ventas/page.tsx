@@ -50,6 +50,7 @@ import {
   AlertCircle,
 } from "lucide-react"
 import { toast } from "sonner"
+import { postConRetiro } from "@/components/sanidad/retiro-cliente"
 import { useTenant } from "@/lib/context/tenant-context"
 
 // ─── Tipos ───────────────────────────────────────────────
@@ -374,7 +375,7 @@ export default function VentasPage() {
 
   const bajaMutation = useMutation({
     mutationFn: (data: typeof bajaForm) =>
-      postJSON("/api/ventas/bajas", { ...data, cuentaId: data.motivo === "venta" ? data.cuentaId : "" }),
+      postConRetiro("/api/ventas/bajas", { ...data, cuentaId: data.motivo === "venta" ? data.cuentaId : "" }, "aceptarRetiro"),
     onSuccess: () => {
       toast.success("Baja registrada correctamente")
       setBajaDialogOpen(false)
@@ -409,7 +410,7 @@ export default function VentasPage() {
   })
 
   const documentoMutation = useMutation({
-    mutationFn: (data: typeof documentoForm) => postJSON("/api/ventas/documentos", data),
+    mutationFn: (data: typeof documentoForm) => postConRetiro("/api/ventas/documentos", data, "confirmarRetiro"),
     onSuccess: () => {
       toast.success("Documento creado correctamente")
       setDocumentoDialogOpen(false)

@@ -6,6 +6,9 @@ import { ganadoParams, type GanadoQuery } from "@/lib/ganado/query"
 // Tipos para los datos de la API
 export interface AnimalAPI {
   id: string
+  /** Carencia sanitaria vigente (AAAA-MM-DD) y producto que la origina */
+  bajoRetiroHasta?: string | null
+  retiroProducto?: string | null
   cuig?: string
   caravanaVisual?: string
   caravanaRfid?: string

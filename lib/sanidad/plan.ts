@@ -99,3 +99,22 @@ export const zonaAftosaSchema = z.object({
   establecimientoId: z.string().uuid(),
   zonaAftosa: z.enum(ZONAS_AFTOSA).nullable(),
 })
+
+const dia = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida")
+const diaOpcional = dia.nullish().or(z.literal("")).transform((v) => v || null)
+
+/** Aplicar un protocolo a un campo (o a un grupo) para un año. */
+export const calendarioSchema = z.object({
+  establecimientoId: z.string().uuid("Campo inválido"),
+  protocoloId: z.string({ required_error: "Elegí un protocolo" }).uuid("Elegí un protocolo"),
+  anio: z.coerce.number().int().min(2000).max(2100),
+  loteId: z.string().uuid().nullish().or(z.literal("")).transform((v) => v || null),
+  fechaInicio: dia,
+  fechaCampaniaOtono: diaOpcional,
+  fechaCampaniaPrimavera: diaOpcional,
+  fechaPreServicio: diaOpcional,
+  fechaDestete: diaOpcional,
+  fechaPreEsquila: diaOpcional,
+  /** Solo calcula las tareas, sin guardar nada. */
+  vistaPrevia: z.boolean().default(false),
+}).refine((v) => v.fechaInicio.startsWith(String(v.anio)), { message: "El inicio tiene que ser del año del calendario", path: ["fechaInicio"] })

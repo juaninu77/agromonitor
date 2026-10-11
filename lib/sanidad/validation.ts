@@ -42,6 +42,8 @@ const datosAplicacion = {
   /** Galpón de donde sale; ausente = donde más hay; null = sin galpón. */
   sectorStockId: uuid.nullable().optional(),
   aceptarVencido: z.boolean().default(false),
+  /** Tarea del plan sanitario que se cumple con esta aplicación (queda completada). */
+  tareaId: uuid.nullish().transform((v) => v ?? null),
 }
 
 export const registroSanitarioSchema = z.object({

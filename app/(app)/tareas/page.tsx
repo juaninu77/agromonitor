@@ -91,6 +91,7 @@ const TIPO_CONFIG: Record<string, string> = {
   mantenimiento: "Mantenimiento",
   movimiento: "Movimiento",
   general: "General",
+  reproduccion: "Reproducción",
 }
 
 // ============================================
@@ -303,6 +304,11 @@ export default function TareasPage() {
           {row.sector && (
             <Link href={`/potreros?vista=mapa&sector=${row.sector.id}`} className="text-xs font-medium text-primary underline">
               {row.sector.nombre} · ver en el mapa
+            </Link>
+          )}
+          {row.tipo === "reproduccion" && (row.estado === "pendiente" || row.estado === "en_progreso") && (
+            <Link href="/reproduccion?tab=agenda" className="block text-xs font-medium text-primary underline">
+              Registrar en Reproducción
             </Link>
           )}
           {row.calendarioSanitarioId && (row.estado === "pendiente" || row.estado === "en_progreso") && (
@@ -661,6 +667,7 @@ export default function TareasPage() {
                   <SelectContent>
                     <SelectItem value="todos">Todo tipo</SelectItem>
                     <SelectItem value="general">General</SelectItem>
+                    <SelectItem value="reproduccion">Reproducción</SelectItem>
                     <SelectItem value="sanitario">Sanitario</SelectItem>
                     <SelectItem value="mantenimiento">Mantenimiento</SelectItem>
                     <SelectItem value="movimiento">Movimiento</SelectItem>

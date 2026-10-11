@@ -191,6 +191,8 @@ export type FiltrosReproduccion = z.output<typeof filtrosReproduccionSchema>
 /** Búsqueda de animales para los selectores (activos del campo). */
 export const busquedaAnimalesSchema = z.object({
   establecimientoId: z.string().uuid("Campo inválido"),
+  /** Un animal puntual (para precargar un formulario). */
+  id: uuid.optional(),
   sexo: z.enum(["M", "F"]).optional(),
   especieId: uuid.optional(),
   q: z.string().trim().max(60).optional().transform((v) => v || undefined),

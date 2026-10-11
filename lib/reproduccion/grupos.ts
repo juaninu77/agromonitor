@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma"
 import type { AuthContext } from "@/lib/api/with-auth"
 import { diasEntre, formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import { estadosReproductivos } from "./estado"
+import { sincronizarTareasReproductivas } from "./agenda"
 import {
   ReproduccionError, SEL_ANIMAL, auditar, avisoCaravana, diaDe, etiqueta, exigirRol, fechaDia, finDia, grupoDeDestete, inicioDia, moverAGrupo, vigente,
 } from "./service"
@@ -107,7 +108,7 @@ export async function servicioMasivo(ctx: AuthContext, raw: unknown) {
   if (!aServir.length) {
     throw new ReproduccionError(hembras.length ? "No queda ninguna hembra para servir: todas figuran preñadas o ya tienen ese servicio ese día" : "No hay hembras activas en el grupo de la torada ese día", 400)
   }
-  return prisma.$transaction(async (tx) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     await tx.evtServicio.createMany({
       data: aServir.map((h) => ({
         fecha: fechaDia(v.fecha), tipo: v.tipo, hembraId: h.id, machoId: v.machoId, toradaId: torada.id, operacionId: v.clave,
@@ -120,6 +121,8 @@ export async function servicioMasivo(ctx: AuthContext, raw: unknown) {
       omitidas: { prenadas: v.incluirPrenadas ? 0 : [...prenadas].filter((id) => !yaServidas.has(id)).length, yaServidas: yaServidas.size },
     }
   })
+  await sincronizarTareasReproductivas(est)
+  return resultado
 }
 
 /** Planilla de tacto: un resultado por hembra en una operación (C2). Vincula cada uno a su servicio. */
@@ -158,11 +161,13 @@ export async function tactoMasivo(ctx: AuthContext, raw: unknown) {
       mesesGest: parto?.mesesGest ?? null, fechaProbableParto: parto?.fecha ? fechaDia(parto.fecha) : null,
     }
   })
-  return prisma.$transaction(async (tx) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     await tx.evtTacto.createMany({ data: filas })
     await auditar(tx, ctx, est, "evt_tacto", v.clave, { masivo: true, fecha: v.fecha, cantidad: filas.length, toradaId: v.toradaId })
     return { operacionId: v.clave, cantidad: filas.length, prenadas: filas.filter((f) => f.resultado === "preñada").length, vinculados: filas.filter((f) => f.servicioId).length, repetido: false }
   })
+  await sincronizarTareasReproductivas(est)
+  return resultado
 }
 
 const diaMenos = (dia: string, n: number) => new Date(Date.parse(`${dia}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10)
@@ -219,7 +224,7 @@ export async function desteteMasivo(ctx: AuthContext, raw: unknown) {
     if (new Set(animales.map((a) => a.especieId)).size !== 1) throw new ReproduccionError("Hay animales de distintas especies", 400)
     await grupoDeDestete(v.loteDesteteId, est, animales[0].especieId)
   }
-  return prisma.$transaction(async (tx) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     let movidos = 0
     for (const f of v.filas) {
       const a = porId.get(f.animalId)!
@@ -235,6 +240,8 @@ export async function desteteMasivo(ctx: AuthContext, raw: unknown) {
     await auditar(tx, ctx, est, "evt_destete", v.clave, { masivo: true, fecha: v.fecha, cantidad: v.filas.length, loteDesteteId: v.loteDesteteId })
     return { operacionId: v.clave, cantidad: v.filas.length, movidos, sinCaravana: animales.filter(avisoCaravana).length, repetido: false }
   }, { timeout: 60_000 })
+  await sincronizarTareasReproductivas(est)
+  return resultado
 }
 
 // ─── Señalada (ovinos) ──────────────────────────────────────────────────────
@@ -262,7 +269,7 @@ export async function registrarSenalada(ctx: AuthContext, raw: unknown) {
     const ok = await prisma.producto.count({ where: { id: v.productoClostridialId, activo: true, OR: [{ organizacionId: org }, { organizacionId: null }] } })
     if (!ok) throw new ReproduccionError("El producto no es de la organización", 400)
   }
-  return prisma.$transaction(async (tx) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     const s = await tx.evtSenalada.create({
       data: {
         fecha: fechaDia(v.fecha), loteId: v.loteId, toradaId: v.toradaId, clave: v.clave ?? null, productoClostridialId: v.productoClostridialId, observ: v.observ,
@@ -272,6 +279,8 @@ export async function registrarSenalada(ctx: AuthContext, raw: unknown) {
     await auditar(tx, ctx, lote.establecimientoId, "evt_senalada", s.id, { loteId: v.loteId, toradaId: v.toradaId, fecha: v.fecha, corderosSenalados: v.corderosSenalados })
     return { ...s, repetido: false }
   })
+  await sincronizarTareasReproductivas(lote.establecimientoId)
+  return resultado
 }
 
 /** Calificación del % señalada según la referencia patagónica (spec 03 §3.5). */

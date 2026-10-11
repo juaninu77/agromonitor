@@ -134,9 +134,14 @@ export function ServicioDialog({ open, onOpenChange, estId, onSuccess }: PropsDi
   )
 }
 
-export function TactoDialog({ open, onOpenChange, estId, onSuccess }: PropsDialogo) {
+export function TactoDialog({ open, onOpenChange, estId, onSuccess, hembraInicial }: PropsDialogo & { hembraInicial?: string | null }) {
   const r = useRegistro(open, () => ({ fecha: hoyArgentina(), resultado: "preñada", metodo: "palpacion", hembra: null as AnimalOpcion | null, servicioId: "", mesesGest: "", fechaProbableParto: "", veterinario: "", observ: "" }))
   const { form, set } = r
+  // Desde la agenda: la hembra ya elegida
+  useEffect(() => {
+    if (!open || !hembraInicial) return
+    void fetch(`/api/reproduccion/animales?establecimientoId=${estId}&id=${hembraInicial}`).then((x) => x.json()).then((b) => b.data?.[0] && set({ hembra: b.data[0] }))
+  }, [open, hembraInicial]) // eslint-disable-line react-hooks/exhaustive-deps
   // Servicios sin tacto de la hembra elegida (para vincular el diagnóstico)
   const servicios = useQuery({
     queryKey: ["repro-servicios-sin-tacto", estId, form.hembra?.id],

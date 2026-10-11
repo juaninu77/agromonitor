@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/dashboard/empty-state"
 import { InventarioAlertas } from "@/components/dashboard/inventario-alertas"
 import { PriorityAlerts } from "@/components/dashboard/priority-alerts"
 import { SanidadAlertas } from "@/components/dashboard/sanidad-alertas"
+import { ReproduccionAlertas } from "@/components/dashboard/reproduccion-alertas"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import {
@@ -323,6 +324,7 @@ export default function DashboardPage() {
 
       <PriorityAlerts establecimientoId={establecimientoActivo.id} />
       <SanidadAlertas establecimientoId={establecimientoActivo.id} />
+      <ReproduccionAlertas establecimientoId={establecimientoActivo.id} />
       <InventarioAlertas establecimientoId={establecimientoActivo.id} />
 
       {stats.paricionesProximas > 0 && (

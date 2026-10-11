@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   anular: vi.fn(), eventoServicio: vi.fn(), eventoTacto: vi.fn(), eventoParto: vi.fn(), partosDe: vi.fn(), toradaEdit: vi.fn(), ultimoServicio: vi.fn(),
   machos: vi.fn(), machosBorrar: vi.fn(), machosCrear: vi.fn(), toradaUpdate: vi.fn(),
 }))
+vi.mock("@/lib/reproduccion/agenda", () => ({ sincronizarTareasReproductivas: async () => ({ creadas: 0, cumplidas: 0 }) }))
 vi.mock("@/lib/prisma", () => {
   const crear = (tabla: string) => ({ create: (args: { data: object }) => m.crear(tabla, args) })
   const anular = (tabla: string) => ({ updateMany: (args: object) => m.anular(tabla, args) })

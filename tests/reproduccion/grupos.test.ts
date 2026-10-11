@@ -6,6 +6,7 @@ const m = vi.hoisted(() => ({
   histAbiertos: vi.fn(), histCerrar: vi.fn(), histCrear: vi.fn(),
 }))
 vi.mock("@/lib/reproduccion/estado", () => ({ estadosReproductivos: m.estados }))
+vi.mock("@/lib/reproduccion/agenda", () => ({ sincronizarTareasReproductivas: async () => ({ creadas: 0, cumplidas: 0 }) }))
 vi.mock("@/lib/prisma", () => {
   const tabla = (t: string) => ({ create: (a: { data: object }) => m.crear(t, a.data), createMany: (a: { data: object[] }) => m.crearMuchos(t, a.data) })
   const tx = {

@@ -55,6 +55,7 @@ import {
   FileSpreadsheet,
   FileText,
   ShieldAlert,
+  ClipboardList,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/context/tenant-context"
@@ -368,6 +369,9 @@ export default function SanidadPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/sanidad/protocolos"><ClipboardList className="h-4 w-4 mr-2" />Plan sanitario</Link>
+          </Button>
           <Button
             variant="outline"
             className="border-2 border-purple-600 text-purple-700 hover:bg-purple-50"

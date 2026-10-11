@@ -157,6 +157,18 @@ BEGIN
       CHECK (origen_tipo IS NULL OR origen_tipo IN ('sanidad', 'manga', 'compra')) NOT VALID;
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'establecimientos_zona_aftosa_chk') THEN
+    ALTER TABLE establecimientos ADD CONSTRAINT establecimientos_zona_aftosa_chk
+      CHECK (zona_aftosa IS NULL OR zona_aftosa IN ('libre_sin_vacunacion', 'libre_con_vacunacion', 'con_vacunacion'));
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'items_protocolo_momento_chk') THEN
+    ALTER TABLE items_protocolo ADD CONSTRAINT items_protocolo_momento_chk
+      CHECK (momento IN ('fecha', 'inicio', 'campania_otono', 'campania_primavera', 'pre_servicio', 'destete', 'pre_esquila')
+        AND (momento <> 'fecha' OR (mes BETWEEN 1 AND 12 AND dia BETWEEN 1 AND 31))
+        AND (repetir_cada_dias IS NULL OR repetir_cada_dias >= 1));
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evt_sanidad_anulacion_chk') THEN
     ALTER TABLE evt_sanidad ADD CONSTRAINT evt_sanidad_anulacion_chk CHECK (anulado_at IS NULL OR motivo_anulacion IS NOT NULL);
   END IF;

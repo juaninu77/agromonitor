@@ -102,17 +102,18 @@ model Organizacion {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  membresias       Membresia[]
-  establecimientos Establecimiento[]
-  proveedores      Proveedor[]
-  clientes         Cliente[]
-  productos        Producto[]
-  dietas           Dieta[]
-  auditLogs        AuditLog[]
-  especies         Especie[]
-  razas            Raza[]
-  categorias       Categoria[]
-  invitaciones     Invitacion[]
+  membresias           Membresia[]
+  establecimientos     Establecimiento[]
+  proveedores          Proveedor[]
+  clientes             Cliente[]
+  productos            Producto[]
+  dietas               Dieta[]
+  auditLogs            AuditLog[]
+  especies             Especie[]
+  razas                Raza[]
+  categorias           Categoria[]
+  invitaciones         Invitacion[]
+  protocolosSanitarios ProtocoloSanitario[]
 
   @@map("organizaciones")
 }
@@ -264,12 +265,15 @@ model Establecimiento {
   provincia       String?
   localidad       String?
   hectareas       Float?
+  /// Estatus de aftosa (spec 02 §2.4): libre_sin_vacunacion | libre_con_vacunacion | con_vacunacion; null = sin definir
+  zonaAftosa      String?          @map("zona_aftosa")
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
 
   organizacionId String       @map("organizacion_id") @db.Uuid
   organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
 
+  calendariosSanitarios  CalendarioSanitario[]
   sectores               Sector[]
   lotes                  Lote[]
   tareas                 Tarea[]
@@ -434,6 +438,8 @@ model Lote {
   // Toradas (servicio)
   toradas Torada[]
 
+  calendariosSanitarios CalendarioSanitario[]
+
   // Destetes al lote
   destetesDestino EvtDestete[] @relation("DesteteLote")
 
@@ -474,6 +480,7 @@ model Producto {
 
   lotes            LoteProducto[]
   eventosSanidad   EvtSanidad[]
+  itemsProtocolo   ItemProtocolo[]
   movimientosStock MovimientoStock[]
   sesionesManga    SesionManga[]
 
@@ -879,6 +886,12 @@ model EvtSanidad {
   loteProductoId String?       @map("lote_producto_id") @db.Uuid
   loteProducto   LoteProducto? @relation(fields: [loteProductoId], references: [id])
 
+  /// Ítem del plan sanitario que cumple y tarea de la que salió (si se registró desde el calendario)
+  itemProtocoloId String?        @map("item_protocolo_id") @db.Uuid
+  itemProtocolo   ItemProtocolo? @relation(fields: [itemProtocoloId], references: [id], onDelete: SetNull)
+  tareaId         String?        @map("tarea_id") @db.Uuid
+  tarea           Tarea?         @relation(fields: [tareaId], references: [id], onDelete: SetNull)
+
   /// Aplicación masiva: todos sus eventos comparten operacionId (también es la clave de idempotencia)
   operacionId     String?   @map("operacion_id") @db.Uuid
   /// Anulación (no se borra): fecha, quién y por qué
@@ -889,6 +902,7 @@ model EvtSanidad {
   @@index([animalId])
   @@index([loteId])
   @@index([operacionId])
+  @@index([tareaId])
   @@index([fecha])
   @@index([productoId])
   @@index([loteProductoId])
@@ -1210,12 +1224,20 @@ model Tarea {
   sectorId String? @map("sector_id") @db.Uuid
   sector   Sector? @relation(fields: [sectorId, establecimientoId], references: [id, establecimientoId], onDelete: Restrict, onUpdate: NoAction)
 
+  // Tarea sanitaria generada por un calendario sanitario (spec 02 §2.7)
+  calendarioSanitarioId String?              @map("calendario_sanitario_id") @db.Uuid
+  calendarioSanitario   CalendarioSanitario? @relation(fields: [calendarioSanitarioId], references: [id], onDelete: SetNull)
+  itemProtocoloId       String?              @map("item_protocolo_id") @db.Uuid
+  itemProtocolo         ItemProtocolo?       @relation(fields: [itemProtocoloId], references: [id], onDelete: SetNull)
+  eventosSanidad        EvtSanidad[]
+
   @@index([estado])
   @@index([prioridad])
   @@index([sectorId])
   @@index([asignadoAId])
   @@index([establecimientoId])
   @@index([fechaLimite])
+  @@index([calendarioSanitarioId])
   @@map("tareas")
 }
 
@@ -1645,4 +1667,101 @@ model OperacionIdempotente {
 
   @@index([createdAt])
   @@map("operaciones_idempotentes")
+}
+
+// ============================================
+// PLAN SANITARIO (spec 02 §2.1, §2.6, §2.7)
+// ============================================
+
+// Protocolo de una organización: qué se hace y cuándo, para una especie. Las
+// plantillas del sistema viven en código (lib/sanidad/plantillas.ts) y se copian.
+model ProtocoloSanitario {
+  id            String   @id @default(uuid()) @db.Uuid
+  nombre        String
+  descripcion   String?
+  especie       String // 'bovino' | 'ovino' | ...
+  /// Zona de aftosa para la que fue pensado (null = cualquiera)
+  zonaAplicable String?  @map("zona_aplicable")
+  /// Código de la plantilla de origen, si se creó a partir de una
+  plantilla     String?
+  activo        Boolean  @default(true)
+  creadoPorId   String?  @map("creado_por_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  organizacionId String       @map("organizacion_id") @db.Uuid
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+
+  items       ItemProtocolo[]
+  calendarios CalendarioSanitario[]
+
+  @@unique([organizacionId, nombre])
+  @@map("protocolos_sanitarios")
+}
+
+// Cada aplicación esperada del protocolo. El momento se ancla a una fecha del
+// calendario (campañas, servicio, destete, esquila), a una fecha fija del año o al
+// inicio del calendario; puede repetirse cada N días.
+model ItemProtocolo {
+  id              String    @id @default(uuid()) @db.Uuid
+  orden           Int
+  nombre          String
+  /// fecha | inicio | campania_otono | campania_primavera | pre_servicio | destete | pre_esquila
+  momento         String
+  mes             Int?
+  dia             Int?
+  diasOffset      Int       @default(0) @map("dias_offset")
+  repetirCadaDias Int?      @map("repetir_cada_dias")
+  /// A quiénes (texto: "Terneras de 3 a 8 meses")
+  destinatarios   String?
+  productoTipo    String?   @map("producto_tipo")
+  productoId      String?   @map("producto_id") @db.Uuid
+  producto        Producto? @relation(fields: [productoId], references: [id], onDelete: SetNull)
+  dosis           Float?
+  unidad          String?
+  via             String?
+  /// Vacunación de aftosa: no se programa en campos libres sin vacunación
+  esAftosa        Boolean   @default(false) @map("es_aftosa")
+  obligatorio     Boolean   @default(true)
+  notas           String?
+
+  protocoloId String             @map("protocolo_id") @db.Uuid
+  protocolo   ProtocoloSanitario @relation(fields: [protocoloId], references: [id], onDelete: Cascade)
+
+  tareas         Tarea[]
+  eventosSanidad EvtSanidad[]
+
+  @@index([protocoloId])
+  @@map("items_protocolo")
+}
+
+// Un protocolo aplicado a un campo (o a un grupo) para un año, con las fechas ancla.
+model CalendarioSanitario {
+  id                     String    @id @default(uuid()) @db.Uuid
+  nombre                 String
+  anio                   Int
+  activo                 Boolean   @default(true)
+  fechaInicio            DateTime  @map("fecha_inicio") @db.Date
+  fechaCampaniaOtono     DateTime? @map("fecha_campania_otono") @db.Date
+  fechaCampaniaPrimavera DateTime? @map("fecha_campania_primavera") @db.Date
+  fechaPreServicio       DateTime? @map("fecha_pre_servicio") @db.Date
+  fechaDestete           DateTime? @map("fecha_destete") @db.Date
+  fechaPreEsquila        DateTime? @map("fecha_pre_esquila") @db.Date
+  creadoPorId            String?   @map("creado_por_id") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at")
+
+  protocoloId String             @map("protocolo_id") @db.Uuid
+  protocolo   ProtocoloSanitario @relation(fields: [protocoloId], references: [id], onDelete: Restrict)
+
+  establecimientoId String          @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id], onDelete: Cascade)
+
+  loteId String? @map("lote_id") @db.Uuid
+  lote   Lote?   @relation(fields: [loteId], references: [id], onDelete: SetNull)
+
+  tareas Tarea[]
+
+  @@index([establecimientoId, anio])
+  @@index([protocoloId])
+  @@map("calendarios_sanitarios")
 }

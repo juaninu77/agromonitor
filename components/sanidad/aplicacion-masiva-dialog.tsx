@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Loader2, Users } from "lucide-react"
+import { ClipboardCheck, Loader2, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -20,18 +20,33 @@ interface Opcion { id: string; nombre: string }
 const selectClass = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
 const ESPECIES = [["", "Todas las especies"], ["bovino", "Bovinos"], ["ovino", "Ovinos"], ["equino", "Equinos"], ["caprino", "Caprinos"], ["porcino", "Porcinos"]] as const
 const destinoVacio = { loteId: "", especie: "", categoriaId: "", sectorId: "" }
+const UNIDADES = ["ml", "cc", "comprimido"]
+
+/** Datos de una tarea del plan sanitario para precargar la aplicación (y cumplirla al registrar). */
+export interface PresetAplicacion {
+  tareaId: string
+  titulo: string
+  productoId?: string | null
+  dosis?: number | null
+  unidad?: string | null
+  via?: string | null
+  loteId?: string | null
+  especie?: string | null
+}
 
 /**
  * Aplicación masiva: el mismo tratamiento a todos los animales activos del campo que
  * cumplan los filtros (grupo, especie, categoría, potrero). Se registra en una sola
  * operación del servidor, con un único descuento de stock.
  */
-export function AplicacionMasivaDialog({ open, onOpenChange, estId, lotes, productos, onSuccess }: {
+export function AplicacionMasivaDialog({ open, onOpenChange, estId, lotes, productos, preset, onSuccess }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   estId: string
   lotes: Opcion[]
   productos: Producto[]
+  /** Si viene de una tarea del plan, se precarga y la tarea queda cumplida al registrar. */
+  preset?: PresetAplicacion | null
   onSuccess: () => void
 }) {
   const [destino, setDestino] = useState(destinoVacio)
@@ -44,8 +59,15 @@ export function AplicacionMasivaDialog({ open, onOpenChange, estId, lotes, produ
 
   useEffect(() => {
     if (!open) return
-    setDestino(destinoVacio); setExtra(datosExtraIniciales); setDescuento(descuentoInicial); setError(""); setClave(crypto.randomUUID())
-    setForm({ productoId: "", dosis: "", unidad: "ml", via: "", motivo: "preventivo", fecha: hoyArgentina(), observ: "" })
+    setExtra(datosExtraIniciales); setDescuento(descuentoInicial); setError(""); setClave(crypto.randomUUID())
+    setDestino({ ...destinoVacio, loteId: preset?.loteId && lotes.some((l) => l.id === preset.loteId) ? preset.loteId : "", especie: preset?.especie ?? "" })
+    setForm({
+      productoId: preset?.productoId && productos.some((p) => p.id === preset.productoId) ? preset.productoId : "",
+      dosis: preset?.dosis != null ? String(preset.dosis) : "", unidad: preset?.unidad || "ml",
+      via: preset?.via && (VIAS_SANIDAD as readonly string[]).includes(preset.via) ? preset.via : "",
+      motivo: "preventivo", fecha: hoyArgentina(), observ: "",
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- se precarga solo al abrir
   }, [open])
 
   const categorias = useQuery({
@@ -77,14 +99,14 @@ export function AplicacionMasivaDialog({ open, onOpenChange, estId, lotes, produ
     setEnviando(true); setError("")
     try {
       const json = await postSanidad({
-        clave, animalesEsperados: cantidad,
+        clave, animalesEsperados: cantidad, tareaId: preset?.tareaId ?? null,
         destino: { establecimientoId: estId, ...Object.fromEntries(Object.entries(destino).filter(([, v]) => v)) },
         productoId: form.productoId, fecha: form.fecha, dosis: form.dosis || null, unidad: form.dosis ? form.unidad : null,
         via: form.via || null, motivo: form.motivo || null, observ: form.observ || null,
         ...camposExtra(extra, false),
         ...(descuento.activo && descuento.cantidad ? { descontarPorAnimal: descuento.cantidad, ...(descuento.loteProductoId ? { loteProductoId: descuento.loteProductoId } : {}) } : {}),
       }, "/api/sanidad/masiva")
-      toast.success(`${json.data.cantidad} tratamientos registrados${textoStock(json.data.stock)}`)
+      toast.success(`${json.data.cantidad} tratamientos registrados${preset ? " · tarea cumplida" : ""}${textoStock(json.data.stock)}`)
       onOpenChange(false); onSuccess()
     } catch (e) {
       const m = e instanceof Error && e.message !== "Failed to fetch" ? e.message : "Sin conexión: no se registró"
@@ -102,6 +124,12 @@ export function AplicacionMasivaDialog({ open, onOpenChange, estId, lotes, produ
           <DialogDescription>El mismo tratamiento a todos los animales activos que cumplan los filtros. Se registra todo junto: si algo falla, no se guarda nada.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          {preset && (
+            <p className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 p-2 text-sm">
+              <ClipboardCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+              <span>Cumple la tarea del plan: <strong>{preset.titulo}</strong>. Al registrar, la tarea queda completada.</span>
+            </p>
+          )}
           <fieldset className="space-y-3 rounded-md border p-3">
             <legend className="px-1 text-sm font-medium">A quiénes</legend>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -126,7 +154,7 @@ export function AplicacionMasivaDialog({ open, onOpenChange, estId, lotes, produ
               </select></div>
             <div className="space-y-1.5"><Label htmlFor="am-dosis">Dosis por animal</Label>
               <div className="flex gap-2"><Input id="am-dosis" type="number" min="0" step="0.1" inputMode="decimal" placeholder="Ej: 5" value={form.dosis} onChange={set("dosis")} />
-                <select aria-label="Unidad de la dosis" className="h-10 rounded-md border border-input bg-background px-2 text-sm" value={form.unidad} onChange={set("unidad")}><option value="ml">ml</option><option value="cc">cc</option><option value="comprimido">comp.</option></select></div></div>
+                <select aria-label="Unidad de la dosis" className="h-10 rounded-md border border-input bg-background px-2 text-sm" value={form.unidad} onChange={set("unidad")}>{[...UNIDADES, ...(UNIDADES.includes(form.unidad) ? [] : [form.unidad])].map((u) => <option key={u} value={u}>{u === "comprimido" ? "comp." : u}</option>)}</select></div></div>
             <div className="space-y-1.5"><Label htmlFor="am-via">Vía</Label>
               <select id="am-via" className={selectClass} value={form.via} onChange={set("via")}><option value="">—</option>{VIAS_SANIDAD.map((v) => <option key={v} value={v}>{ETIQUETA_VIA[v]}</option>)}</select></div>
             <div className="space-y-1.5"><Label htmlFor="am-motivo">Motivo</Label>

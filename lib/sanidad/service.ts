@@ -12,6 +12,8 @@ import { descontarAplicacion, revertirAplicaciones } from "@/lib/inventario/apli
 import { hoyArgentina } from "@/lib/inventario/fechas"
 import { InventarioError } from "@/lib/inventario/service"
 import { retirosVigentes } from "./retiro"
+import { cumplirTarea } from "./calendario"
+import { SanidadError } from "./errores"
 import { prisma } from "@/lib/prisma"
 import type { AuthContext } from "@/lib/api/with-auth"
 import {
@@ -19,7 +21,7 @@ import {
   registroSanitarioSchema, resumenSanidadSchema, ROLES_SANIDAD, type DestinoMasivo,
 } from "./validation"
 
-export class SanidadError extends Error { constructor(message: string, public status = 400, public codigo?: string) { super(message) } }
+export { SanidadError }
 
 /** Día calendario AAAA-MM-DD como fecha @db.Date (medianoche UTC). */
 const fechaDia = (dia: string) => new Date(`${dia}T00:00:00Z`)
@@ -120,8 +122,11 @@ export async function registrarSanidad(ctx: AuthContext, raw: unknown) {
     }, { establecimientoIds: ctx.establecimientoIds, establecimientoId, estricto: true, aceptarVencido: v.aceptarVencido })
     // Costo: el cargado a mano, o el de lo que salió del stock
     const costo = v.costo ?? (stock ? await costoAplicacion(tx, v.productoId, stock.lotes) : null)
+    // Si se registra desde una tarea del plan sanitario, la tarea queda cumplida
+    const plan = v.tareaId ? await cumplirTarea(tx, v.tareaId, establecimientoId) : null
     const evento = await tx.evtSanidad.create({
       data: {
+        tareaId: plan?.tareaId ?? null, itemProtocoloId: plan?.itemProtocoloId ?? null,
         id, fecha: fechaDia(v.fecha), dosis: v.dosis, unidad: v.unidad, via: v.via, motivo: v.motivo, carenciaDias: v.carenciaDias,
         aplicador: v.aplicador, veterinario: v.veterinario, costo, observ: v.observ,
         animalId: v.animalId, loteId: v.loteId, cantidadAnimales: v.loteId ? v.cantidadAnimales : null,
@@ -183,7 +188,9 @@ export async function resumenSanidad(ctx: AuthContext, raw: unknown) {
   const base: Prisma.EvtSanidadWhereInput = { AND: [scopeCampos(campos), vigentes] }
   const mesActual = hoyArgentina().slice(0, 7)
   const delMes: Prisma.EvtSanidadWhereInput = { AND: [base, { fecha: rangoMes(mesActual) }] }
-  const [tratamientos, curativos, individuales, porGrupo, top, dias, retiros] = await Promise.all([
+  const mesCal = p.mes ?? mesActual
+  const rango = rangoMes(mesCal)
+  const [tratamientos, curativos, individuales, porGrupo, top, dias, retiros, planificadas] = await Promise.all([
     prisma.evtSanidad.count({ where: delMes }),
     prisma.evtSanidad.count({ where: { AND: [delMes, { motivo: "curativo" }] } }),
     prisma.evtSanidad.groupBy({ by: ["animalId"], where: { AND: [delMes, { animalId: { not: null } }] } }),
@@ -191,7 +198,22 @@ export async function resumenSanidad(ctx: AuthContext, raw: unknown) {
     prisma.evtSanidad.groupBy({ by: ["productoId"], where: delMes, _count: { _all: true }, orderBy: { _count: { productoId: "desc" } }, take: 3 }),
     prisma.evtSanidad.groupBy({ by: ["fecha"], where: { AND: [base, { fecha: rangoMes(p.mes ?? mesActual) }] }, _count: { _all: true } }),
     retirosVigentes(prisma, { establecimientoIds: campos }),
+    // Tareas del plan sanitario del mes (las fechas de tarea son mediodía de Argentina)
+    prisma.tarea.findMany({
+      where: { establecimientoId: { in: campos }, calendarioSanitarioId: { not: null }, estado: { not: "cancelada" }, fechaLimite: { gte: rango.gte, lt: rango.lt } },
+      select: { fechaLimite: true, estado: true },
+    }),
   ])
+  const hoy = hoyArgentina()
+  const plan = new Map<string, { dia: string; pendientes: number; completadas: number; vencidas: number }>()
+  for (const t of planificadas) {
+    const dia = hoyArgentina(t.fechaLimite!)
+    const d = plan.get(dia) ?? { dia, pendientes: 0, completadas: 0, vencidas: 0 }
+    if (t.estado === "completada") d.completadas++
+    else if (dia < hoy) d.vencidas++
+    else d.pendientes++
+    plan.set(dia, d)
+  }
   const nombres = top.length ? await prisma.producto.findMany({ where: { id: { in: top.map((t) => t.productoId) } }, select: { id: true, nombre: true } }) : []
   return {
     mes: mesActual,
@@ -201,7 +223,7 @@ export async function resumenSanidad(ctx: AuthContext, raw: unknown) {
     animalesTratadosMes: individuales.length + (porGrupo._sum.cantidadAnimales ?? 0),
     animalesBajoRetiro: retiros.size,
     topProductos: top.map((t) => ({ productoId: t.productoId, nombre: nombres.find((n) => n.id === t.productoId)?.nombre ?? "—", cantidad: t._count._all })),
-    calendario: { mes: p.mes ?? mesActual, dias: dias.map((d) => ({ dia: d.fecha.toISOString().slice(0, 10), cantidad: d._count._all })) },
+    calendario: { mes: mesCal, dias: dias.map((d) => ({ dia: d.fecha.toISOString().slice(0, 10), cantidad: d._count._all })), planificadas: [...plan.values()] },
   }
 }
 
@@ -328,12 +350,13 @@ export async function aplicarMasivo(ctx: AuthContext, raw: unknown) {
     }, { establecimientoIds: ctx.establecimientoIds, establecimientoId: d.establecimientoId, estricto: true, aceptarVencido: v.aceptarVencido })
     const costoTotal = stock ? await costoAplicacion(tx, v.productoId, stock.lotes) : null
     const loteProductoId = v.loteProductoId ?? (stock?.lotes.length === 1 ? stock.lotes[0].loteProductoId : null)
+    const plan = v.tareaId ? await cumplirTarea(tx, v.tareaId, d.establecimientoId) : null
     await tx.evtSanidad.createMany({
       data: animales.map((a) => ({
         animalId: a.id, operacionId: v.clave, fecha: fechaDia(v.fecha), dosis: v.dosis, unidad: v.unidad, via: v.via, motivo: v.motivo,
         carenciaDias: v.carenciaDias, veterinario: v.veterinario, aplicador: v.aplicador, observ: v.observ,
         costo: costoTotal == null ? null : Math.round((costoTotal / n) * 100) / 100,
-        productoId: v.productoId, loteProductoId,
+        productoId: v.productoId, loteProductoId, tareaId: plan?.tareaId ?? null, itemProtocoloId: plan?.itemProtocoloId ?? null,
       })),
     })
     await tx.auditLog.create({

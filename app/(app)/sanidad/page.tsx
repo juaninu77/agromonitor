@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -32,10 +33,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { AplicacionMasivaDialog } from "@/components/sanidad/aplicacion-masiva-dialog"
+import { AplicacionMasivaDialog, type PresetAplicacion } from "@/components/sanidad/aplicacion-masiva-dialog"
 import { DatosAplicacion, camposExtra, datosExtraIniciales } from "@/components/sanidad/datos-aplicacion"
 import { DescuentoStock, camposDescuento, descuentoInicial, postSanidad, textoStock, type EstadoDescuento } from "@/components/sanidad/descuento-stock"
 import { exportarLibroSanitario } from "@/components/sanidad/exportar-libro"
+import { PlanTab, type TareaPlan } from "@/components/sanidad/plan-tab"
 import { AnularTratamientoDialog, EditarTratamientoDialog, type TratamientoEditable } from "@/components/sanidad/tratamiento-acciones"
 import {
   Syringe,
@@ -56,6 +58,7 @@ import {
   FileText,
   ShieldAlert,
   ClipboardList,
+  ListChecks,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useTenant } from "@/lib/context/tenant-context"
@@ -180,8 +183,11 @@ interface Resumen {
   animalesTratadosMes: number
   animalesBajoRetiro: number
   topProductos: { productoId: string; nombre: string; cantidad: number }[]
-  calendario: { mes: string; dias: { dia: string; cantidad: number }[] }
+  calendario: { mes: string; dias: { dia: string; cantidad: number }[]; planificadas: Planificada[] }
 }
+
+/** Tareas del plan sanitario de un día: pendientes (por venir), vencidas sin cumplir y completadas. */
+interface Planificada { dia: string; pendientes: number; completadas: number; vencidas: number }
 
 interface PorAnimalFila {
   animal: { id: string; caravanaVisual: string | null; cuig: string | null; otroId: string | null }
@@ -238,7 +244,9 @@ export default function SanidadPage() {
   const estId = establecimientoActivo?.id ?? ""
   const queryClient = useQueryClient()
 
-  const [activeTab, setActiveTab] = useState("historial")
+  // Enlace desde Tareas: /sanidad?tarea=ID abre la pestaña Plan con esa tarea
+  const tareaParam = useSearchParams().get("tarea")
+  const [activeTab, setActiveTab] = useState(() => (tareaParam ? "plan" : "historial"))
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState("")
   const [motivo, setMotivo] = useState("todos")
@@ -249,6 +257,7 @@ export default function SanidadPage() {
 
   const [tratamientoOpen, setTratamientoOpen] = useState(false)
   const [masivaOpen, setMasivaOpen] = useState(false)
+  const [preset, setPreset] = useState<PresetAplicacion | null>(null)
   const [especie, setEspecie] = useState("todas")
   const [verAnulados, setVerAnulados] = useState(false)
   const [editando, setEditando] = useState<TratamientoEditable | null>(null)
@@ -341,6 +350,14 @@ export default function SanidadPage() {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["sanidad"] })
     queryClient.invalidateQueries({ queryKey: ["inventario"] })
+    queryClient.invalidateQueries({ queryKey: ["tareas"] })
+  }
+  const registrarTarea = (t: TareaPlan) => {
+    setPreset({
+      tareaId: t.id, titulo: t.titulo, productoId: t.item?.productoId, dosis: t.item?.dosis, unidad: t.item?.unidad, via: t.item?.via,
+      loteId: t.calendario?.loteId, especie: t.calendario?.protocolo.especie,
+    })
+    setMasivaOpen(true)
   }
 
   // --------------- Guard: no establecimiento ---------------
@@ -481,7 +498,7 @@ export default function SanidadPage() {
       <Card className="border border-border">
         <CardContent className="p-4 md:p-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-4 border border-border">
+            <TabsList className="grid w-full grid-cols-5 border border-border">
               <TabsTrigger value="historial" className="flex items-center gap-2">
                 <Syringe className="h-4 w-4" />
                 <span className="hidden sm:inline">Historial</span>
@@ -497,6 +514,10 @@ export default function SanidadPage() {
               <TabsTrigger value="retiros" className="flex items-center gap-2">
                 <ShieldAlert className="h-4 w-4" />
                 <span className="hidden sm:inline">Bajo retiro</span>
+              </TabsTrigger>
+              <TabsTrigger value="plan" className="flex items-center gap-2" aria-label="Plan sanitario">
+                <ListChecks className="h-4 w-4" />
+                <span className="hidden sm:inline">Plan</span>
               </TabsTrigger>
             </TabsList>
 
@@ -541,12 +562,20 @@ export default function SanidadPage() {
               <RetirosTab estId={estId} activo={activeTab === "retiros"} />
             </TabsContent>
 
+            {/* --- Plan sanitario --- */}
+            <TabsContent value="plan" className="mt-6">
+              {activeTab === "plan" && (
+                <PlanTab estId={estId} lotes={lotes} puedeGestionar={puedeEditar} tareaInicial={tareaParam} onRegistrar={registrarTarea} />
+              )}
+            </TabsContent>
+
             {/* --- Calendario Tab --- */}
             <TabsContent value="calendario" className="mt-6">
               <CalendarioTab
                 mes={mesCalendario}
                 onMes={setMesCalendario}
                 dias={resumen?.calendario.mes === mesCalendario ? resumen.calendario.dias : []}
+                planificadas={resumen?.calendario.mes === mesCalendario ? resumen.calendario.planificadas ?? [] : []}
                 loading={resumenQuery.isPending}
               />
             </TabsContent>
@@ -565,7 +594,8 @@ export default function SanidadPage() {
       />
       <AplicacionMasivaDialog
         open={masivaOpen}
-        onOpenChange={setMasivaOpen}
+        onOpenChange={(o) => { setMasivaOpen(o); if (!o) setPreset(null) }}
+        preset={preset}
         lotes={lotes}
         productos={productos}
         estId={estId}
@@ -892,10 +922,18 @@ function RetirosTab({ estId, activo }: { estId: string; activo: boolean }) {
 // Tab: Calendario
 // ---------------------------------------------------------------------------
 
-function CalendarioTab({ mes, onMes, dias, loading }: { mes: string; onMes: (m: string) => void; dias: { dia: string; cantidad: number }[]; loading: boolean }) {
+function CalendarioTab({ mes, onMes, dias, planificadas, loading }: {
+  mes: string
+  onMes: (m: string) => void
+  dias: { dia: string; cantidad: number }[]
+  planificadas: Planificada[]
+  loading: boolean
+}) {
   const [year, month] = mes.split("-").map(Number) // month 1-12
   const hoy = hoyArgentina()
   const porDia = new Map(dias.map((d) => [Number(d.dia.slice(8, 10)), d.cantidad]))
+  const planPorDia = new Map(planificadas.map((p) => [Number(p.dia.slice(8, 10)), p]))
+  const totalPlan = planificadas.reduce((n, p) => ({ pendientes: n.pendientes + p.pendientes, completadas: n.completadas + p.completadas, vencidas: n.vencidas + p.vencidas }), { pendientes: 0, completadas: 0, vencidas: 0 })
   // Días del mes y día de la semana del 1.º, en calendario (UTC), sin zona horaria
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
   const firstDayOfWeek = new Date(Date.UTC(year, month - 1, 1)).getUTCDay()
@@ -930,6 +968,7 @@ function CalendarioTab({ mes, onMes, dias, loading }: { mes: string; onMes: (m: 
         {dayCells.map((day, idx) => {
           if (day === null) return <div key={`empty-${idx}`} />
           const count = porDia.get(day) || 0
+          const plan = planPorDia.get(day)
           const isToday = `${mes}-${String(day).padStart(2, "0")}` === hoy
           return (
             <div
@@ -949,10 +988,30 @@ function CalendarioTab({ mes, onMes, dias, loading }: { mes: string; onMes: (m: 
                   {count}
                 </Badge>
               )}
+              {plan && (
+                <span className="mt-1 flex flex-wrap justify-center gap-0.5 text-[10px] leading-none">
+                  {plan.vencidas > 0 && <span className="rounded border border-destructive/50 px-1 py-0.5 font-medium text-destructive" title={`${plan.vencidas} tareas del plan vencidas sin registrar`}>!{plan.vencidas}</span>}
+                  {plan.pendientes > 0 && <span className="rounded border border-dashed border-purple-500 px-1 py-0.5 text-purple-700 dark:text-purple-300" title={`${plan.pendientes} tareas del plan por hacer`}>{plan.pendientes}</span>}
+                  {plan.completadas > 0 && <span className="rounded bg-emerald-100 px-1 py-0.5 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200" title={`${plan.completadas} tareas del plan cumplidas`}>✓{plan.completadas}</span>}
+                </span>
+              )}
             </div>
           )
         })}
       </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground" aria-label="Referencias">
+        <span className="flex items-center gap-1"><span className="rounded bg-purple-600 px-1.5 text-[10px] text-white">3</span> Tratamientos registrados</span>
+        <span className="flex items-center gap-1"><span className="rounded border border-dashed border-purple-500 px-1 text-[10px] text-purple-700 dark:text-purple-300">2</span> Plan: por hacer</span>
+        <span className="flex items-center gap-1"><span className="rounded border border-destructive/50 px-1 text-[10px] font-medium text-destructive">!1</span> Plan: vencida sin registrar</span>
+        <span className="flex items-center gap-1"><span className="rounded bg-emerald-100 px-1 text-[10px] text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">✓1</span> Plan: cumplida</span>
+      </div>
+      {planificadas.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          Plan del mes: {totalPlan.completadas} cumplidas, {totalPlan.pendientes} por hacer
+          {totalPlan.vencidas > 0 && <span className="text-destructive">, {totalPlan.vencidas} vencidas sin registrar</span>}. Se registran desde la pestaña Plan.
+        </p>
+      )}
     </div>
   )
 }

@@ -9,7 +9,7 @@ import type { AuthContext } from "@/lib/api/with-auth"
 import { crearProtocoloSchema, edicionProtocoloSchema, zonaAftosaSchema, type ItemPlan } from "./plan"
 import { PLANTILLAS, plantillaPorCodigo } from "./plantillas"
 import { ROLES_SANIDAD } from "./validation"
-import { SanidadError } from "./service"
+import { SanidadError } from "./errores"
 
 const ROLES_GESTION = ["admin", "encargado"] as const
 

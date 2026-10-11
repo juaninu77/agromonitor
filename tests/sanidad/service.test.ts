@@ -4,7 +4,7 @@ const m = vi.hoisted(() => ({
   animal: vi.fn(), lote: vi.fn(), producto: vi.fn(), loteProducto: vi.fn(), crear: vi.fn(), audit: vi.fn(), descontar: vi.fn(),
   findMany: vi.fn(), count: vi.fn(), groupBy: vi.fn(), aggregate: vi.fn(), productos: vi.fn(), animales: vi.fn(),
   prodUnique: vi.fn(), lotesCosto: vi.fn(), createMany: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), update: vi.fn(),
-  txFindMany: vi.fn(), sector: vi.fn(), revertir: vi.fn(),
+  txFindMany: vi.fn(), sector: vi.fn(), revertir: vi.fn(), tareas: vi.fn(), tareaFind: vi.fn(), tareaUpdate: vi.fn(),
 }))
 vi.mock("@/lib/prisma", () => {
   const tx = {
@@ -12,6 +12,7 @@ vi.mock("@/lib/prisma", () => {
     auditLog: { create: m.audit },
     producto: { findUnique: m.prodUnique },
     loteProducto: { findMany: m.lotesCosto },
+    tarea: { findFirst: m.tareaFind, update: m.tareaUpdate },
   }
   return {
     prisma: {
@@ -21,6 +22,7 @@ vi.mock("@/lib/prisma", () => {
       loteProducto: { findFirst: m.loteProducto },
       evtSanidad: { findMany: m.findMany, count: m.count, groupBy: m.groupBy, aggregate: m.aggregate, findFirst: m.findFirst },
       sector: { findFirst: m.sector },
+      tarea: { findMany: m.tareas },
       $transaction: (cb: (t: unknown) => unknown) => cb(tx),
     },
   }
@@ -99,6 +101,16 @@ describe("registro sanitario", () => {
     m.producto.mockResolvedValueOnce({ id: PROD, activo: true, organizacionId: null })
     await expect(registrarSanidad(ctx, base())).resolves.toMatchObject({ stock: null })
   })
+  it("desde una tarea del plan: la completa y vincula el evento con la tarea y el ítem", async () => {
+    m.tareaFind.mockResolvedValue({ id: uuid(60), estado: "pendiente", itemProtocoloId: uuid(61) })
+    await registrarSanidad(ctx, base({ tareaId: uuid(60) }))
+    expect(m.tareaFind.mock.calls[0][0].where).toEqual({ id: uuid(60), establecimientoId: EST1, tipo: "sanitario" })
+    expect(m.tareaUpdate.mock.calls[0][0]).toMatchObject({ where: { id: uuid(60) }, data: { estado: "completada" } })
+    expect(m.crear.mock.calls[0][0].data).toMatchObject({ tareaId: uuid(60), itemProtocoloId: uuid(61) })
+    // Una tarea de otro campo no se puede cumplir
+    m.tareaFind.mockResolvedValue(null)
+    await expect(registrarSanidad(ctx, base({ tareaId: uuid(62) }))).rejects.toMatchObject({ status: 400 })
+  })
   it("un lote de otro producto se rechaza", async () => {
     m.loteProducto.mockResolvedValue(null)
     await expect(registrarSanidad(ctx, base({ loteProductoId: uuid(9) }))).rejects.toThrow(/no pertenece/)
@@ -125,7 +137,14 @@ describe("consultas por campo", () => {
     })
     m.aggregate.mockResolvedValue({ _sum: { cantidadAnimales: 30 } })
     m.productos.mockResolvedValue([{ id: PROD, nombre: "Ivermectina" }])
+    // Tareas del plan: dos el 3/12 (una cumplida, una vencida) y una el 20/12 cumplida
+    m.tareas.mockResolvedValue([
+      { fechaLimite: new Date("2025-12-03T15:00:00Z"), estado: "completada" },
+      { fechaLimite: new Date("2025-12-03T15:00:00Z"), estado: "pendiente" },
+      { fechaLimite: new Date("2025-12-20T15:00:00Z"), estado: "completada" },
+    ])
     const r = await resumenSanidad(ctx, { establecimientoId: EST1, mes: "2025-12" })
+    expect(r.calendario.planificadas).toEqual([{ dia: "2025-12-03", pendientes: 0, completadas: 1, vencidas: 1 }, { dia: "2025-12-20", pendientes: 0, completadas: 1, vencidas: 0 }])
     expect(r).toMatchObject({ tratamientosMes: 7, curativosMes: 2, animalesTratadosMes: 32, animalesBajoRetiro: 1, topProductos: [{ nombre: "Ivermectina", cantidad: 5 }], calendario: { mes: "2025-12", dias: [{ dia: "2025-12-03", cantidad: 4 }] } })
     expect(r.mes).toBe(hoyArgentina().slice(0, 7))
     // Diciembre termina el 1/1 del año siguiente
@@ -165,6 +184,13 @@ describe("aplicación masiva", () => {
     // Solo animales activos del campo, en el grupo hoy
     expect(m.animales.mock.calls[0][0].where).toMatchObject({ establecimientoId: EST1, estadoVital: "activo", loteHist: { some: { loteId: LOTE, hasta: null } } })
     expect(r).toMatchObject({ cantidad: 3, repetido: false })
+  })
+  it("desde una tarea del plan: todos los eventos quedan vinculados y la tarea cumplida", async () => {
+    m.tareaFind.mockResolvedValue({ id: uuid(60), estado: "pendiente", itemProtocoloId: uuid(61) })
+    await aplicarMasivo(ctx, masiva({ tareaId: uuid(60) }))
+    expect(m.tareaUpdate).toHaveBeenCalledOnce()
+    const filas = m.createMany.mock.calls[0][0].data
+    expect(filas.every((f: { tareaId: string; itemProtocoloId: string }) => f.tareaId === uuid(60) && f.itemProtocoloId === uuid(61))).toBe(true)
   })
   it("un reintento con la misma clave no duplica", async () => {
     m.count.mockResolvedValue(3)

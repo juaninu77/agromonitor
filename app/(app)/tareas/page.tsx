@@ -55,6 +55,8 @@ interface Tarea {
   asignadoA: { id: string; nombre: string; apellido: string } | null
   establecimiento: { id: string; nombre: string }
   sector: { id: string; nombre: string; tipo: string } | null
+  /** Tarea generada por un calendario del plan sanitario: se registra en Sanidad. */
+  calendarioSanitarioId?: string | null
 }
 
 interface Pagination {
@@ -301,6 +303,11 @@ export default function TareasPage() {
           {row.sector && (
             <Link href={`/potreros?vista=mapa&sector=${row.sector.id}`} className="text-xs font-medium text-primary underline">
               {row.sector.nombre} · ver en el mapa
+            </Link>
+          )}
+          {row.calendarioSanitarioId && (row.estado === "pendiente" || row.estado === "en_progreso") && (
+            <Link href={`/sanidad?tarea=${row.id}`} className="block text-xs font-medium text-primary underline">
+              Registrar en Sanidad
             </Link>
           )}
         </div>

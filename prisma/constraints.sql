@@ -107,6 +107,20 @@ BEGIN
       CHECK (resultado IN ('vivo', 'muerto', 'aborto')) NOT VALID;
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'toradas_tipo_grupo_chk') THEN
+    ALTER TABLE toradas ADD CONSTRAINT toradas_tipo_grupo_chk CHECK (tipo_grupo IN ('torada', 'encarnerada'));
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evt_senalada_cantidades_chk') THEN
+    ALTER TABLE evt_senalada ADD CONSTRAINT evt_senalada_cantidades_chk CHECK (
+      corderos_senalados >= 0 AND corderos_muertos >= 0 AND machos_mantenidos >= 0 AND machos_castrados >= 0 AND hembras >= 0
+      AND (machos_mantenidos + machos_castrados + hembras = 0 OR machos_mantenidos + machos_castrados + hembras = corderos_senalados));
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evt_senalada_anulacion_chk') THEN
+    ALTER TABLE evt_senalada ADD CONSTRAINT evt_senalada_anulacion_chk CHECK (anulado_at IS NULL OR motivo_anulacion IS NOT NULL);
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tareas_estado_chk') THEN
     ALTER TABLE tareas ADD CONSTRAINT tareas_estado_chk
       CHECK (estado IN ('pendiente', 'en_progreso', 'completada', 'cancelada')) NOT VALID;

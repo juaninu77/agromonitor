@@ -6,6 +6,7 @@ import { Check, ChevronsUpDown, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { EstadoReproductivoBadge } from "./estado-badge"
 import { cn } from "@/lib/utils"
 
 export interface AnimalOpcion {
@@ -17,6 +18,7 @@ export interface AnimalOpcion {
   especieId: string
   especie: { nombre: string } | null
   categoria: { nombre: string } | null
+  estadoReproductivo?: { estado: string; desde: string; fechaProbableParto: string | null } | null
 }
 
 export const etiquetaAnimal = (a: { caravanaVisual: string | null; cuig?: string | null } | null | undefined) =>
@@ -79,7 +81,7 @@ export function AnimalCombobox({ id, estId, value, onChange, sexo, especieId, pl
               <CommandItem key={a.id} value={a.id} onSelect={() => { onChange(a.id === value?.id ? null : a); setOpen(false) }}>
                 <Check className={cn("mr-2 h-4 w-4", value?.id === a.id ? "opacity-100" : "opacity-0")} aria-hidden />
                 <span className="flex min-w-0 flex-col">
-                  <span className="truncate">{etiquetaAnimal(a)}</span>
+                  <span className="flex items-center gap-1.5 truncate">{etiquetaAnimal(a)}<EstadoReproductivoBadge estado={a.estadoReproductivo} className="px-1.5 py-0 text-[10px]" /></span>
                   <span className="truncate text-xs text-muted-foreground">
                     {[a.categoria?.nombre, a.especie?.nombre, a.sexo === "M" ? "macho" : "hembra"].filter(Boolean).join(" · ")}
                   </span>

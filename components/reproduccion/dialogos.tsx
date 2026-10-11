@@ -12,12 +12,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { AnimalCombobox, type AnimalOpcion } from "./animal-combobox"
 import { formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import {
-  calcularParto, ETIQUETA_METODO_DESTETE, ETIQUETA_METODO_TACTO, ETIQUETA_RESULTADO_TACTO, ETIQUETA_TIPO_PARTO, ETIQUETA_TIPO_SERVICIO,
+  calcularParto, soloServicioNatural, TERMINOS_GRUPO, tipoGrupoDeEspecie, ETIQUETA_METODO_DESTETE, ETIQUETA_METODO_TACTO, ETIQUETA_RESULTADO_TACTO, ETIQUETA_TIPO_PARTO, ETIQUETA_TIPO_SERVICIO,
   METODOS_DESTETE, METODOS_TACTO, RESULTADOS_TACTO, TIPOS_PARTO, TIPOS_SERVICIO, TIPOS_TORADA,
 } from "@/lib/reproduccion/validation"
 
 const selectClass = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-export interface Opcion { id: string; nombre: string }
+export interface Opcion { id: string; nombre: string; especie?: string | null }
 
 type ErrorConCodigo = Error & { codigo?: string }
 async function enviar(url: string, body: Record<string, unknown>) {
@@ -90,11 +90,12 @@ export function ServicioDialog({ open, onOpenChange, estId, onSuccess }: PropsDi
     queryFn: async () => { const res = await fetch(`/api/reproduccion/toradas?establecimientoId=${estId}&activa=true&limit=100`); const b = await res.json(); return (b.data ?? []) as Opcion[] },
     enabled: open && !!estId,
   })
-  const natural = form.tipo === "natural"
+  const soloNatural = soloServicioNatural(form.hembra?.especie?.nombre)
+  const natural = form.tipo === "natural" || soloNatural
   function guardar() {
     if (!form.hembra) return r.setError("Elegí la hembra")
     void r.guardar(() => enviarConfirmando("/api/reproduccion/servicios", {
-      fecha: form.fecha, tipo: form.tipo, hembraId: form.hembra!.id, toradaId: form.toradaId || null, observ: form.observ,
+      fecha: form.fecha, tipo: natural ? "natural" : form.tipo, hembraId: form.hembra!.id, toradaId: form.toradaId || null, observ: form.observ,
       // Monta natural: macho del rodeo; IA/IATF: toro (semen), pajuela e inseminador
       ...(natural ? { machoId: form.macho?.id ?? null } : { toroNombre: form.toroNombre, loteSemen: form.loteSemen, inseminador: form.inseminador }),
     }, { prenada: "aceptarPrenada" }), "Servicio registrado", () => { onOpenChange(false); onSuccess() })
@@ -104,7 +105,7 @@ export function ServicioDialog({ open, onOpenChange, estId, onSuccess }: PropsDi
       <div className="grid grid-cols-2 gap-3">
         <Campo id="sv-fecha" label="Fecha *"><Input id="sv-fecha" type="date" max={hoyArgentina()} value={form.fecha} onChange={(e) => set({ fecha: e.target.value })} required /></Campo>
         <Campo id="sv-tipo" label="Tipo *">
-          <select id="sv-tipo" className={selectClass} value={form.tipo} onChange={(e) => set({ tipo: e.target.value, macho: null, toroNombre: "", loteSemen: "", inseminador: "" })}>
+          <select id="sv-tipo" className={selectClass} value={natural ? "natural" : form.tipo} disabled={soloNatural} title={soloNatural ? "En ovinos el servicio es solo natural" : undefined} onChange={(e) => set({ tipo: e.target.value, macho: null, toroNombre: "", loteSemen: "", inseminador: "" })}>
             {TIPOS_SERVICIO.map((t) => <option key={t} value={t}>{ETIQUETA_TIPO_SERVICIO[t]}</option>)}
           </select>
         </Campo>
@@ -307,19 +308,21 @@ export function DesteteDialog({ open, onOpenChange, estId, lotes, onSuccess }: P
 export function ToradaDialog({ open, onOpenChange, lotes, onSuccess }: Omit<PropsDialogo, "estId"> & { lotes: Opcion[] }) {
   const r = useRegistro(open, () => ({ nombre: "", loteId: "", tipo: "natural", fechaInicio: hoyArgentina(), fechaFin: "", cantidadHembras: "", cantidadMachos: "", observ: "" }))
   const { form, set } = r
+  const grupo = tipoGrupoDeEspecie(lotes.find((l) => l.id === form.loteId)?.especie)
+  const t = TERMINOS_GRUPO[grupo]
   function guardar() {
     if (!form.loteId) return r.setError("Elegí el grupo")
-    void r.guardar(() => enviar("/api/reproduccion/toradas", { ...form, fechaFin: form.fechaFin || null }), "Torada creada", () => { onOpenChange(false); onSuccess() })
+    void r.guardar(() => enviar("/api/reproduccion/toradas", { ...form, tipo: grupo === "encarnerada" ? "natural" : form.tipo, fechaFin: form.fechaFin || null }), `${t.grupo} creada`, () => { onOpenChange(false); onSuccess() })
   }
   return (
-    <DialogoRegistro open={open} onOpenChange={onOpenChange} titulo="Nueva torada" descripcion="Temporada de servicio de un grupo de hembras." textoBoton="Crear torada" enviando={r.enviando} error={r.error} onGuardar={guardar}>
+    <DialogoRegistro open={open} onOpenChange={onOpenChange} titulo={`Nueva ${t.grupo.toLowerCase()}`} descripcion={grupo === "encarnerada" ? "Encarnerada: servicio natural de la majada con carneros." : "Temporada de servicio de un grupo de hembras."} textoBoton={`Crear ${t.grupo.toLowerCase()}`} enviando={r.enviando} error={r.error} onGuardar={guardar}>
       <Campo id="to-nombre" label="Nombre *"><Input id="to-nombre" maxLength={120} placeholder="Servicio otoño 2026" value={form.nombre} onChange={(e) => set({ nombre: e.target.value })} required /></Campo>
       <div className="grid grid-cols-2 gap-3">
         <Campo id="to-grupo" label="Grupo de hembras *">
           <select id="to-grupo" className={selectClass} value={form.loteId} onChange={(e) => set({ loteId: e.target.value })}><option value="">Elegir grupo</option>{lotes.map((l) => <option key={l.id} value={l.id}>{l.nombre}</option>)}</select>
         </Campo>
         <Campo id="to-tipo" label="Tipo *">
-          <select id="to-tipo" className={selectClass} value={form.tipo} onChange={(e) => set({ tipo: e.target.value })}>{TIPOS_TORADA.map((t) => <option key={t} value={t}>{ETIQUETA_TIPO_SERVICIO[t]}</option>)}</select>
+          <select id="to-tipo" className={selectClass} value={grupo === "encarnerada" ? "natural" : form.tipo} disabled={grupo === "encarnerada"} onChange={(e) => set({ tipo: e.target.value })}>{TIPOS_TORADA.map((t) => <option key={t} value={t}>{ETIQUETA_TIPO_SERVICIO[t]}</option>)}</select>
         </Campo>
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -328,7 +331,7 @@ export function ToradaDialog({ open, onOpenChange, lotes, onSuccess }: Omit<Prop
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Campo id="to-hembras" label="Cantidad de hembras"><Input id="to-hembras" type="number" min="1" step="1" value={form.cantidadHembras} onChange={(e) => set({ cantidadHembras: e.target.value })} /></Campo>
-        <Campo id="to-machos" label="Cantidad de machos"><Input id="to-machos" type="number" min="1" step="1" value={form.cantidadMachos} onChange={(e) => set({ cantidadMachos: e.target.value })} /></Campo>
+        <Campo id="to-machos" label={`Cantidad de ${t.machos.toLowerCase()}`}><Input id="to-machos" type="number" min="1" step="1" value={form.cantidadMachos} onChange={(e) => set({ cantidadMachos: e.target.value })} /></Campo>
       </div>
       <Campo id="to-obs" label="Observaciones"><Textarea id="to-obs" rows={2} maxLength={1000} value={form.observ} onChange={(e) => set({ observ: e.target.value })} /></Campo>
     </DialogoRegistro>

@@ -9,7 +9,7 @@ export const METODOS_TACTO = ["palpacion", "ecografia"] as const
 export const RESULTADOS_CRIA = ["vivo", "muerto"] as const
 /** Resultado guardado en cada fila de parto: una cría viva o muerta, o un aborto (sin cría). */
 export const RESULTADOS_PARTO = ["vivo", "muerto", "aborto"] as const
-export const TIPOS_EVENTO = ["servicio", "tacto", "paricion", "destete"] as const
+export const TIPOS_EVENTO = ["servicio", "tacto", "paricion", "destete", "senalada"] as const
 export type TipoEvento = (typeof TIPOS_EVENTO)[number]
 /** Anular un evento: solo admin o encargado del campo (spec 10 §3). */
 export const ROLES_ANULAR = ["admin", "encargado"] as const
@@ -50,6 +50,7 @@ export const ROLES_REPRODUCCION = {
   paricion: ["admin", "encargado", "vet", "operario"],
   destete: ["admin", "encargado", "operario"],
   torada: ["admin", "encargado"],
+  senalada: ["admin", "encargado", "operario"],
 } as const
 export type AccionReproduccion = keyof typeof ROLES_REPRODUCCION
 
@@ -207,6 +208,7 @@ export const EDICION_POR_TIPO = {
     observ: textoEdicion(1000),
   }).strict(),
   destete: z.object({ metodo: z.enum(METODOS_DESTETE).nullish(), observ: textoEdicion(1000) }).strict(),
+  senalada: z.object({ observ: textoEdicion(1000) }).strict(),
 } as const
 
 export const anulacionSchema = z.object({
@@ -224,3 +226,134 @@ export const edicionToradaSchema = z.object({
   cantidadHembras: z.preprocess((v) => (v === "" ? null : typeof v === "string" ? Number(v) : v), z.number().int().positive().max(100_000).nullable().optional()),
   observ: textoEdicion(1000),
 }).strict()
+
+// ─── Torada / encarnerada (spec 03 §3.3) ────────────────────────────────────
+
+export const TIPOS_GRUPO = ["torada", "encarnerada"] as const
+export type TipoGrupo = (typeof TIPOS_GRUPO)[number]
+/** Ovinos y caprinos usan encarnerada con carneros; el resto, torada con toros. */
+export const tipoGrupoDeEspecie = (especie: string | null | undefined): TipoGrupo =>
+  ["ovino", "caprino"].includes((especie ?? "").toLowerCase()) ? "encarnerada" : "torada"
+export const TERMINOS_GRUPO: Record<TipoGrupo, { grupo: string; grupos: string; macho: string; machos: string }> = {
+  torada: { grupo: "Torada", grupos: "Toradas", macho: "Toro", machos: "Toros" },
+  encarnerada: { grupo: "Encarnerada", grupos: "Encarneradas", macho: "Carnero", machos: "Carneros" },
+}
+/** En ovinos el servicio es solo natural (spec 03 §3.6). */
+export const soloServicioNatural = (especie: string | null | undefined) => tipoGrupoDeEspecie(especie) === "encarnerada"
+
+// ─── Cargas por grupo ───────────────────────────────────────────────────────
+
+const clave = z.string({ required_error: "Falta la clave de la operación" }).uuid("Falta la clave de la operación")
+const MAX_GRUPO = 3000
+
+/** Servicio de las hembras de una torada en una operación (C1). */
+export const servicioMasivoSchema = z.object({
+  clave,
+  toradaId: z.string({ required_error: "Elegí la torada" }).uuid("Elegí la torada"),
+  fecha: diaEvento,
+  tipo: z.enum(TIPOS_SERVICIO, { errorMap: () => ({ message: "Tipo de servicio inválido" }) }),
+  /** Hembras elegidas; ausente = todas las del grupo ese día (monta natural). */
+  hembraIds: z.array(uuid).min(1, "Elegí al menos una hembra").max(MAX_GRUPO).optional(),
+  machoId: idOpcional,
+  toroNombre: texto(120),
+  loteSemen: texto(60),
+  inseminador: texto(120),
+  observ: texto(1000),
+  /** Por defecto las que figuran preñadas se omiten. */
+  incluirPrenadas: z.boolean().default(false),
+}).refine((v) => v.tipo === "natural" || !!v.hembraIds, { message: "En IA o IATF elegí las hembras inseminadas", path: ["hembraIds"] })
+
+/** Planilla de tacto: un resultado por hembra (C2). */
+export const tactoMasivoSchema = z.object({
+  clave,
+  fecha: diaEvento,
+  metodo: z.enum(METODOS_TACTO).default("palpacion"),
+  veterinario: texto(120),
+  toradaId: idOpcional,
+  filas: z.array(z.object({
+    hembraId: uuid,
+    resultado: z.enum(RESULTADOS_TACTO, { errorMap: () => ({ message: "Resultado inválido" }) }),
+    mesesGest: numero(z.number().positive().max(10, "Los meses de gestación no pueden superar 10")),
+  }).refine((f) => f.resultado === "preñada" || f.mesesGest == null, { message: "Solo una preñada lleva meses de gestación" }))
+    .min(1, "Cargá al menos un resultado").max(MAX_GRUPO),
+})
+
+/** Destete de varios animales de un grupo (C3). */
+export const desteteMasivoSchema = z.object({
+  clave,
+  fecha: diaEvento,
+  metodo: enumOpcional(METODOS_DESTETE, "Método de destete inválido"),
+  loteDesteteId: idOpcional,
+  observ: texto(1000),
+  filas: z.array(z.object({
+    animalId: uuid,
+    pesoKg: numero(z.number({ invalid_type_error: "El peso debe ser un número" }).positive("El peso debe ser mayor a 0").max(1500)),
+  })).min(1, "Elegí al menos un animal").max(MAX_GRUPO),
+})
+
+const cantidad = (max = 100_000) => z.preprocess((v) => (v === "" || v == null ? 0 : typeof v === "string" ? Number(v) : v), z.number({ invalid_type_error: "Cantidad inválida" }).int("Cantidad inválida").min(0, "Cantidad inválida").max(max))
+
+/** Señalada de corderos de un grupo (spec 03 §3.4). */
+export const senaladaSchema = z.object({
+  clave: uuid.optional(),
+  loteId: z.string({ required_error: "Elegí el grupo" }).uuid("Elegí el grupo"),
+  toradaId: idOpcional,
+  fecha: diaEvento,
+  corderosSenalados: z.preprocess((v) => (typeof v === "string" && v !== "" ? Number(v) : v), z.number({ required_error: "Indicá los corderos señalados", invalid_type_error: "Indicá los corderos señalados" }).int().min(1, "Indicá los corderos señalados").max(100_000)),
+  corderosMuertos: cantidad(),
+  machosMantenidos: cantidad(),
+  machosCastrados: cantidad(),
+  hembras: cantidad(),
+  productoClostridialId: idOpcional,
+  observ: texto(1000),
+}).refine((v) => v.machosMantenidos + v.machosCastrados + v.hembras === 0 || v.machosMantenidos + v.machosCastrados + v.hembras === v.corderosSenalados, {
+  message: "Machos enteros + castrados + hembras tiene que sumar los corderos señalados", path: ["hembras"],
+})
+
+// ─── Estado reproductivo (derivado de los eventos, nunca guardado) ──────────
+
+export const ESTADOS_REPRODUCTIVOS = ["vacia", "servida", "preñada", "parida", "lactancia"] as const
+export type EstadoReproductivo = (typeof ESTADOS_REPRODUCTIVOS)[number]
+export const ETIQUETA_ESTADO_REPRODUCTIVO: Record<EstadoReproductivo, string> = { vacia: "Vacía", servida: "Servida", "preñada": "Preñada", parida: "Parida", lactancia: "En lactancia" }
+/** Días de lactancia hasta el destete habitual (spec 03 §3.1–3.2). */
+export const DIAS_LACTANCIA: Record<string, number> = { bovino: 180, ovino: 90, caprino: 90 }
+const DIAS_PARIDA = 30
+
+export interface HechosReproductivos {
+  ultimoServicio: string | null
+  ultimoTacto: { fecha: string; resultado: string; fechaProbableParto: string | null } | null
+  ultimoParto: { fecha: string; resultado: string } | null
+  /** La cría del último parto ya fue destetada. */
+  criaDestetada: boolean
+}
+export interface EstadoDerivado { estado: EstadoReproductivo; desde: string; fechaProbableParto: string | null }
+
+/**
+ * Estado de una hembra según su último evento vigente: servicio → servida; tacto positivo →
+ * preñada; tacto negativo o aborto → vacía; parto → parida (30 días) y luego en lactancia
+ * hasta el destete de la cría (o los días de lactancia de la especie); sin eventos → null.
+ */
+export function derivarEstado(h: HechosReproductivos, hoy: string, especie?: string | null): EstadoDerivado | null {
+  const candidatos = [
+    h.ultimoParto && { tipo: "parto" as const, fecha: h.ultimoParto.fecha, peso: 3 },
+    h.ultimoTacto && { tipo: "tacto" as const, fecha: h.ultimoTacto.fecha, peso: 2 },
+    h.ultimoServicio ? { tipo: "servicio" as const, fecha: h.ultimoServicio, peso: 1 } : null,
+  ].filter((c): c is NonNullable<typeof c> => !!c)
+  if (!candidatos.length) return null
+  // El más reciente; el mismo día, parto > tacto > servicio
+  const u = candidatos.sort((a, b) => b.fecha.localeCompare(a.fecha) || b.peso - a.peso)[0]
+  if (u.tipo === "servicio") return { estado: "servida", desde: u.fecha, fechaProbableParto: null }
+  if (u.tipo === "tacto") {
+    const r = h.ultimoTacto!.resultado
+    if (r === "preñada") return { estado: "preñada", desde: u.fecha, fechaProbableParto: h.ultimoTacto!.fechaProbableParto }
+    if (r === "dudosa") return { estado: "servida", desde: h.ultimoServicio ?? u.fecha, fechaProbableParto: null }
+    return { estado: "vacia", desde: u.fecha, fechaProbableParto: null }
+  }
+  const p = h.ultimoParto!
+  if (p.resultado === "aborto") return { estado: "vacia", desde: p.fecha, fechaProbableParto: null }
+  const dias = Math.round((Date.parse(`${hoy}T00:00:00Z`) - Date.parse(`${p.fecha}T00:00:00Z`)) / DIA_MS)
+  if (dias <= DIAS_PARIDA) return { estado: "parida", desde: p.fecha, fechaProbableParto: null }
+  const lactancia = DIAS_LACTANCIA[(especie ?? "").toLowerCase()] ?? DIAS_LACTANCIA.bovino
+  if (p.resultado === "vivo" && !h.criaDestetada && dias <= lactancia) return { estado: "lactancia", desde: p.fecha, fechaProbableParto: null }
+  return { estado: "vacia", desde: p.fecha, fechaProbableParto: null }
+}

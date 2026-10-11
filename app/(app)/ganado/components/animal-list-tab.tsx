@@ -14,6 +14,7 @@ import { List, Grid3x3, ArrowUpDown, Plus, Pencil } from "lucide-react"
 import type { AnimalAPI, PaginationInfo } from "@/lib/hooks/use-ganado"
 import { DataPagination } from "./data-pagination"
 import { formatoDia } from "@/lib/inventario/fechas"
+import { EstadoReproductivoBadge } from "@/components/reproduccion/estado-badge"
 
 /** Carencia sanitaria vigente: no faenar ni vender a faena hasta la fecha. */
 function RetiroBadge({ animal }: { animal: AnimalAPI }) {
@@ -206,7 +207,7 @@ export function AnimalListTab({
                         <Badge variant="outline" className="capitalize">
                           {a.estadoVital}
                         </Badge>
-                        <RetiroBadge animal={a} />
+                        <RetiroBadge animal={a} /><EstadoReproductivoBadge estado={a.estadoReproductivo} className="ml-1" />
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
@@ -247,7 +248,7 @@ export function AnimalListTab({
                     <Badge variant="outline" className="capitalize">
                       {a.estadoVital}
                     </Badge>
-                    <RetiroBadge animal={a} />
+                    <RetiroBadge animal={a} /><EstadoReproductivoBadge estado={a.estadoReproductivo} className="ml-1" />
                   </span>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">

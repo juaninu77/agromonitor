@@ -8,6 +8,7 @@ import { validarRazaYCategoriaParaEspecie } from "@/lib/ganado/validate-especie"
 import { erroresZod, mapearErrorPrisma } from "@/lib/ganado/alta"
 import { BajaError, registrarBaja } from "@/lib/ganado/baja"
 import { retiroDeAnimal } from "@/lib/sanidad/retiro"
+import { estadosReproductivos } from "@/lib/reproduccion/estado"
 import { animalActualizacionSchema } from "@/lib/validations/animal-schema"
 import { bajaSchema } from "@/lib/validations/eventos-schema"
 import { Prisma } from "@prisma/client"
@@ -85,6 +86,8 @@ export const GET = withAuth(async (request, ctx) => {
       ...animal,
       // Carencia vigente (null si no está bajo retiro)
       retiro: await retiroDeAnimal(prisma, animal.id),
+      // Estado reproductivo derivado de los eventos (solo hembras)
+      estadoReproductivo: animal.sexo === "F" ? (await estadosReproductivos([animal.id])).get(animal.id) ?? null : null,
       eventosSanidad: animal.eventosSanidad.map((e) => ({
         ...e,
         costo: decimalToNumber(e.costo),

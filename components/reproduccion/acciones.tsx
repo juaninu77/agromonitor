@@ -14,7 +14,7 @@ import { formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import { ETIQUETA_METODO_DESTETE, ETIQUETA_TIPO_PARTO, METODOS_DESTETE, TIPOS_PARTO, type TipoEvento } from "@/lib/reproduccion/validation"
 
 const selectClass = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-const NOMBRE: Record<TipoEvento, string> = { servicio: "el servicio", tacto: "el tacto", paricion: "el parto", destete: "el destete" }
+const NOMBRE: Record<TipoEvento, string> = { servicio: "el servicio", tacto: "el tacto", paricion: "el parto", destete: "el destete", senalada: "la señalada" }
 
 export interface EventoAccion { tipo: TipoEvento; id: string; descripcion: string; valores: Record<string, unknown> }
 
@@ -73,6 +73,7 @@ const CAMPOS: Record<TipoEvento, CampoEdicion[]> = {
     { clave: "observ", etiqueta: "Observaciones", tipo: "largo" },
   ],
   destete: [{ clave: "metodo", etiqueta: "Método", tipo: { opciones: METODOS_DESTETE.map((m) => [m, ETIQUETA_METODO_DESTETE[m]]) } }, { clave: "observ", etiqueta: "Observaciones", tipo: "largo" }],
+  senalada: [{ clave: "observ", etiqueta: "Observaciones", tipo: "largo" }],
 }
 
 /** Editar los datos no críticos de un evento (fecha, animal y resultado no se cambian: se anula y se vuelve a cargar). */

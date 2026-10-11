@@ -3,7 +3,7 @@ import { withAuth } from "@/lib/api/with-auth"
 import { scopeEstablecimiento } from "@/lib/api/tenant"
 import { MangaSessionError, withMangaSession } from "@/lib/api/manga-session"
 import { consumoSugerido, descontarAplicacion } from "@/lib/inventario/aplicaciones"
-import { RESULTADOS_TACTO } from "@/lib/reproduccion/validation"
+import { RESULTADOS_TACTO, calcularParto } from "@/lib/reproduccion/validation"
 
 export const POST = withAuth(async (request, ctx) => {
   try {
@@ -71,11 +71,18 @@ export const POST = withAuth(async (request, ctx) => {
 
         // Solo resultados válidos (un valor viejo inválido no debe deshacer toda la sesión)
         if (item.resultadoTacto && (RESULTADOS_TACTO as readonly string[]).includes(item.resultadoTacto)) {
+          const prenada = item.resultadoTacto === "preñada"
+          // Preñada con meses: fecha probable de parto según la especie (spec 03 §3.7)
+          const especie = prenada && item.mesesGestacion
+            ? (await tx.animal.findUnique({ where: { id: item.animalId }, select: { especie: { select: { nombre: true } } } }))?.especie.nombre
+            : null
+          const parto = prenada ? calcularParto(especie, sesion.fecha.toISOString().slice(0, 10), { mesesGest: item.mesesGestacion }) : null
           await tx.evtTacto.create({
             data: {
               fecha: sesion.fecha,
               resultado: item.resultadoTacto,
-              mesesGest: item.resultadoTacto === "preñada" ? item.mesesGestacion ?? null : null,
+              mesesGest: prenada ? item.mesesGestacion ?? null : null,
+              fechaProbableParto: parto?.fecha ? new Date(`${parto.fecha}T00:00:00Z`) : null,
               hembraId: item.animalId,
             },
           })

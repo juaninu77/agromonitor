@@ -646,8 +646,9 @@ model Animal {
   partosComoPadre EvtParicion[] @relation("ParicionPadre")
 
   // Como cría
-  nacimiento EvtParicion? @relation("ParicionCria")
-  destete    EvtDestete?
+  nacimiento EvtParicion?  @relation("ParicionCria")
+  destetes   EvtDestete[]
+  toradas    ToradaMacho[] @relation("ToradaMachos")
 
   // Baja
   eventoBaja EvtBaja?
@@ -751,15 +752,21 @@ model UbicacionHist {
 
 // Parición (nacimiento)
 model EvtParicion {
-  id          String   @id @default(uuid()) @db.Uuid
-  fecha       DateTime @db.Date
-  resultado   String // 'vivo' | 'muerto'
-  pesoNacerKg Float?   @map("peso_nacer_kg")
-  tipoParto   String?  @map("tipo_parto") // 'normal' | 'asistido' | 'cesarea'
-  dificultad  Int? // 1-5
-  sexoCria    String?  @map("sexo_cria")
-  observ      String?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id              String    @id @default(uuid()) @db.Uuid
+  fecha           DateTime  @db.Date
+  resultado       String // 'vivo' | 'muerto' | 'aborto' (sin cría)
+  pesoNacerKg     Float?    @map("peso_nacer_kg")
+  tipoParto       String?   @map("tipo_parto") // 'normal' | 'asistido' | 'cesarea'
+  dificultad      Int? // 1-5
+  sexoCria        String?   @map("sexo_cria")
+  observ          String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  /// Un parto con varias crías (mellizos) agrupa sus filas con el mismo partoId
+  partoId         String?   @map("parto_id") @db.Uuid
+  /// Anulación (no se borra): fecha, quién y por qué
+  anuladoAt       DateTime? @map("anulado_at")
+  anuladoPorId    String?   @map("anulado_por_id") @db.Uuid
+  motivoAnulacion String?   @map("motivo_anulacion")
 
   madreId String @map("madre_id") @db.Uuid
   madre   Animal @relation("ParicionMadre", fields: [madreId], references: [id])
@@ -773,26 +780,33 @@ model EvtParicion {
   nacido         Animal? @relation("ParicionCria", fields: [nacidoAnimalId], references: [id])
 
   @@index([madreId])
+  @@index([partoId])
   @@index([fecha])
   @@map("evt_paricion")
 }
 
 // Destete
 model EvtDestete {
-  id        String   @id @default(uuid()) @db.Uuid
-  fecha     DateTime @db.Date
-  pesoKg    Float?   @map("peso_kg")
-  edadDias  Int?     @map("edad_dias")
-  metodo    String? // 'tradicional' | 'precoz' | 'hiperprecoz' | 'destetador'
-  observ    String?
-  createdAt DateTime @default(now()) @map("created_at")
+  id              String    @id @default(uuid()) @db.Uuid
+  fecha           DateTime  @db.Date
+  pesoKg          Float?    @map("peso_kg")
+  edadDias        Int?      @map("edad_dias")
+  metodo          String? // 'tradicional' | 'precoz' | 'hiperprecoz' | 'destetador'
+  observ          String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  /// Anulación (no se borra): fecha, quién y por qué
+  anuladoAt       DateTime? @map("anulado_at")
+  anuladoPorId    String?   @map("anulado_por_id") @db.Uuid
+  motivoAnulacion String?   @map("motivo_anulacion")
 
-  animalId String @unique @map("animal_id") @db.Uuid
+  /// Un destete vigente por animal (índice único parcial WHERE anulado_at IS NULL)
+  animalId String @map("animal_id") @db.Uuid
   animal   Animal @relation(fields: [animalId], references: [id])
 
   loteDesteteId String? @map("lote_destete_id") @db.Uuid
   loteDestete   Lote?   @relation("DesteteLote", fields: [loteDesteteId], references: [id], onDelete: SetNull)
 
+  @@index([animalId])
   @@index([fecha])
   @@index([loteDesteteId])
   @@map("evt_destete")
@@ -929,21 +943,39 @@ model Torada {
   lote   Lote   @relation(fields: [loteId], references: [id])
 
   servicios EvtServicio[]
+  machos    ToradaMacho[]
 
   @@index([loteId])
   @@map("toradas")
 }
 
+/// Toros (o carneros) asignados a una torada
+model ToradaMacho {
+  toradaId  String   @map("torada_id") @db.Uuid
+  torada    Torada   @relation(fields: [toradaId], references: [id], onDelete: Cascade)
+  animalId  String   @map("animal_id") @db.Uuid
+  animal    Animal   @relation("ToradaMachos", fields: [animalId], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([toradaId, animalId])
+  @@index([animalId])
+  @@map("toradas_machos")
+}
+
 // Servicio (monta o IA)
 model EvtServicio {
-  id          String   @id @default(uuid()) @db.Uuid
-  fecha       DateTime @db.Date
-  tipo        String // 'natural' | 'ia' | 'iatf'
-  toroNombre  String?  @map("toro_nombre") // Si es IA
-  loteSemen   String?  @map("lote_semen")
-  inseminador String?
-  observ      String?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id              String    @id @default(uuid()) @db.Uuid
+  fecha           DateTime  @db.Date
+  tipo            String // 'natural' | 'ia' | 'iatf'
+  toroNombre      String?   @map("toro_nombre") // Si es IA
+  loteSemen       String?   @map("lote_semen")
+  inseminador     String?
+  observ          String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  /// Anulación (no se borra): fecha, quién y por qué
+  anuladoAt       DateTime? @map("anulado_at")
+  anuladoPorId    String?   @map("anulado_por_id") @db.Uuid
+  motivoAnulacion String?   @map("motivo_anulacion")
 
   hembraId String @map("hembra_id") @db.Uuid
   hembra   Animal @relation("ServicioHembra", fields: [hembraId], references: [id])
@@ -975,6 +1007,10 @@ model EvtTacto {
   veterinario        String?
   observ             String?
   createdAt          DateTime  @default(now()) @map("created_at")
+  /// Anulación (no se borra): fecha, quién y por qué
+  anuladoAt          DateTime? @map("anulado_at")
+  anuladoPorId       String?   @map("anulado_por_id") @db.Uuid
+  motivoAnulacion    String?   @map("motivo_anulacion")
 
   hembraId String @map("hembra_id") @db.Uuid
   hembra   Animal @relation(fields: [hembraId], references: [id])

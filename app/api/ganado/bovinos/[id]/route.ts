@@ -41,14 +41,17 @@ export const GET = withAuth(async (request, ctx) => {
           ...(fullHistory ? {} : { take: 5 }),
         },
         serviciosHembra: {
+          where: { anuladoAt: null },
           orderBy: { fecha: 'desc' },
           ...(fullHistory ? {} : { take: 5 }),
         },
         tactos: {
+          where: { anuladoAt: null },
           orderBy: { fecha: 'desc' },
           ...(fullHistory ? {} : { take: 5 }),
         },
         partosComoMadre: {
+          where: { anuladoAt: null },
           orderBy: { fecha: 'desc' },
           ...(fullHistory ? {} : { take: 5 }),
         },

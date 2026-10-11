@@ -321,3 +321,54 @@ export async function ejecutarAltas(preparadas: AltaPreparada[]): Promise<void> 
     { timeout: 30_000, maxWait: 10_000 },
   )
 }
+
+// ============================================================
+// Alta de una cría nacida en el campo (parto, spec 03 §3.8)
+// ============================================================
+
+export interface CriaNueva {
+  especieId: string
+  razaId: string | null
+  categoriaId: string | null
+  sexo: "M" | "F"
+  fechaNacimiento: Date
+  establecimientoId: string
+  caravanaVisual: string | null
+  caravanaRfid: string | null
+  madreId: string
+  padreId: string | null
+  padreExterno: string | null
+  /** Grupo y lugar de la madre al parir (la cría queda con ella). */
+  loteId: string | null
+  sectorId: string | null
+  desde: Date
+}
+
+/** Errores si las caravanas de las crías ya están usadas (visual en el campo, EID en todo el sistema). */
+export async function identificadoresDeCriasLibres(establecimientoId: string, crias: { caravanaVisual: string | null; caravanaRfid: string | null }[]) {
+  const errores = [...duplicadosEnLote(crias.map((c) => ({ caravanaVisual: c.caravanaVisual ?? undefined, caravanaRfid: c.caravanaRfid ?? undefined }))).values()].flat().map((m) => m.replace("en la fila", "en la cría"))
+  const visuales = crias.map((c) => c.caravanaVisual).filter((v): v is string => !!v)
+  const rfids = crias.map((c) => c.caravanaRfid).filter((v): v is string => !!v)
+  const [usadasVisual, usadasRfid] = await Promise.all([
+    visuales.length ? prisma.animal.findMany({ where: { establecimientoId, caravanaVisual: { in: visuales } }, select: { caravanaVisual: true } }) : [],
+    rfids.length ? prisma.animal.findMany({ where: { caravanaRfid: { in: rfids } }, select: { caravanaRfid: true } }) : [],
+  ])
+  for (const a of usadasVisual) errores.push(`La caravana ${a.caravanaVisual} ya está usada en este campo`)
+  for (const a of usadasRfid) errores.push(`El RFID ${a.caravanaRfid} ya está registrado`)
+  return errores
+}
+
+/** Crea la cría con su genealogía, grupo y lugar, dentro de la transacción del parto. Devuelve su id. */
+export async function altaDeCria(tx: Prisma.TransactionClient, c: CriaNueva) {
+  const id = crypto.randomUUID()
+  await tx.animal.create({
+    data: {
+      id, especieId: c.especieId, razaId: c.razaId, categoriaId: c.categoriaId, sexo: c.sexo, fechaNacimiento: c.fechaNacimiento,
+      origen: "cria_propia", establecimientoId: c.establecimientoId, caravanaVisual: c.caravanaVisual, caravanaRfid: c.caravanaRfid,
+    },
+  })
+  await tx.genealogia.create({ data: { animalId: id, madreId: c.madreId, padreId: c.padreId, padreExterno: c.padreExterno } })
+  if (c.loteId) await tx.animalLoteHist.create({ data: { animalId: id, loteId: c.loteId, desde: c.desde, motivo: "nacimiento" } })
+  if (c.sectorId) await tx.ubicacionHist.create({ data: { animalId: id, sectorId: c.sectorId, desde: c.desde, motivo: "nacimiento" } })
+  return id
+}

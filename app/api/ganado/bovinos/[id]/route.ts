@@ -30,7 +30,15 @@ export const GET = withAuth(async (request, ctx) => {
         raza: true,
         categoria: true,
         proveedor: { select: { id: true, nombre: true } },
-        genealogia: true,
+        genealogia: {
+          include: {
+            madre: { select: { id: true, caravanaVisual: true, cuig: true } },
+            padre: { select: { id: true, caravanaVisual: true, cuig: true } },
+          },
+        },
+        // Crías (como madre o como padre) para la genealogía de la ficha
+        hijosDeMadre: { select: { animal: { select: { id: true, caravanaVisual: true, cuig: true, sexo: true, fechaNacimiento: true, estadoVital: true } } }, take: 50 },
+        hijosDePadre: { select: { animal: { select: { id: true, caravanaVisual: true, cuig: true, sexo: true, fechaNacimiento: true, estadoVital: true } } }, take: 50 },
         eventosPesada: {
           orderBy: [{ fecha: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
           ...(fullHistory ? {} : { take: 5 }),

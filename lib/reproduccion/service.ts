@@ -212,7 +212,7 @@ export async function registrarParicion(ctx: AuthContext, raw: unknown) {
       filas.push({ id: f.id, resultado: c.resultado, criaId, caravanaVisual: c.caravanaVisual })
     }
     await auditar(tx, ctx, madre.establecimientoId, "evt_paricion", partoId, { madreId: madre.id, fecha: v.fecha, aborto: v.aborto, crias: filas, padreId: v.padreId })
-    return { partoId, filas }
+    return { partoId, filas, madreId: madre.id, organizacionId: ctx.organizacionDeEstablecimiento[madre.establecimientoId] }
   })
   await sincronizarTareasReproductivas(madre.establecimientoId)
   return resultado

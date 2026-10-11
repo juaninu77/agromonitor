@@ -82,9 +82,18 @@ function useRegistro<T extends object>(open: boolean, inicial: () => T) {
 
 interface PropsDialogo { open: boolean; onOpenChange: (o: boolean) => void; estId: string; onSuccess: () => void }
 
-export function ServicioDialog({ open, onOpenChange, estId, onSuccess }: PropsDialogo) {
+/** Precarga un animal por id al abrir (desde la agenda o la ficha del animal). */
+function useAnimalInicial(open: boolean, estId: string, id: string | null | undefined, alCargar: (a: AnimalOpcion) => void) {
+  useEffect(() => {
+    if (!open || !id) return
+    void fetch(`/api/reproduccion/animales?establecimientoId=${estId}&id=${id}`).then((x) => x.json()).then((b) => b.data?.[0] && alCargar(b.data[0])).catch(() => {})
+  }, [open, id]) // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+export function ServicioDialog({ open, onOpenChange, estId, onSuccess, hembraInicial }: PropsDialogo & { hembraInicial?: string | null }) {
   const r = useRegistro(open, () => ({ fecha: hoyArgentina(), tipo: "natural", hembra: null as AnimalOpcion | null, macho: null as AnimalOpcion | null, toradaId: "", toroNombre: "", loteSemen: "", inseminador: "", observ: "" }))
   const { form, set } = r
+  useAnimalInicial(open, estId, hembraInicial, (a) => set({ hembra: a }))
   const toradas = useQuery({
     queryKey: ["repro-toradas-activas", estId],
     queryFn: async () => { const res = await fetch(`/api/reproduccion/toradas?establecimientoId=${estId}&activa=true&limit=100`); const b = await res.json(); return (b.data ?? []) as Opcion[] },
@@ -137,11 +146,8 @@ export function ServicioDialog({ open, onOpenChange, estId, onSuccess }: PropsDi
 export function TactoDialog({ open, onOpenChange, estId, onSuccess, hembraInicial }: PropsDialogo & { hembraInicial?: string | null }) {
   const r = useRegistro(open, () => ({ fecha: hoyArgentina(), resultado: "preñada", metodo: "palpacion", hembra: null as AnimalOpcion | null, servicioId: "", mesesGest: "", fechaProbableParto: "", veterinario: "", observ: "" }))
   const { form, set } = r
-  // Desde la agenda: la hembra ya elegida
-  useEffect(() => {
-    if (!open || !hembraInicial) return
-    void fetch(`/api/reproduccion/animales?establecimientoId=${estId}&id=${hembraInicial}`).then((x) => x.json()).then((b) => b.data?.[0] && set({ hembra: b.data[0] }))
-  }, [open, hembraInicial]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Desde la agenda o la ficha: la hembra ya elegida
+  useAnimalInicial(open, estId, hembraInicial, (a) => set({ hembra: a }))
   // Servicios sin tacto de la hembra elegida (para vincular el diagnóstico)
   const servicios = useQuery({
     queryKey: ["repro-servicios-sin-tacto", estId, form.hembra?.id],
@@ -206,9 +212,10 @@ export function TactoDialog({ open, onOpenChange, estId, onSuccess, hembraInicia
 type CriaForm = { resultado: "vivo" | "muerto"; sexo: string; pesoNacerKg: string; caravanaVisual: string; caravanaRfid: string }
 const criaVacia = (): CriaForm => ({ resultado: "vivo", sexo: "", pesoNacerKg: "", caravanaVisual: "", caravanaRfid: "" })
 
-export function ParicionDialog({ open, onOpenChange, estId, onSuccess }: PropsDialogo) {
+export function ParicionDialog({ open, onOpenChange, estId, onSuccess, madreInicial }: PropsDialogo & { madreInicial?: string | null }) {
   const r = useRegistro(open, () => ({ fecha: hoyArgentina(), aborto: false, madre: null as AnimalOpcion | null, padre: null as AnimalOpcion | null, padreExterno: "", tipoParto: "", dificultad: "", observ: "", crias: [criaVacia()] }))
   const { form, set } = r
+  useAnimalInicial(open, estId, madreInicial, (a) => set({ madre: a }))
   const setCria = (n: number, patch: Partial<CriaForm>) => set({ crias: form.crias.map((c, k) => (k === n ? { ...c, ...patch } : c)) })
   function guardar() {
     if (!form.madre) return r.setError("Elegí la madre")
@@ -217,9 +224,21 @@ export function ParicionDialog({ open, onOpenChange, estId, onSuccess }: PropsDi
       const res = await enviarConfirmando("/api/reproduccion/pariciones", {
         fecha: form.fecha, madreId: form.madre!.id, padreId: form.padre?.id ?? null, padreExterno: form.padre ? null : form.padreExterno,
         aborto: form.aborto, crias: form.aborto ? [] : form.crias, tipoParto: form.tipoParto, dificultad: form.dificultad, observ: form.observ,
-      }, { mellizo: "confirmarMellizo" }) as { filas: { criaId: string | null }[] }
+      }, { mellizo: "confirmarMellizo" }) as { filas: { criaId: string | null }[]; madreId: string; sugerencia: { categoriaId: string; nombre: string; desde: string } | null }
       const altas = res.filas.filter((f) => f.criaId).length
       if (altas) toast.info(altas === 1 ? "La cría quedó dada de alta en Ganado, con su madre" : `${altas} crías quedaron dadas de alta en Ganado`)
+      // Primer parto: se sugiere recategorizar la madre (vaquillona → vaca, borrega → oveja)
+      if (res.sugerencia) {
+        const s = res.sugerencia
+        toast(`Primer parto: ¿pasar la madre de ${s.desde} a ${s.nombre}?`, {
+          duration: 15000,
+          action: {
+            label: `Pasar a ${s.nombre}`,
+            onClick: () => void fetch(`/api/ganado/bovinos/${res.madreId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ categoriaId: s.categoriaId }) })
+              .then((r) => (r.ok ? toast.success(`Madre recategorizada: ${s.nombre}`) : r.json().then((b) => toast.error(b.error ?? "No se pudo recategorizar")))),
+          },
+        })
+      }
     }, form.aborto ? "Aborto registrado" : "Parto registrado", () => { onOpenChange(false); onSuccess() })
   }
   return (

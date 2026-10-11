@@ -84,6 +84,7 @@ import { EstadoReproductivoBadge } from "@/components/reproduccion/estado-badge"
 // Types
 // ---------------------------------------------------------------------------
 
+interface Cria { id: string; caravanaVisual: string | null; cuig: string | null; sexo: string; fechaNacimiento: string | null; estadoVital: string }
 interface AnimalDetail {
   id: string
   establecimientoId: string
@@ -105,7 +106,13 @@ interface AnimalDetail {
   raza: { id: string; nombre: string } | null
   categoria: { id: string; nombre: string } | null
   proveedor: { id: string; nombre: string } | null
-  genealogia: { padreId: string | null; madreId: string | null } | null
+  genealogia: {
+    padreId: string | null; madreId: string | null; padreExterno: string | null; madreExterno: string | null
+    madre: { id: string; caravanaVisual: string | null; cuig: string | null } | null
+    padre: { id: string; caravanaVisual: string | null; cuig: string | null } | null
+  } | null
+  hijosDeMadre?: { animal: Cria }[]
+  hijosDePadre?: { animal: Cria }[]
   eventosPesada: PesadaEvent[]
   eventosSanidad: SanidadEvent[]
   /** Carencia vigente: no se puede faenar hasta `hasta` (AAAA-MM-DD). */
@@ -821,7 +828,15 @@ export default function AnimalDetailPage() {
             </TabsContent>
 
             {/* ---- Reproducción ---- */}
-            <TabsContent value="reproduccion" className="mt-6">
+            <TabsContent value="reproduccion" className="mt-6 space-y-6">
+              <Genealogia animal={animal} />
+              {animal.sexo === "F" && animal.estadoVital === "activo" && (
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" asChild><Link href={`/reproduccion?registrar=servicio&animal=${animal.id}`}>Registrar servicio</Link></Button>
+                  <Button size="sm" variant="outline" asChild><Link href={`/reproduccion?registrar=tacto&animal=${animal.id}`}>Registrar tacto</Link></Button>
+                  <Button size="sm" variant="outline" asChild><Link href={`/reproduccion?registrar=parto&animal=${animal.id}`}>Registrar parto</Link></Button>
+                </div>
+              )}
               {reproEvents.length === 0 ? (
                 <EmptyState message="No hay eventos reproductivos registrados" />
               ) : (
@@ -836,7 +851,7 @@ export default function AnimalDetailPage() {
                   <TableBody>
                     {reproEvents.map((e, i) => (
                       <TableRow key={`${e.tipo}-${i}`}>
-                        <TableCell>{formatDate(e.fecha)}</TableCell>
+                        <TableCell>{formatoDia(e.fecha)}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className="text-xs">
                             {e.tipo}
@@ -1231,5 +1246,39 @@ function TimelineIcon({ tipo }: { tipo: string }) {
     <div className={`flex items-center justify-center h-7 w-7 rounded-full shrink-0 ${bg}`}>
       {icon}
     </div>
+  )
+}
+
+
+const identificacion = (a: { caravanaVisual: string | null; cuig: string | null }) => a.caravanaVisual || a.cuig || "Sin caravana"
+
+/** Genealogía del animal: madre, padre (del rodeo o externo) y crías, con enlace a cada ficha. */
+function Genealogia({ animal }: { animal: AnimalDetail }) {
+  const g = animal.genealogia
+  const crias = [...(animal.hijosDeMadre ?? []), ...(animal.hijosDePadre ?? [])].map((h) => h.animal)
+    .sort((a, b) => (b.fechaNacimiento ?? "").localeCompare(a.fechaNacimiento ?? ""))
+  const progenitor = (a: { id: string; caravanaVisual: string | null; cuig: string | null } | null, externo: string | null) =>
+    a ? <Link href={`/ganado/${a.id}`} className="font-medium text-primary underline">{identificacion(a)}</Link> : externo ? <span>{externo} <span className="text-xs text-muted-foreground">(externo)</span></span> : <span className="text-muted-foreground">Sin dato</span>
+  return (
+    <Card>
+      <CardHeader className="pb-2"><CardTitle className="text-base">Genealogía</CardTitle></CardHeader>
+      <CardContent className="grid gap-4 text-sm sm:grid-cols-3">
+        <div><p className="text-xs text-muted-foreground">Madre</p>{progenitor(g?.madre ?? null, g?.madreExterno ?? null)}</div>
+        <div><p className="text-xs text-muted-foreground">Padre</p>{progenitor(g?.padre ?? null, g?.padreExterno ?? null)}</div>
+        <div>
+          <p className="text-xs text-muted-foreground">Crías ({crias.length})</p>
+          {crias.length ? (
+            <ul className="space-y-0.5">
+              {crias.slice(0, 12).map((c) => (
+                <li key={c.id}>
+                  <Link href={`/ganado/${c.id}`} className="text-primary underline">{identificacion(c)}</Link>
+                  <span className="text-xs text-muted-foreground"> · {c.sexo === "M" ? "macho" : "hembra"}{c.fechaNacimiento ? ` · ${formatoDia(c.fechaNacimiento)}` : ""}{c.estadoVital !== "activo" ? ` · ${c.estadoVital}` : ""}</span>
+                </li>
+              ))}
+            </ul>
+          ) : <span className="text-muted-foreground">Sin crías registradas</span>}
+        </div>
+      </CardContent>
+    </Card>
   )
 }

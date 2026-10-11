@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
 import { scopeEstablecimiento, scopeEventoAnimalOLote } from "@/lib/api/tenant"
+import { hoyArgentina } from "@/lib/inventario/fechas"
+import { partosPrevistos } from "@/lib/reproduccion/service"
 
 export const GET = withAuth(async (request, ctx) => {
   try {
@@ -48,13 +50,8 @@ export const GET = withAuth(async (request, ctx) => {
           ...scopeEventoAnimalOLote(establecimientoIds),
         },
       }),
-      prisma.evtTacto.count({
-        where: {
-          resultado: "preñada",
-          fechaProbableParto: { gte: now, lte: in7Days },
-          hembra: scopeEstablecimiento(establecimientoIds),
-        },
-      }),
+      // Una vez por hembra activa preñada sin parto posterior, por día calendario (hoy incluido)
+      partosPrevistos(establecimientoIds, hoyArgentina(), hoyArgentina(in7Days)),
       prisma.animal.count({ where: {
         estadoVital: "activo", ...scopeEstablecimiento(establecimientoIds),
         eventosPesada: { some: { fecha: { gte: startOfMonth, lte: now } } },

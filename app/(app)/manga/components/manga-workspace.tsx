@@ -37,6 +37,7 @@ import { normalizeEID } from "@/lib/hardware/eid"
 import { finalizeSession } from "@/lib/hardware/finalize-session"
 import { traerTodosLosAnimales } from "@/lib/ganado/listado-completo"
 import { formatoDia } from "@/lib/inventario/fechas"
+import { ETIQUETA_RESULTADO_TACTO, LETRA_RESULTADO_TACTO, type ResultadoTacto } from "@/lib/reproduccion/validation"
 
 interface MangaWorkspaceProps {
   session: any
@@ -500,17 +501,17 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
                           San
                         </Badge>
                       )}
-                      {(item.tactoResultado || item.resultadoTacto) && (
-                        <Badge
-                          className={
-                            (item.tactoResultado || item.resultadoTacto) === "preñada"
-                              ? "bg-green-100 text-green-700 text-xs shrink-0"
-                              : "bg-red-100 text-red-700 text-xs shrink-0"
-                          }
-                        >
-                          {(item.tactoResultado || item.resultadoTacto) === "preñada" ? "P" : "V"}
-                        </Badge>
-                      )}
+                      {(item.tactoResultado || item.resultadoTacto) && (() => {
+                        const r = (item.tactoResultado || item.resultadoTacto) as ResultadoTacto
+                        return (
+                          <Badge
+                            title={ETIQUETA_RESULTADO_TACTO[r] ?? r}
+                            className={`text-xs shrink-0 ${r === "preñada" ? "bg-green-100 text-green-700" : r === "vacia" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"}`}
+                          >
+                            {LETRA_RESULTADO_TACTO[r] ?? "?"}
+                          </Badge>
+                        )
+                      })()}
                       <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
                     </div>
                   ))}

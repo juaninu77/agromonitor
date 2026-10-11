@@ -3,6 +3,7 @@ import { withAuth } from "@/lib/api/with-auth"
 import { scopeEstablecimiento } from "@/lib/api/tenant"
 import { MangaSessionError, withMangaSession } from "@/lib/api/manga-session"
 import { consumoSugerido, descontarAplicacion } from "@/lib/inventario/aplicaciones"
+import { RESULTADOS_TACTO } from "@/lib/reproduccion/validation"
 
 export const POST = withAuth(async (request, ctx) => {
   try {
@@ -68,12 +69,13 @@ export const POST = withAuth(async (request, ctx) => {
           totalSanidad++
         }
 
-        if (item.resultadoTacto) {
+        // Solo resultados válidos (un valor viejo inválido no debe deshacer toda la sesión)
+        if (item.resultadoTacto && (RESULTADOS_TACTO as readonly string[]).includes(item.resultadoTacto)) {
           await tx.evtTacto.create({
             data: {
               fecha: sesion.fecha,
               resultado: item.resultadoTacto,
-              mesesGest: item.mesesGestacion ?? null,
+              mesesGest: item.resultadoTacto === "preñada" ? item.mesesGestacion ?? null : null,
               hembraId: item.animalId,
             },
           })

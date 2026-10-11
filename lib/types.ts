@@ -379,7 +379,7 @@ export type EvtTacto = {
   id: string
   hembraId: string
   fecha: string
-  resultado: 'preñada' | 'vacia' | 'dudosa' | 'absorbio'
+  resultado: 'preñada' | 'vacia' | 'dudosa' | 'absorcion'
   mesesGest?: number
   fechaProbableParto?: string
   metodo?: string

@@ -1,1475 +1,281 @@
 "use client"
 
-import { useState } from "react"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { toast } from "sonner"
-import {
-  Heart,
-  Plus,
-  Syringe,
-  Baby,
-  Activity,
-  Loader2,
-  Search,
-  TrendingUp,
-} from "lucide-react"
-
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { useEffect, useState, type ReactNode } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { Activity, Baby, ChevronLeft, ChevronRight, Heart, Loader2, Plus, Search, Syringe, TrendingUp } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { etiquetaAnimal } from "@/components/reproduccion/animal-combobox"
+import { DesteteDialog, ParicionDialog, ServicioDialog, TactoDialog, ToradaDialog, type Opcion } from "@/components/reproduccion/dialogos"
 import { useTenant } from "@/lib/context/tenant-context"
+import { usePermissions } from "@/lib/hooks/use-permissions"
+import { formatoDia } from "@/lib/inventario/fechas"
+import {
+  ETIQUETA_METODO_DESTETE, ETIQUETA_METODO_TACTO, ETIQUETA_RESULTADO_TACTO, ETIQUETA_TIPO_PARTO, ETIQUETA_TIPO_SERVICIO, ROLES_REPRODUCCION,
+  type AccionReproduccion, type ResultadoTacto,
+} from "@/lib/reproduccion/validation"
 
-// ────────────────────────────────────────────
-// Types
-// ────────────────────────────────────────────
+// ─── Tipos ──────────────────────────────────────────────────────────────────
 
-interface Torada {
-  id: string
-  nombre: string
-  fechaInicio: string
-  fechaFin: string | null
-  tipo: string
-  cantidadHembras: number | null
-  cantidadMachos: number | null
-  observ: string | null
-  lote: { id: string; nombre: string; establecimiento: { nombre: string } }
-  servicios: any[]
+interface Ident { id: string; caravanaVisual: string | null; cuig: string | null }
+interface Servicio { id: string; fecha: string; tipo: string; toroNombre: string | null; inseminador: string | null; hembra: Ident; macho: Ident | null; torada: { nombre: string } | null; tacto: { resultado: string } | null }
+interface Tacto { id: string; fecha: string; resultado: string; mesesGest: number | null; fechaProbableParto: string | null; metodo: string; veterinario: string | null; hembra: Ident }
+interface Paricion { id: string; fecha: string; resultado: string; pesoNacerKg: number | null; tipoParto: string | null; sexoCria: string | null; padreExterno: string | null; madre: Ident; padre: Ident | null; nacido: Ident | null }
+interface Destete { id: string; fecha: string; pesoKg: number | null; edadDias: number | null; metodo: string | null; animal: Ident & { raza: { nombre: string } | null }; loteDestete: { nombre: string } | null }
+interface Torada { id: string; nombre: string; tipo: string; fechaInicio: string; fechaFin: string | null; cantidadHembras: number | null; cantidadMachos: number | null; lote: { nombre: string }; _count: { servicios: number } }
+interface Resumen {
+  anio: number
+  servidasSinTacto: number
+  tacto: { prenadas: number; vacias: number; dudosas: number; absorcion: number; porcentajePrenez: number | null }
+  aParir: number
+  partosAtrasados: number
+  partosProximos30: number
+  partosAnio: { vivos: number; muertos: number }
+  destetesAnio: number
 }
+interface Pagina<T> { data: T[]; pagination: { page: number; totalPages: number; total: number } }
+interface Columna<T> { titulo: string; celda: (fila: T) => ReactNode; derecha?: boolean }
 
-interface Servicio {
-  id: string
-  fecha: string
-  tipo: string
-  toroNombre: string | null
-  loteSemen: string | null
-  inseminador: string | null
-  observ: string | null
-  hembra: {
-    id: string
-    caravanaVisual: string | null
-    cuig: string | null
-    categoria?: { nombre: string }
-    raza?: { nombre: string }
-  }
-  macho: { id: string; caravanaVisual: string | null } | null
-  torada: { id: string; nombre: string } | null
-  tacto: {
-    id: string
-    resultado: string
-    mesesGest: number | null
-    fechaProbableParto: string | null
-  } | null
+// ─── Badges ─────────────────────────────────────────────────────────────────
+
+const CLASE_TIPO: Record<string, string> = {
+  natural: "bg-blue-100 text-blue-800 border-blue-200", ia: "bg-purple-100 text-purple-800 border-purple-200",
+  iatf: "bg-violet-100 text-violet-800 border-violet-200", mixto: "bg-indigo-100 text-indigo-800 border-indigo-200",
 }
-
-interface Tacto {
-  id: string
-  fecha: string
-  resultado: string
-  mesesGest: number | null
-  fechaProbableParto: string | null
-  metodo: string
-  veterinario: string | null
-  observ: string | null
-  hembra: {
-    id: string
-    caravanaVisual: string | null
-    cuig: string | null
-    categoria?: { nombre: string }
-    raza?: { nombre: string }
-  }
-  servicio: {
-    id: string
-    fecha: string
-    tipo: string
-    toroNombre: string | null
-  } | null
+const CLASE_TACTO: Record<string, string> = {
+  "preñada": "bg-green-100 text-green-800 border-green-200", vacia: "bg-red-100 text-red-800 border-red-200",
+  dudosa: "bg-yellow-100 text-yellow-800 border-yellow-200", absorcion: "bg-orange-100 text-orange-800 border-orange-200",
 }
+const TipoBadge = ({ tipo }: { tipo: string }) => <Badge className={CLASE_TIPO[tipo]}>{ETIQUETA_TIPO_SERVICIO[tipo as keyof typeof ETIQUETA_TIPO_SERVICIO] ?? tipo}</Badge>
+const ResultadoBadge = ({ resultado }: { resultado: string }) => <Badge className={CLASE_TACTO[resultado]}>{ETIQUETA_RESULTADO_TACTO[resultado as ResultadoTacto] ?? resultado}</Badge>
+const guion = (v: ReactNode) => (v == null || v === "" ? <span className="text-muted-foreground">—</span> : v)
+const num = (n: number | null) => (n == null ? null : n.toLocaleString("es-AR", { maximumFractionDigits: 1 }))
 
-interface Paricion {
-  id: string
-  fecha: string
-  resultado: string
-  pesoNacerKg: number | null
-  tipoParto: string | null
-  dificultad: number | null
-  sexoCria: string | null
-  observ: string | null
-  madre: {
-    id: string
-    caravanaVisual: string | null
-    cuig: string | null
-    raza?: { nombre: string }
-  }
-  padre: { id: string; caravanaVisual: string | null } | null
-  padreExterno: string | null
-  nacido: { id: string; caravanaVisual: string | null; sexo: string } | null
-}
+// ─── Columnas ───────────────────────────────────────────────────────────────
 
-interface Destete {
-  id: string
-  fecha: string
-  pesoKg: number | null
-  edadDias: number | null
-  metodo: string | null
-  observ: string | null
-  animal: {
-    id: string
-    caravanaVisual: string | null
-    cuig: string | null
-    sexo: string
-    fechaNacimiento: string | null
-    raza?: { nombre: string }
-    categoria?: { nombre: string }
-  }
-}
+const COL_SERVICIOS: Columna<Servicio>[] = [
+  { titulo: "Fecha", celda: (s) => formatoDia(s.fecha) },
+  { titulo: "Hembra", celda: (s) => <span className="font-medium">{etiquetaAnimal(s.hembra)}</span> },
+  { titulo: "Tipo", celda: (s) => <TipoBadge tipo={s.tipo} /> },
+  { titulo: "Macho / toro", celda: (s) => guion(s.macho ? etiquetaAnimal(s.macho) : s.toroNombre) },
+  { titulo: "Torada", celda: (s) => guion(s.torada?.nombre) },
+  { titulo: "Inseminador", celda: (s) => guion(s.inseminador) },
+  { titulo: "Tacto", celda: (s) => (s.tacto ? <ResultadoBadge resultado={s.tacto.resultado} /> : <span className="text-muted-foreground">Pendiente</span>) },
+]
+const COL_TACTOS: Columna<Tacto>[] = [
+  { titulo: "Fecha", celda: (t) => formatoDia(t.fecha) },
+  { titulo: "Hembra", celda: (t) => <span className="font-medium">{etiquetaAnimal(t.hembra)}</span> },
+  { titulo: "Resultado", celda: (t) => <ResultadoBadge resultado={t.resultado} /> },
+  { titulo: "Meses gest.", celda: (t) => guion(num(t.mesesGest)), derecha: true },
+  { titulo: "Parto probable", celda: (t) => guion(t.fechaProbableParto && formatoDia(t.fechaProbableParto)) },
+  { titulo: "Método", celda: (t) => <Badge variant="outline">{ETIQUETA_METODO_TACTO[t.metodo as keyof typeof ETIQUETA_METODO_TACTO] ?? t.metodo}</Badge> },
+  { titulo: "Veterinario", celda: (t) => guion(t.veterinario) },
+]
+const COL_PARICIONES: Columna<Paricion>[] = [
+  { titulo: "Fecha", celda: (p) => formatoDia(p.fecha) },
+  { titulo: "Madre", celda: (p) => <span className="font-medium">{etiquetaAnimal(p.madre)}</span> },
+  { titulo: "Cría", celda: (p) => (p.resultado === "vivo" ? <Badge className="bg-green-100 text-green-800 border-green-200">Viva</Badge> : <Badge className="bg-red-100 text-red-800 border-red-200">Muerta</Badge>) },
+  { titulo: "Peso (kg)", celda: (p) => guion(num(p.pesoNacerKg)), derecha: true },
+  { titulo: "Tipo de parto", celda: (p) => guion(p.tipoParto && ETIQUETA_TIPO_PARTO[p.tipoParto as keyof typeof ETIQUETA_TIPO_PARTO]) },
+  { titulo: "Sexo", celda: (p) => guion(p.sexoCria === "M" ? "Macho" : p.sexoCria === "F" ? "Hembra" : null) },
+  { titulo: "Padre", celda: (p) => guion(p.padre ? etiquetaAnimal(p.padre) : p.padreExterno) },
+]
+const COL_DESTETES: Columna<Destete>[] = [
+  { titulo: "Fecha", celda: (d) => formatoDia(d.fecha) },
+  { titulo: "Animal", celda: (d) => <span className="font-medium">{etiquetaAnimal(d.animal)}</span> },
+  { titulo: "Raza", celda: (d) => guion(d.animal.raza?.nombre) },
+  { titulo: "Peso (kg)", celda: (d) => guion(num(d.pesoKg)), derecha: true },
+  { titulo: "Edad (días)", celda: (d) => guion(d.edadDias), derecha: true },
+  { titulo: "Método", celda: (d) => guion(d.metodo && ETIQUETA_METODO_DESTETE[d.metodo as keyof typeof ETIQUETA_METODO_DESTETE]) },
+  { titulo: "Grupo", celda: (d) => guion(d.loteDestete?.nombre) },
+]
+const COL_TORADAS: Columna<Torada>[] = [
+  { titulo: "Nombre", celda: (t) => <span className="font-medium">{t.nombre}</span> },
+  { titulo: "Tipo", celda: (t) => <TipoBadge tipo={t.tipo} /> },
+  { titulo: "Inicio", celda: (t) => formatoDia(t.fechaInicio) },
+  { titulo: "Fin", celda: (t) => (t.fechaFin ? formatoDia(t.fechaFin) : <Badge className="bg-green-100 text-green-800 border-green-200">Abierta</Badge>) },
+  { titulo: "Grupo", celda: (t) => t.lote.nombre },
+  { titulo: "Hembras", celda: (t) => guion(t.cantidadHembras), derecha: true },
+  { titulo: "Machos", celda: (t) => guion(t.cantidadMachos), derecha: true },
+  { titulo: "Servicios", celda: (t) => t._count.servicios, derecha: true },
+]
 
-interface AnimalOption {
-  id: string
-  caravanaVisual: string | null
-  cuig: string | null
-  sexo: string
-}
+// ─── Página ─────────────────────────────────────────────────────────────────
 
-interface LoteOption {
-  id: string
-  nombre: string
-}
-
-// ────────────────────────────────────────────
-// Helpers
-// ────────────────────────────────────────────
-
-function fmt(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString("es-AR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  })
-}
-
-function label(a: { caravanaVisual: string | null; cuig?: string | null } | null) {
-  if (!a) return "-"
-  return a.caravanaVisual || a.cuig || "Sin ID"
-}
-
-function ResultadoBadge({ resultado }: { resultado: string }) {
-  const map: Record<string, { text: string; cls: string }> = {
-    preñada: { text: "Preñada", cls: "bg-green-100 text-green-800 border-green-200" },
-    vacia: { text: "Vacía", cls: "bg-red-100 text-red-800 border-red-200" },
-    dudosa: { text: "Dudosa", cls: "bg-yellow-100 text-yellow-800 border-yellow-200" },
-    absorcion: { text: "Absorción", cls: "bg-orange-100 text-orange-800 border-orange-200" },
-  }
-  const info = map[resultado] || { text: resultado, cls: "" }
-  return <Badge className={info.cls}>{info.text}</Badge>
-}
-
-function TipoBadge({ tipo }: { tipo: string }) {
-  const map: Record<string, { text: string; cls: string }> = {
-    natural: { text: "Natural", cls: "bg-blue-100 text-blue-800 border-blue-200" },
-    ia: { text: "IA", cls: "bg-purple-100 text-purple-800 border-purple-200" },
-    iatf: { text: "IATF", cls: "bg-violet-100 text-violet-800 border-violet-200" },
-    mixto: { text: "Mixto", cls: "bg-indigo-100 text-indigo-800 border-indigo-200" },
-  }
-  const info = map[tipo] || { text: tipo, cls: "" }
-  return <Badge className={info.cls}>{info.text}</Badge>
-}
-
-function PartoBadge({ resultado }: { resultado: string }) {
-  if (resultado === "vivo")
-    return <Badge className="bg-green-100 text-green-800 border-green-200">Vivo</Badge>
-  return <Badge className="bg-red-100 text-red-800 border-red-200">Muerto</Badge>
-}
-
-function MetodoBadge({ metodo }: { metodo: string | null }) {
-  if (!metodo) return <span className="text-muted-foreground">-</span>
-  const labels: Record<string, string> = {
-    tradicional: "Tradicional",
-    precoz: "Precoz",
-    hiperprecoz: "Hiperprecoz",
-    destetador: "Destetador",
-  }
-  return <Badge variant="secondary">{labels[metodo] || metodo}</Badge>
-}
-
-// ────────────────────────────────────────────
-// Fetchers
-// ────────────────────────────────────────────
-
-async function fetchJson<T>(url: string): Promise<T[]> {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error("Error de red")
-  const json = await res.json()
-  if (json.success) return json.data
-  throw new Error(json.error || "Error al cargar datos")
-}
-
-async function postJson(url: string, body: Record<string, unknown>) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  const json = await res.json()
-  if (!res.ok || !json.success) throw new Error(json.error || "Error al guardar")
-  return json.data
-}
-
-// ────────────────────────────────────────────
-// Main Component
-// ────────────────────────────────────────────
+type Pestania = "servicios" | "tactos" | "pariciones" | "destetes" | "toradas"
+const ACCION_DE: Record<Pestania, AccionReproduccion> = { servicios: "servicio", tactos: "tacto", pariciones: "paricion", destetes: "destete", toradas: "torada" }
 
 export default function ReproduccionPage() {
   const { establecimientoActivo, isLoading: tenantLoading } = useTenant()
+  const estId = establecimientoActivo?.id ?? ""
   const queryClient = useQueryClient()
-  const estId = establecimientoActivo?.id || ""
+  const { hasRole } = usePermissions()
+  const puede = (a: AccionReproduccion) => hasRole(...ROLES_REPRODUCCION[a])
+  const [pestania, setPestania] = useState<Pestania>("servicios")
+  const [abierto, setAbierto] = useState<Pestania | null>(null)
 
-  const [activeTab, setActiveTab] = useState("servicios")
-
-  const [dialogServicio, setDialogServicio] = useState(false)
-  const [dialogTacto, setDialogTacto] = useState(false)
-  const [dialogParicion, setDialogParicion] = useState(false)
-  const [dialogDestete, setDialogDestete] = useState(false)
-  const [dialogTorada, setDialogTorada] = useState(false)
-
-  // ── Queries ──
-
-  const { data: toradas = [], isLoading: loadToradas } = useQuery({
-    queryKey: ["repro-toradas", estId],
-    queryFn: () => fetchJson<Torada>(`/api/reproduccion/toradas${estId ? `?establecimientoId=${estId}` : ""}`),
+  const resumen = useQuery({
+    queryKey: ["repro", "resumen", estId],
+    queryFn: async () => { const r = await fetch(`/api/reproduccion/resumen?establecimientoId=${estId}`); const b = await r.json(); if (!r.ok) throw new Error(b.error ?? "No se pudo cargar"); return b.data as Resumen },
     enabled: !!estId,
   })
-
-  const { data: servicios = [], isLoading: loadServicios } = useQuery({
-    queryKey: ["repro-servicios", estId],
-    queryFn: () => fetchJson<Servicio>(`/api/reproduccion/servicios${estId ? `?establecimientoId=${estId}` : ""}`),
-    enabled: !!estId,
-  })
-
-  const { data: tactos = [], isLoading: loadTactos } = useQuery({
-    queryKey: ["repro-tactos", estId],
-    queryFn: () => fetchJson<Tacto>(`/api/reproduccion/tactos${estId ? `?establecimientoId=${estId}` : ""}`),
-    enabled: !!estId,
-  })
-
-  const { data: pariciones = [], isLoading: loadPariciones } = useQuery({
-    queryKey: ["repro-pariciones", estId],
-    queryFn: () => fetchJson<Paricion>(`/api/reproduccion/pariciones${estId ? `?establecimientoId=${estId}` : ""}`),
-    enabled: !!estId,
-  })
-
-  const { data: destetes = [], isLoading: loadDestetes } = useQuery({
-    queryKey: ["repro-destetes", estId],
-    queryFn: () => fetchJson<Destete>(`/api/reproduccion/destetes${estId ? `?establecimientoId=${estId}` : ""}`),
-    enabled: !!estId,
-  })
-
-  const { data: animalesRaw = [] } = useQuery({
-    queryKey: ["repro-bovinos", estId],
+  const lotes = useQuery({
+    queryKey: ["repro", "lotes", estId],
     queryFn: async () => {
-      const res = await fetch(`/api/ganado/bovinos?limit=500${estId ? `&establecimientoId=${estId}` : ""}`)
-      const json = await res.json()
-      if (json.success) return json.data as any[]
-      return []
+      const r = await fetch(`/api/establecimientos/${estId}/lotes`)
+      const b = await r.json().catch(() => [])
+      const lista = (Array.isArray(b) ? b : b.data ?? []) as (Opcion & { activo?: boolean })[]
+      return lista.filter((l) => l.activo !== false).map((l) => ({ id: l.id, nombre: l.nombre }))
     },
     enabled: !!estId,
   })
-
-  const { data: lotes = [] } = useQuery({
-    queryKey: ["repro-lotes", estId],
-    queryFn: async () => {
-      if (!estId) return []
-      const res = await fetch(`/api/establecimientos/${estId}/lotes`)
-      const json = await res.json()
-      if (json.success && json.data) return json.data as LoteOption[]
-      if (Array.isArray(json)) return json as LoteOption[]
-      return []
-    },
-    enabled: !!estId,
-  })
-
-  const hembras: AnimalOption[] = animalesRaw
-    .filter((a: any) => a.sexo === "F")
-    .map((a: any) => ({ id: a.id, caravanaVisual: a.caravanaVisual || a.tagNumber, cuig: a.cuig, sexo: a.sexo }))
-
-  const machos: AnimalOption[] = animalesRaw
-    .filter((a: any) => a.sexo === "M")
-    .map((a: any) => ({ id: a.id, caravanaVisual: a.caravanaVisual || a.tagNumber, cuig: a.cuig, sexo: a.sexo }))
-
-  const allAnimals: AnimalOption[] = animalesRaw
-    .map((a: any) => ({ id: a.id, caravanaVisual: a.caravanaVisual || a.tagNumber, cuig: a.cuig, sexo: a.sexo }))
-
-  function invalidateAll() {
-    queryClient.invalidateQueries({ queryKey: ["repro-toradas", estId] })
-    queryClient.invalidateQueries({ queryKey: ["repro-servicios", estId] })
-    queryClient.invalidateQueries({ queryKey: ["repro-tactos", estId] })
-    queryClient.invalidateQueries({ queryKey: ["repro-pariciones", estId] })
-    queryClient.invalidateQueries({ queryKey: ["repro-destetes", estId] })
-  }
-
-  // ── KPIs ──
-
-  const currentYear = new Date().getFullYear()
-  const vientresEnServicio = servicios.filter((s) => !s.tacto).length
-  const prenezConfirmada = tactos.filter((t) => t.resultado === "preñada").length
-  const partosAnio = pariciones.filter((p) => new Date(p.fecha).getFullYear() === currentYear).length
-  const totalTactos = tactos.length
-  const porcentajePreñez = totalTactos > 0 ? Math.round((prenezConfirmada / totalTactos) * 100) : 0
-
-  const loading = loadToradas || loadServicios || loadTactos || loadPariciones || loadDestetes
-
-  // ── Tenant guard ──
+  const invalidar = () => queryClient.invalidateQueries({ queryKey: ["repro"] })
+  const abrir = (p: Pestania) => { setPestania(p); setAbierto(p) }
 
   if (tenantLoading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-64" />
-        <div className="grid gap-4 md:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-28" />
-          ))}
-        </div>
-        <Skeleton className="h-96" />
-      </div>
-    )
+    return <div className="space-y-6"><Skeleton className="h-10 w-64" /><div className="grid gap-4 md:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)}</div><Skeleton className="h-96" /></div>
   }
-
   if (!establecimientoActivo) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 px-4 text-center">
-        <Heart className="h-16 w-16 text-muted-foreground/30 mb-4" />
-        <h2 className="text-xl font-semibold mb-2">Sin establecimiento seleccionado</h2>
-        <p className="text-muted-foreground max-w-md">
-          Seleccioná un establecimiento desde el menú superior para ver los datos reproductivos.
-        </p>
+      <div className="flex flex-col items-center justify-center px-4 py-24 text-center">
+        <Heart className="mb-4 h-16 w-16 text-muted-foreground/30" />
+        <h2 className="mb-2 text-xl font-semibold">Sin campo seleccionado</h2>
+        <p className="max-w-md text-muted-foreground">Elegí un campo en el menú superior para ver los datos reproductivos.</p>
       </div>
     )
   }
 
-  // ── Render ──
+  const r = resumen.data
+  const kpi = (v: ReactNode) => (resumen.isPending ? <Loader2 className="h-5 w-5 animate-spin" aria-label="Cargando" /> : v)
+  const diagnosticadas = r ? r.tacto.prenadas + r.tacto.vacias + r.tacto.absorcion : 0
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-3">
-            <Heart className="h-8 w-8 text-primary" />
-            Reproducción
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Gestión del ciclo reproductivo: toradas, servicio, tacto, parición y destete
-          </p>
+          <h1 className="flex items-center gap-3 text-2xl font-bold tracking-tight md:text-3xl"><Heart className="h-8 w-8 text-primary" />Reproducción</h1>
+          <p className="mt-1 text-muted-foreground">Toradas, servicio, tacto, parición y destete · {establecimientoActivo.nombre}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => { setActiveTab("servicios"); setDialogServicio(true) }}>
-            <Syringe className="h-4 w-4 mr-2" />
-            Nuevo servicio
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => { setActiveTab("tactos"); setDialogTacto(true) }}>
-            <Activity className="h-4 w-4 mr-2" />
-            Registrar tacto
-          </Button>
-          <Button size="sm" onClick={() => { setActiveTab("pariciones"); setDialogParicion(true) }}>
-            <Baby className="h-4 w-4 mr-2" />
-            Registrar parto
-          </Button>
+          {puede("servicio") && <Button size="sm" variant="outline" onClick={() => abrir("servicios")}><Syringe className="mr-2 h-4 w-4" />Nuevo servicio</Button>}
+          {puede("tacto") && <Button size="sm" variant="outline" onClick={() => abrir("tactos")}><Activity className="mr-2 h-4 w-4" />Registrar tacto</Button>}
+          {puede("paricion") && <Button size="sm" onClick={() => abrir("pariciones")}><Baby className="mr-2 h-4 w-4" />Registrar parto</Button>}
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Vientres en servicio</CardTitle>
-            <Syringe className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : vientresEnServicio}</div>
-            <p className="text-xs text-muted-foreground">sin tacto registrado</p>
-          </CardContent>
-        </Card>
+      {resumen.isError && <p role="alert" className="erp-error">{resumen.error.message} <button className="underline" onClick={() => resumen.refetch()}>Reintentar</button></p>}
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Preñez confirmada</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : prenezConfirmada}</div>
-            <p className="text-xs text-muted-foreground">tactos positivos</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Partos ({currentYear})</CardTitle>
-            <Baby className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : partosAnio}</div>
-            <p className="text-xs text-muted-foreground">nacimientos este año</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">% Preñez</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : totalTactos > 0 ? `${porcentajePreñez}%` : "-"}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {prenezConfirmada} preñadas de {totalTactos} tactadas
-            </p>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <Kpi titulo="Servidas sin tactar" icono={Syringe} valor={kpi(r?.servidasSinTacto)} detalle="hembras con servicio en los últimos 12 meses" />
+        <Kpi titulo="% Preñez" icono={TrendingUp} valor={kpi(r?.tacto.porcentajePrenez != null ? `${r.tacto.porcentajePrenez} %` : "—")}
+          detalle={r ? `${r.tacto.prenadas} preñadas de ${diagnosticadas} tactadas (12 meses)${r.tacto.dudosas ? ` · ${r.tacto.dudosas} dudosas` : ""}` : ""} />
+        <Kpi titulo="Preñadas a parir" icono={Heart} valor={kpi(r?.aParir)}
+          detalle={r ? <>{r.partosProximos30} en los próximos 30 días{r.partosAtrasados > 0 && <span className="text-amber-700"> · {r.partosAtrasados} pasadas de fecha</span>}</> : ""} />
+        <Kpi titulo={`Partos ${r?.anio ?? ""}`} icono={Baby} valor={kpi(r ? r.partosAnio.vivos + r.partosAnio.muertos : null)}
+          detalle={r ? `${r.partosAnio.vivos} vivos · ${r.partosAnio.muertos} muertos · ${r.destetesAnio} destetes` : ""} />
       </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={pestania} onValueChange={(v) => setPestania(v as Pestania)}>
         <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="servicios">Servicios</TabsTrigger>
           <TabsTrigger value="tactos">Tactos</TabsTrigger>
-          <TabsTrigger value="pariciones">Pariciones</TabsTrigger>
+          <TabsTrigger value="pariciones">Partos</TabsTrigger>
           <TabsTrigger value="destetes">Destetes</TabsTrigger>
           <TabsTrigger value="toradas">Toradas</TabsTrigger>
         </TabsList>
-
-        {/* ─── TAB: Servicios ─── */}
-        <TabsContent value="servicios">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Servicios realizados</CardTitle>
-              <Button onClick={() => setDialogServicio(true)}>
-                <Plus className="mr-2 h-4 w-4" /> Nuevo servicio
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {loadServicios ? (
-                <LoadingSpinner />
-              ) : servicios.length === 0 ? (
-                <EmptyState text="No hay servicios registrados." />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-3 px-2 font-medium">Fecha</th>
-                        <th className="text-left py-3 px-2 font-medium">Hembra</th>
-                        <th className="text-left py-3 px-2 font-medium">Tipo</th>
-                        <th className="text-left py-3 px-2 font-medium">Macho / Toro</th>
-                        <th className="text-left py-3 px-2 font-medium">Torada</th>
-                        <th className="text-left py-3 px-2 font-medium">Inseminador</th>
-                        <th className="text-left py-3 px-2 font-medium">Tacto</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {servicios.map((s) => (
-                        <tr key={s.id} className="border-b hover:bg-muted/50">
-                          <td className="py-3 px-2">{fmt(s.fecha)}</td>
-                          <td className="py-3 px-2 font-medium">{label(s.hembra)}</td>
-                          <td className="py-3 px-2"><TipoBadge tipo={s.tipo} /></td>
-                          <td className="py-3 px-2">{s.macho ? label(s.macho) : s.toroNombre || "-"}</td>
-                          <td className="py-3 px-2">{s.torada?.nombre || "-"}</td>
-                          <td className="py-3 px-2">{s.inseminador || "-"}</td>
-                          <td className="py-3 px-2">
-                            {s.tacto ? <ResultadoBadge resultado={s.tacto.resultado} /> : (
-                              <span className="text-muted-foreground">Pendiente</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ─── TAB: Tactos ─── */}
-        <TabsContent value="tactos">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Diagnósticos de preñez</CardTitle>
-              <Button onClick={() => setDialogTacto(true)}>
-                <Plus className="mr-2 h-4 w-4" /> Nuevo tacto
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {loadTactos ? (
-                <LoadingSpinner />
-              ) : tactos.length === 0 ? (
-                <EmptyState text="No hay tactos registrados." />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-3 px-2 font-medium">Fecha</th>
-                        <th className="text-left py-3 px-2 font-medium">Hembra</th>
-                        <th className="text-left py-3 px-2 font-medium">Resultado</th>
-                        <th className="text-left py-3 px-2 font-medium">Meses gest.</th>
-                        <th className="text-left py-3 px-2 font-medium">Fecha prob. parto</th>
-                        <th className="text-left py-3 px-2 font-medium">Método</th>
-                        <th className="text-left py-3 px-2 font-medium">Veterinario</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tactos.map((t) => (
-                        <tr key={t.id} className="border-b hover:bg-muted/50">
-                          <td className="py-3 px-2">{fmt(t.fecha)}</td>
-                          <td className="py-3 px-2 font-medium">{label(t.hembra)}</td>
-                          <td className="py-3 px-2"><ResultadoBadge resultado={t.resultado} /></td>
-                          <td className="py-3 px-2">{t.mesesGest ?? "-"}</td>
-                          <td className="py-3 px-2">{t.fechaProbableParto ? fmt(t.fechaProbableParto) : "-"}</td>
-                          <td className="py-3 px-2">
-                            <Badge variant="outline">
-                              {t.metodo === "ecografia" ? "Ecografía" : "Palpación"}
-                            </Badge>
-                          </td>
-                          <td className="py-3 px-2">{t.veterinario || "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ─── TAB: Pariciones ─── */}
-        <TabsContent value="pariciones">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Pariciones</CardTitle>
-              <Button onClick={() => setDialogParicion(true)}>
-                <Plus className="mr-2 h-4 w-4" /> Nueva parición
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {loadPariciones ? (
-                <LoadingSpinner />
-              ) : pariciones.length === 0 ? (
-                <EmptyState text="No hay pariciones registradas." />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-3 px-2 font-medium">Fecha</th>
-                        <th className="text-left py-3 px-2 font-medium">Madre</th>
-                        <th className="text-left py-3 px-2 font-medium">Resultado</th>
-                        <th className="text-right py-3 px-2 font-medium">Peso (kg)</th>
-                        <th className="text-left py-3 px-2 font-medium">Tipo parto</th>
-                        <th className="text-left py-3 px-2 font-medium">Sexo cría</th>
-                        <th className="text-left py-3 px-2 font-medium">Padre</th>
-                        <th className="text-left py-3 px-2 font-medium">Cría</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pariciones.map((p) => (
-                        <tr key={p.id} className="border-b hover:bg-muted/50">
-                          <td className="py-3 px-2">{fmt(p.fecha)}</td>
-                          <td className="py-3 px-2 font-medium">{label(p.madre)}</td>
-                          <td className="py-3 px-2"><PartoBadge resultado={p.resultado} /></td>
-                          <td className="py-3 px-2 text-right">{p.pesoNacerKg ?? "-"}</td>
-                          <td className="py-3 px-2">
-                            {p.tipoParto ? (
-                              <Badge variant="outline">
-                                {p.tipoParto === "normal" ? "Normal" : p.tipoParto === "asistido" ? "Asistido" : "Cesárea"}
-                              </Badge>
-                            ) : "-"}
-                          </td>
-                          <td className="py-3 px-2">
-                            {p.sexoCria === "M" ? "Macho" : p.sexoCria === "F" ? "Hembra" : p.sexoCria || "-"}
-                          </td>
-                          <td className="py-3 px-2">{p.padre ? label(p.padre) : p.padreExterno || "-"}</td>
-                          <td className="py-3 px-2">{p.nacido ? label(p.nacido) : "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ─── TAB: Destetes ─── */}
-        <TabsContent value="destetes">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Destetes</CardTitle>
-              <Button onClick={() => setDialogDestete(true)}>
-                <Plus className="mr-2 h-4 w-4" /> Nuevo destete
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {loadDestetes ? (
-                <LoadingSpinner />
-              ) : destetes.length === 0 ? (
-                <EmptyState text="No hay destetes registrados." />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-3 px-2 font-medium">Fecha</th>
-                        <th className="text-left py-3 px-2 font-medium">Animal</th>
-                        <th className="text-left py-3 px-2 font-medium">Raza</th>
-                        <th className="text-right py-3 px-2 font-medium">Peso (kg)</th>
-                        <th className="text-right py-3 px-2 font-medium">Edad (días)</th>
-                        <th className="text-left py-3 px-2 font-medium">Método</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {destetes.map((d) => (
-                        <tr key={d.id} className="border-b hover:bg-muted/50">
-                          <td className="py-3 px-2">{fmt(d.fecha)}</td>
-                          <td className="py-3 px-2 font-medium">{label(d.animal)}</td>
-                          <td className="py-3 px-2">{d.animal.raza?.nombre || "-"}</td>
-                          <td className="py-3 px-2 text-right">{d.pesoKg ?? "-"}</td>
-                          <td className="py-3 px-2 text-right">{d.edadDias ?? "-"}</td>
-                          <td className="py-3 px-2"><MetodoBadge metodo={d.metodo} /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ─── TAB: Toradas ─── */}
-        <TabsContent value="toradas">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Temporadas de servicio</CardTitle>
-              <Button onClick={() => setDialogTorada(true)}>
-                <Plus className="mr-2 h-4 w-4" /> Nueva torada
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {loadToradas ? (
-                <LoadingSpinner />
-              ) : toradas.length === 0 ? (
-                <EmptyState text="No hay toradas registradas. Creá una nueva para comenzar." />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-3 px-2 font-medium">Nombre</th>
-                        <th className="text-left py-3 px-2 font-medium">Tipo</th>
-                        <th className="text-left py-3 px-2 font-medium">Inicio</th>
-                        <th className="text-left py-3 px-2 font-medium">Fin</th>
-                        <th className="text-left py-3 px-2 font-medium">Lote</th>
-                        <th className="text-right py-3 px-2 font-medium">Hembras</th>
-                        <th className="text-right py-3 px-2 font-medium">Machos</th>
-                        <th className="text-right py-3 px-2 font-medium">Servicios</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {toradas.map((t) => (
-                        <tr key={t.id} className="border-b hover:bg-muted/50">
-                          <td className="py-3 px-2 font-medium">{t.nombre}</td>
-                          <td className="py-3 px-2"><TipoBadge tipo={t.tipo} /></td>
-                          <td className="py-3 px-2">{fmt(t.fechaInicio)}</td>
-                          <td className="py-3 px-2">
-                            {t.fechaFin ? fmt(t.fechaFin) : (
-                              <Badge className="bg-green-100 text-green-800 border-green-200">Activa</Badge>
-                            )}
-                          </td>
-                          <td className="py-3 px-2">{t.lote?.nombre || "-"}</td>
-                          <td className="py-3 px-2 text-right">{t.cantidadHembras ?? "-"}</td>
-                          <td className="py-3 px-2 text-right">{t.cantidadMachos ?? "-"}</td>
-                          <td className="py-3 px-2 text-right">{t.servicios?.length || 0}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+        <TabsContent value="servicios"><ListaEventos<Servicio> titulo="Servicios" ruta="servicios" estId={estId} columnas={COL_SERVICIOS} vacio="No hay servicios registrados." nuevo={puede("servicio") ? { texto: "Nuevo servicio", onClick: () => setAbierto("servicios") } : undefined} /></TabsContent>
+        <TabsContent value="tactos"><ListaEventos<Tacto> titulo="Diagnósticos de preñez" ruta="tactos" estId={estId} columnas={COL_TACTOS} vacio="No hay tactos registrados." nuevo={puede("tacto") ? { texto: "Nuevo tacto", onClick: () => setAbierto("tactos") } : undefined} /></TabsContent>
+        <TabsContent value="pariciones"><ListaEventos<Paricion> titulo="Partos" ruta="pariciones" estId={estId} columnas={COL_PARICIONES} vacio="No hay partos registrados." nuevo={puede("paricion") ? { texto: "Nuevo parto", onClick: () => setAbierto("pariciones") } : undefined} /></TabsContent>
+        <TabsContent value="destetes"><ListaEventos<Destete> titulo="Destetes" ruta="destetes" estId={estId} columnas={COL_DESTETES} vacio="No hay destetes registrados." nuevo={puede("destete") ? { texto: "Nuevo destete", onClick: () => setAbierto("destetes") } : undefined} /></TabsContent>
+        <TabsContent value="toradas"><ListaEventos<Torada> titulo="Temporadas de servicio" ruta="toradas" estId={estId} columnas={COL_TORADAS} vacio="No hay toradas. Creá una para empezar." sinBusqueda nuevo={puede("torada") ? { texto: "Nueva torada", onClick: () => setAbierto("toradas") } : undefined} /></TabsContent>
       </Tabs>
 
-      {/* ─── Dialogs ─── */}
-
-      <ServicioDialog
-        open={dialogServicio}
-        onOpenChange={setDialogServicio}
-        hembras={hembras}
-        machos={machos}
-        toradas={toradas}
-        servicios={servicios}
-        onSuccess={invalidateAll}
-      />
-
-      <TactoDialog
-        open={dialogTacto}
-        onOpenChange={setDialogTacto}
-        hembras={hembras}
-        servicios={servicios}
-        onSuccess={invalidateAll}
-      />
-
-      <ParicionDialog
-        open={dialogParicion}
-        onOpenChange={setDialogParicion}
-        hembras={hembras}
-        machos={machos}
-        onSuccess={invalidateAll}
-      />
-
-      <DesteteDialog
-        open={dialogDestete}
-        onOpenChange={setDialogDestete}
-        animales={allAnimals}
-        lotes={lotes}
-        onSuccess={invalidateAll}
-      />
-
-      <ToradaDialog
-        open={dialogTorada}
-        onOpenChange={setDialogTorada}
-        lotes={lotes}
-        onSuccess={invalidateAll}
-      />
+      <ServicioDialog open={abierto === "servicios" && puede(ACCION_DE.servicios)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} onSuccess={invalidar} />
+      <TactoDialog open={abierto === "tactos" && puede(ACCION_DE.tactos)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} onSuccess={invalidar} />
+      <ParicionDialog open={abierto === "pariciones" && puede(ACCION_DE.pariciones)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} onSuccess={invalidar} />
+      <DesteteDialog open={abierto === "destetes" && puede(ACCION_DE.destetes)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} lotes={lotes.data ?? []} onSuccess={invalidar} />
+      <ToradaDialog open={abierto === "toradas" && puede(ACCION_DE.toradas)} onOpenChange={(o) => !o && setAbierto(null)} lotes={lotes.data ?? []} onSuccess={invalidar} />
     </div>
   )
 }
 
-// ────────────────────────────────────────────
-// Shared small components
-// ────────────────────────────────────────────
-
-function LoadingSpinner() {
+function Kpi({ titulo, icono: Icono, valor, detalle }: { titulo: string; icono: typeof Heart; valor: ReactNode; detalle: ReactNode }) {
   return (
-    <div className="flex justify-center py-12">
-      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-    </div>
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">{titulo}</CardTitle><Icono className="h-4 w-4 text-muted-foreground" aria-hidden />
+      </CardHeader>
+      <CardContent><div className="text-2xl font-bold">{valor}</div><p className="text-xs text-muted-foreground">{detalle}</p></CardContent>
+    </Card>
   )
 }
 
-function EmptyState({ text }: { text: string }) {
-  return <p className="text-center py-12 text-muted-foreground">{text}</p>
-}
-
-// ────────────────────────────────────────────
-// Animal search select (reusable)
-// ────────────────────────────────────────────
-
-function AnimalSelect({
-  value,
-  onChange,
-  animals,
-  placeholder,
-}: {
-  value: string
-  onChange: (id: string) => void
-  animals: AnimalOption[]
-  placeholder: string
+/** Listado paginado de un tipo de evento del campo, con búsqueda por caravana. */
+function ListaEventos<T extends { id: string }>({ titulo, ruta, estId, columnas, vacio, nuevo, sinBusqueda }: {
+  titulo: string; ruta: string; estId: string; columnas: Columna<T>[]; vacio: string
+  nuevo?: { texto: string; onClick: () => void }; sinBusqueda?: boolean
 }) {
-  const [search, setSearch] = useState("")
-  const filtered = search
-    ? animals.filter(
-        (a) =>
-          (a.caravanaVisual || "").toLowerCase().includes(search.toLowerCase()) ||
-          (a.cuig || "").toLowerCase().includes(search.toLowerCase())
-      )
-    : animals
-
+  const [page, setPage] = useState(1)
+  const [q, setQ] = useState("")
+  const [busqueda, setBusqueda] = useState("")
+  useEffect(() => { const t = setTimeout(() => { setBusqueda(q.trim()); setPage(1) }, 300); return () => clearTimeout(t) }, [q])
+  useEffect(() => setPage(1), [estId])
+  const params = new URLSearchParams({ establecimientoId: estId, page: String(page), limit: "20", ...(busqueda ? { q: busqueda } : {}) })
+  const lista = useQuery({
+    queryKey: ["repro", ruta, params.toString()],
+    queryFn: async () => { const r = await fetch(`/api/reproduccion/${ruta}?${params}`); const b = await r.json(); if (!r.ok) throw new Error(b.error ?? "No se pudo cargar"); return b as Pagina<T> },
+    enabled: !!estId,
+    placeholderData: (prev) => prev,
+  })
+  const filas = lista.data?.data ?? []
+  const pag = lista.data?.pagination
   return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger><SelectValue placeholder={placeholder} /></SelectTrigger>
-      <SelectContent>
-        <div className="p-2">
-          <div className="flex items-center gap-2 px-1 pb-2">
-            <Search className="h-4 w-4 text-muted-foreground" />
-            <input
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              placeholder="Buscar caravana..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+    <Card>
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+        <CardTitle>{titulo}{pag ? <span className="ml-2 text-sm font-normal text-muted-foreground">({pag.total})</span> : null}</CardTitle>
+        <div className="flex flex-wrap items-center gap-2">
+          {!sinBusqueda && (
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden />
+              <Input aria-label="Buscar por caravana" placeholder="Buscar caravana…" className="w-48 pl-8" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+          )}
+          {nuevo && <Button onClick={nuevo.onClick}><Plus className="mr-2 h-4 w-4" />{nuevo.texto}</Button>}
         </div>
-        {filtered.length === 0 && (
-          <SelectItem value="__none" disabled>Sin resultados</SelectItem>
+      </CardHeader>
+      <CardContent>
+        {lista.isPending ? (
+          <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-label="Cargando" /></div>
+        ) : lista.isError ? (
+          <p role="alert" className="erp-error">{lista.error.message} <button className="underline" onClick={() => lista.refetch()}>Reintentar</button></p>
+        ) : !filas.length ? (
+          <p className="py-12 text-center text-muted-foreground">{busqueda ? "Sin resultados para esa búsqueda." : vacio}</p>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b">{columnas.map((c) => <th key={c.titulo} className={`px-2 py-3 font-medium ${c.derecha ? "text-right" : "text-left"}`}>{c.titulo}</th>)}</tr></thead>
+                <tbody>
+                  {filas.map((f) => <tr key={f.id} className="border-b hover:bg-muted/50">{columnas.map((c) => <td key={c.titulo} className={`px-2 py-3 ${c.derecha ? "text-right tabular-nums" : ""}`}>{c.celda(f)}</td>)}</tr>)}
+                </tbody>
+              </table>
+            </div>
+            {pag && pag.totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Página {pag.page} de {pag.totalPages}</span>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" aria-label="Página anterior" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+                  <Button variant="outline" size="sm" aria-label="Página siguiente" disabled={page >= pag.totalPages} onClick={() => setPage((p) => p + 1)}><ChevronRight className="h-4 w-4" /></Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
-        {filtered.slice(0, 50).map((a) => (
-          <SelectItem key={a.id} value={a.id}>
-            {label(a)} {a.sexo === "M" ? "(M)" : a.sexo === "F" ? "(H)" : ""}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
-}
-
-// ────────────────────────────────────────────
-// Dialog: Servicio
-// ────────────────────────────────────────────
-
-function ServicioDialog({
-  open,
-  onOpenChange,
-  hembras,
-  machos,
-  toradas,
-  servicios,
-  onSuccess,
-}: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  hembras: AnimalOption[]
-  machos: AnimalOption[]
-  toradas: Torada[]
-  servicios: Servicio[]
-  onSuccess: () => void
-}) {
-  const [form, setForm] = useState({
-    fecha: "", tipo: "natural", hembraId: "", machoId: "",
-    toradaId: "", toroNombre: "", loteSemen: "", inseminador: "", observ: "",
-  })
-
-  const reset = () => setForm({
-    fecha: "", tipo: "natural", hembraId: "", machoId: "",
-    toradaId: "", toroNombre: "", loteSemen: "", inseminador: "", observ: "",
-  })
-
-  const mutation = useMutation({
-    mutationFn: () => postJson("/api/reproduccion/servicios", form),
-    onSuccess: () => {
-      toast.success("Servicio registrado correctamente")
-      reset()
-      onOpenChange(false)
-      onSuccess()
-    },
-    onError: (err: Error) => toast.error(err.message),
-  })
-
-  function submit() {
-    if (!form.fecha || !form.hembraId) {
-      toast.error("Completá los campos requeridos")
-      return
-    }
-    mutation.mutate()
-  }
-
-  const set = (patch: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...patch }))
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v) }}>
-      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Nuevo servicio</DialogTitle>
-          <DialogDescription>Registrá un servicio (monta natural o IA)</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label>Fecha *</Label>
-              <Input type="date" value={form.fecha} onChange={(e) => set({ fecha: e.target.value })} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Tipo *</Label>
-              <Select value={form.tipo} onValueChange={(v) => set({ tipo: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="natural">Natural</SelectItem>
-                  <SelectItem value="ia">IA</SelectItem>
-                  <SelectItem value="iatf">IATF</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <Label>Hembra *</Label>
-            <AnimalSelect value={form.hembraId} onChange={(v) => set({ hembraId: v })} animals={hembras} placeholder="Seleccioná hembra" />
-          </div>
-          {form.tipo === "natural" ? (
-            <div className="grid gap-2">
-              <Label>Macho</Label>
-              <AnimalSelect value={form.machoId} onChange={(v) => set({ machoId: v })} animals={machos} placeholder="Seleccioná macho (opcional)" />
-            </div>
-          ) : (
-            <>
-              <div className="grid gap-2">
-                <Label>Nombre del toro (semen)</Label>
-                <Input value={form.toroNombre} onChange={(e) => set({ toroNombre: e.target.value })} />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label>Lote semen</Label>
-                  <Input value={form.loteSemen} onChange={(e) => set({ loteSemen: e.target.value })} />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Inseminador</Label>
-                  <Input value={form.inseminador} onChange={(e) => set({ inseminador: e.target.value })} />
-                </div>
-              </div>
-            </>
-          )}
-          <div className="grid gap-2">
-            <Label>Torada</Label>
-            <Select value={form.toradaId} onValueChange={(v) => set({ toradaId: v })}>
-              <SelectTrigger><SelectValue placeholder="Asociar a torada (opcional)" /></SelectTrigger>
-              <SelectContent>
-                {toradas.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>{t.nombre}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-2">
-            <Label>Observaciones</Label>
-            <Input value={form.observ} onChange={(e) => set({ observ: e.target.value })} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={submit} disabled={mutation.isPending}>
-            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Registrar servicio
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ────────────────────────────────────────────
-// Dialog: Tacto
-// ────────────────────────────────────────────
-
-function TactoDialog({
-  open,
-  onOpenChange,
-  hembras,
-  servicios,
-  onSuccess,
-}: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  hembras: AnimalOption[]
-  servicios: Servicio[]
-  onSuccess: () => void
-}) {
-  const [form, setForm] = useState({
-    fecha: "", resultado: "preñada", mesesGest: "", fechaProbableParto: "",
-    metodo: "palpacion", veterinario: "", hembraId: "", servicioId: "", observ: "",
-  })
-
-  const reset = () => setForm({
-    fecha: "", resultado: "preñada", mesesGest: "", fechaProbableParto: "",
-    metodo: "palpacion", veterinario: "", hembraId: "", servicioId: "", observ: "",
-  })
-
-  const mutation = useMutation({
-    mutationFn: () => postJson("/api/reproduccion/tactos", form),
-    onSuccess: () => {
-      toast.success("Tacto registrado correctamente")
-      reset()
-      onOpenChange(false)
-      onSuccess()
-    },
-    onError: (err: Error) => toast.error(err.message),
-  })
-
-  function submit() {
-    if (!form.fecha || !form.hembraId || !form.resultado) {
-      toast.error("Completá los campos requeridos")
-      return
-    }
-    mutation.mutate()
-  }
-
-  const set = (patch: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...patch }))
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v) }}>
-      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Nuevo tacto</DialogTitle>
-          <DialogDescription>Registrá un diagnóstico de preñez</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label>Fecha *</Label>
-              <Input type="date" value={form.fecha} onChange={(e) => set({ fecha: e.target.value })} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Resultado *</Label>
-              <Select value={form.resultado} onValueChange={(v) => set({ resultado: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="preñada">Preñada</SelectItem>
-                  <SelectItem value="vacia">Vacía</SelectItem>
-                  <SelectItem value="dudosa">Dudosa</SelectItem>
-                  <SelectItem value="absorcion">Absorción</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <Label>Hembra *</Label>
-            <AnimalSelect value={form.hembraId} onChange={(v) => set({ hembraId: v })} animals={hembras} placeholder="Seleccioná hembra" />
-          </div>
-          <div className="grid gap-2">
-            <Label>Método *</Label>
-            <Select value={form.metodo} onValueChange={(v) => set({ metodo: v })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="palpacion">Palpación</SelectItem>
-                <SelectItem value="ecografia">Ecografía</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {form.resultado === "preñada" && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Meses gestación</Label>
-                <Input type="number" step="0.5" value={form.mesesGest} onChange={(e) => set({ mesesGest: e.target.value })} />
-              </div>
-              <div className="grid gap-2">
-                <Label>Fecha prob. parto</Label>
-                <Input type="date" value={form.fechaProbableParto} onChange={(e) => set({ fechaProbableParto: e.target.value })} />
-              </div>
-            </div>
-          )}
-          <div className="grid gap-2">
-            <Label>Servicio asociado</Label>
-            <Select value={form.servicioId} onValueChange={(v) => set({ servicioId: v })}>
-              <SelectTrigger><SelectValue placeholder="Asociar a servicio (opcional)" /></SelectTrigger>
-              <SelectContent>
-                {servicios.filter((s) => !s.tacto).map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {fmt(s.fecha)} - {label(s.hembra)} ({s.tipo})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-2">
-            <Label>Veterinario</Label>
-            <Input value={form.veterinario} onChange={(e) => set({ veterinario: e.target.value })} />
-          </div>
-          <div className="grid gap-2">
-            <Label>Observaciones</Label>
-            <Input value={form.observ} onChange={(e) => set({ observ: e.target.value })} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={submit} disabled={mutation.isPending}>
-            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Registrar tacto
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ────────────────────────────────────────────
-// Dialog: Parición
-// ────────────────────────────────────────────
-
-function ParicionDialog({
-  open,
-  onOpenChange,
-  hembras,
-  machos,
-  onSuccess,
-}: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  hembras: AnimalOption[]
-  machos: AnimalOption[]
-  onSuccess: () => void
-}) {
-  const [form, setForm] = useState({
-    fecha: "", resultado: "vivo", pesoNacerKg: "", tipoParto: "normal",
-    dificultad: "", sexoCria: "", madreId: "", padreId: "", padreExterno: "", observ: "",
-  })
-
-  const reset = () => setForm({
-    fecha: "", resultado: "vivo", pesoNacerKg: "", tipoParto: "normal",
-    dificultad: "", sexoCria: "", madreId: "", padreId: "", padreExterno: "", observ: "",
-  })
-
-  const mutation = useMutation({
-    mutationFn: () => postJson("/api/reproduccion/pariciones", form),
-    onSuccess: () => {
-      toast.success("Parición registrada correctamente")
-      reset()
-      onOpenChange(false)
-      onSuccess()
-    },
-    onError: (err: Error) => toast.error(err.message),
-  })
-
-  function submit() {
-    if (!form.fecha || !form.madreId || !form.resultado) {
-      toast.error("Completá los campos requeridos")
-      return
-    }
-    mutation.mutate()
-  }
-
-  const set = (patch: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...patch }))
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v) }}>
-      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Nueva parición</DialogTitle>
-          <DialogDescription>Registrá un nacimiento</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label>Fecha *</Label>
-              <Input type="date" value={form.fecha} onChange={(e) => set({ fecha: e.target.value })} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Resultado *</Label>
-              <Select value={form.resultado} onValueChange={(v) => set({ resultado: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="vivo">Vivo</SelectItem>
-                  <SelectItem value="muerto">Muerto</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <Label>Madre *</Label>
-            <AnimalSelect value={form.madreId} onChange={(v) => set({ madreId: v })} animals={hembras} placeholder="Seleccioná la madre" />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label>Padre (del rodeo)</Label>
-              <AnimalSelect value={form.padreId} onChange={(v) => set({ padreId: v })} animals={machos} placeholder="Opcional" />
-            </div>
-            <div className="grid gap-2">
-              <Label>Padre externo</Label>
-              <Input placeholder="Nombre toro IA" value={form.padreExterno} onChange={(e) => set({ padreExterno: e.target.value })} />
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="grid gap-2">
-              <Label>Peso nacer (kg)</Label>
-              <Input type="number" step="0.1" value={form.pesoNacerKg} onChange={(e) => set({ pesoNacerKg: e.target.value })} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Tipo parto</Label>
-              <Select value={form.tipoParto} onValueChange={(v) => set({ tipoParto: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="normal">Normal</SelectItem>
-                  <SelectItem value="asistido">Asistido</SelectItem>
-                  <SelectItem value="cesarea">Cesárea</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Sexo cría</Label>
-              <Select value={form.sexoCria} onValueChange={(v) => set({ sexoCria: v })}>
-                <SelectTrigger><SelectValue placeholder="Sexo" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="M">Macho</SelectItem>
-                  <SelectItem value="F">Hembra</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <Label>Dificultad (1-5)</Label>
-            <Input type="number" min="1" max="5" value={form.dificultad} onChange={(e) => set({ dificultad: e.target.value })} />
-          </div>
-          <div className="grid gap-2">
-            <Label>Observaciones</Label>
-            <Input value={form.observ} onChange={(e) => set({ observ: e.target.value })} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={submit} disabled={mutation.isPending}>
-            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Registrar parición
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ────────────────────────────────────────────
-// Dialog: Destete
-// ────────────────────────────────────────────
-
-function DesteteDialog({
-  open,
-  onOpenChange,
-  animales,
-  lotes,
-  onSuccess,
-}: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  animales: AnimalOption[]
-  lotes: LoteOption[]
-  onSuccess: () => void
-}) {
-  const [form, setForm] = useState({
-    fecha: "", pesoKg: "", edadDias: "", metodo: "tradicional",
-    animalId: "", loteDesteteId: "", observ: "",
-  })
-
-  const reset = () => setForm({
-    fecha: "", pesoKg: "", edadDias: "", metodo: "tradicional",
-    animalId: "", loteDesteteId: "", observ: "",
-  })
-
-  const mutation = useMutation({
-    mutationFn: () => postJson("/api/reproduccion/destetes", form),
-    onSuccess: () => {
-      toast.success("Destete registrado correctamente")
-      reset()
-      onOpenChange(false)
-      onSuccess()
-    },
-    onError: (err: Error) => toast.error(err.message),
-  })
-
-  function submit() {
-    if (!form.fecha || !form.animalId) {
-      toast.error("Completá los campos requeridos")
-      return
-    }
-    mutation.mutate()
-  }
-
-  const set = (patch: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...patch }))
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v) }}>
-      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Nuevo destete</DialogTitle>
-          <DialogDescription>Registrá un destete</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid gap-2">
-            <Label>Fecha *</Label>
-            <Input type="date" value={form.fecha} onChange={(e) => set({ fecha: e.target.value })} />
-          </div>
-          <div className="grid gap-2">
-            <Label>Animal *</Label>
-            <AnimalSelect value={form.animalId} onChange={(v) => set({ animalId: v })} animals={animales} placeholder="Seleccioná el animal" />
-          </div>
-          <div className="grid gap-2">
-            <Label>Lote destino</Label>
-            <Select value={form.loteDesteteId} onValueChange={(v) => set({ loteDesteteId: v })}>
-              <SelectTrigger><SelectValue placeholder="Seleccioná lote destino (opcional)" /></SelectTrigger>
-              <SelectContent>
-                {lotes.length === 0 ? (
-                  <SelectItem value="__none" disabled>No hay lotes disponibles</SelectItem>
-                ) : (
-                  lotes.map((l) => (
-                    <SelectItem key={l.id} value={l.id}>{l.nombre}</SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label>Peso (kg)</Label>
-              <Input type="number" step="0.1" value={form.pesoKg} onChange={(e) => set({ pesoKg: e.target.value })} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Edad (días)</Label>
-              <Input type="number" value={form.edadDias} onChange={(e) => set({ edadDias: e.target.value })} />
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <Label>Método</Label>
-            <Select value={form.metodo} onValueChange={(v) => set({ metodo: v })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="tradicional">Tradicional</SelectItem>
-                <SelectItem value="precoz">Precoz</SelectItem>
-                <SelectItem value="hiperprecoz">Hiperprecoz</SelectItem>
-                <SelectItem value="destetador">Destetador</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-2">
-            <Label>Observaciones</Label>
-            <Input value={form.observ} onChange={(e) => set({ observ: e.target.value })} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={submit} disabled={mutation.isPending}>
-            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Registrar destete
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ────────────────────────────────────────────
-// Dialog: Torada
-// ────────────────────────────────────────────
-
-function ToradaDialog({
-  open,
-  onOpenChange,
-  lotes,
-  onSuccess,
-}: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  lotes: LoteOption[]
-  onSuccess: () => void
-}) {
-  const [form, setForm] = useState({
-    nombre: "", fechaInicio: "", fechaFin: "", tipo: "natural",
-    cantidadHembras: "", cantidadMachos: "", observ: "", loteId: "",
-  })
-
-  const reset = () => setForm({
-    nombre: "", fechaInicio: "", fechaFin: "", tipo: "natural",
-    cantidadHembras: "", cantidadMachos: "", observ: "", loteId: "",
-  })
-
-  const mutation = useMutation({
-    mutationFn: () => postJson("/api/reproduccion/toradas", form),
-    onSuccess: () => {
-      toast.success("Torada creada correctamente")
-      reset()
-      onOpenChange(false)
-      onSuccess()
-    },
-    onError: (err: Error) => toast.error(err.message),
-  })
-
-  function submit() {
-    if (!form.nombre || !form.fechaInicio || !form.loteId) {
-      toast.error("Completá los campos requeridos")
-      return
-    }
-    mutation.mutate()
-  }
-
-  const set = (patch: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...patch }))
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v) }}>
-      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Nueva torada</DialogTitle>
-          <DialogDescription>Registrá una nueva temporada de servicio</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid gap-2">
-            <Label>Nombre *</Label>
-            <Input placeholder="Servicio Otoño 2026" value={form.nombre} onChange={(e) => set({ nombre: e.target.value })} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label>Fecha inicio *</Label>
-              <Input type="date" value={form.fechaInicio} onChange={(e) => set({ fechaInicio: e.target.value })} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Fecha fin</Label>
-              <Input type="date" value={form.fechaFin} onChange={(e) => set({ fechaFin: e.target.value })} />
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <Label>Tipo *</Label>
-            <Select value={form.tipo} onValueChange={(v) => set({ tipo: v })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="natural">Natural</SelectItem>
-                <SelectItem value="ia">IA</SelectItem>
-                <SelectItem value="iatf">IATF</SelectItem>
-                <SelectItem value="mixto">Mixto</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-2">
-            <Label>Lote *</Label>
-            <Select value={form.loteId} onValueChange={(v) => set({ loteId: v })}>
-              <SelectTrigger><SelectValue placeholder="Seleccioná un lote" /></SelectTrigger>
-              <SelectContent>
-                {lotes.length === 0 ? (
-                  <SelectItem value="__none" disabled>No hay lotes disponibles</SelectItem>
-                ) : (
-                  lotes.map((l) => (
-                    <SelectItem key={l.id} value={l.id}>{l.nombre}</SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label>Cantidad hembras</Label>
-              <Input type="number" value={form.cantidadHembras} onChange={(e) => set({ cantidadHembras: e.target.value })} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Cantidad machos</Label>
-              <Input type="number" value={form.cantidadMachos} onChange={(e) => set({ cantidadMachos: e.target.value })} />
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <Label>Observaciones</Label>
-            <Input value={form.observ} onChange={(e) => set({ observ: e.target.value })} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={submit} disabled={mutation.isPending}>
-            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Crear torada
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </CardContent>
+    </Card>
   )
 }

@@ -5,14 +5,15 @@ import { scopeEstablecimiento } from "@/lib/api/tenant"
 import { MangaSessionError, withMangaSession } from "@/lib/api/manga-session"
 import { normalizeEID } from "@/lib/hardware/eid"
 import { prisma } from "@/lib/prisma"
+import { RESULTADOS_TACTO } from "@/lib/reproduccion/validation"
 
 const crearItemSchema = z.object({
   eidLeido: z.string().min(1, "El EID es requerido"),
   pesoKg: z.number().positive().optional().nullable(),
   cc: z.number().min(1).max(9).optional().nullable(),
   denticion: z.string().optional().nullable(),
-  resultadoTacto: z.string().optional().nullable(),
-  mesesGestacion: z.number().positive().optional().nullable(),
+  resultadoTacto: z.enum(RESULTADOS_TACTO, { errorMap: () => ({ message: "Resultado de tacto inválido" }) }).optional().nullable(),
+  mesesGestacion: z.number().positive().max(10).optional().nullable(),
   accionSanidad: z.boolean().optional(),
   apartadoA: z.string().optional().nullable(),
   observaciones: z.string().optional().nullable(),
@@ -106,6 +107,12 @@ export const POST = withAuth(async (request, ctx) => {
             { status: 404 }
           )
         }
+        if (parsed.data.resultadoTacto && animal.sexo !== "F") {
+          return NextResponse.json({ error: "Solo se puede tactar a una hembra" }, { status: 400 })
+        }
+      }
+      if (parsed.data.resultadoTacto && parsed.data.esNuevoRegistro && parsed.data.sexo !== "F") {
+        return NextResponse.json({ error: "Solo se puede tactar a una hembra" }, { status: 400 })
       }
 
       const maxOrden = await tx.sesionMangaItem.aggregate({

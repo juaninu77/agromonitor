@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Activity, Baby, Ban, ChevronLeft, ChevronRight, Heart, Loader2, MoreHorizontal, Pencil, Plus, Search, Syringe, TrendingUp } from "lucide-react"
+import { Activity, Baby, Ban, Users, ChevronLeft, ChevronRight, Heart, Loader2, MoreHorizontal, Pencil, Plus, Search, Syringe, TrendingUp } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,13 +13,14 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AnularEventoDialog, EditarEventoDialog, ToradaEditarDialog, type EventoAccion, type ToradaEditable } from "@/components/reproduccion/acciones"
 import { etiquetaAnimal, type AnimalOpcion } from "@/components/reproduccion/animal-combobox"
-import { DesteteDialog, ParicionDialog, ServicioDialog, TactoDialog, ToradaDialog, type Opcion } from "@/components/reproduccion/dialogos"
+import { DesteteDialog, ParicionDialog, ServicioDialog, TactoDialog, ToradaDialog } from "@/components/reproduccion/dialogos"
+import { DesteteMasivoDialog, PlanillaTactoDialog, SenaladaDialog, ServicioMasivoDialog, type GrupoOpcion } from "@/components/reproduccion/grupos-dialogos"
 import { useTenant } from "@/lib/context/tenant-context"
 import { usePermissions } from "@/lib/hooks/use-permissions"
 import { formatoDia } from "@/lib/inventario/fechas"
 import {
   ETIQUETA_METODO_DESTETE, ETIQUETA_METODO_TACTO, ETIQUETA_RESULTADO_TACTO, ETIQUETA_TIPO_PARTO, ETIQUETA_TIPO_SERVICIO, ROLES_ANULAR, ROLES_REPRODUCCION,
-  type AccionReproduccion, type ResultadoTacto, type TipoEvento,
+  TERMINOS_GRUPO, type AccionReproduccion, type ResultadoTacto, type TipoEvento, type TipoGrupo,
 } from "@/lib/reproduccion/validation"
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
@@ -30,7 +31,7 @@ interface Servicio extends Anulable { tipo: string; toroNombre: string | null; l
 interface Tacto extends Anulable { resultado: string; mesesGest: number | null; fechaProbableParto: string | null; metodo: string; veterinario: string | null; hembra: Ident }
 interface Paricion extends Anulable { resultado: string; pesoNacerKg: number | null; tipoParto: string | null; dificultad: number | null; sexoCria: string | null; padreExterno: string | null; madre: Ident; padre: Ident | null; nacido: Ident | null }
 interface Destete extends Anulable { pesoKg: number | null; edadDias: number | null; metodo: string | null; gdpKg: number | null; peso205: number | null; animal: Ident & { raza: { nombre: string } | null }; loteDestete: { nombre: string } | null }
-interface Torada { id: string; nombre: string; tipo: string; fechaInicio: string; fechaFin: string | null; observ: string | null; cantidadHembras: number | null; cantidadMachos: number | null; lote: { nombre: string; especieId: string }; machos: { animal: AnimalOpcion }[]; _count: { servicios: number } }
+interface Torada { id: string; nombre: string; tipo: string; tipoGrupo: TipoGrupo; fechaInicio: string; fechaFin: string | null; observ: string | null; cantidadHembras: number | null; cantidadMachos: number | null; lote: { nombre: string; especieId: string }; machos: { animal: AnimalOpcion }[]; _count: { servicios: number } }
 interface Resumen {
   anio: number
   servidasSinTacto: number
@@ -107,19 +108,40 @@ const COL_DESTETES: Columna<Destete>[] = [
 ]
 const COL_TORADAS: Columna<Torada>[] = [
   { titulo: "Nombre", celda: (t) => <span className="font-medium">{t.nombre}</span> },
-  { titulo: "Tipo", celda: (t) => <TipoBadge tipo={t.tipo} /> },
+  { titulo: "Grupo reproductivo", celda: (t) => <span className="flex items-center gap-1.5">{TERMINOS_GRUPO[t.tipoGrupo]?.grupo ?? "Torada"}<TipoBadge tipo={t.tipo} /></span> },
   { titulo: "Inicio", celda: (t) => formatoDia(t.fechaInicio) },
   { titulo: "Fin", celda: (t) => (t.fechaFin ? formatoDia(t.fechaFin) : <Badge className="bg-green-100 text-green-800 border-green-200">Abierta</Badge>) },
   { titulo: "Grupo", celda: (t) => t.lote.nombre },
   { titulo: "Hembras", celda: (t) => guion(t.cantidadHembras), derecha: true },
-  { titulo: "Toros", celda: (t) => guion(t.machos.length ? t.machos.map((m) => etiquetaAnimal(m.animal)).join(", ") : t.cantidadMachos) },
+  { titulo: "Toros / carneros", celda: (t) => guion(t.machos.length ? t.machos.map((m) => etiquetaAnimal(m.animal)).join(", ") : t.cantidadMachos) },
   { titulo: "Servicios", celda: (t) => t._count.servicios, derecha: true },
+]
+interface Senalada extends Anulable {
+  corderosSenalados: number; corderosMuertos: number; machosMantenidos: number; machosCastrados: number; hembras: number
+  lote: { nombre: string }; torada: { nombre: string } | null; productoClostridial: { nombre: string } | null
+  encarneradas: number | null; porcentajeSenalada: number | null; calificacion: "bueno" | "regular" | "malo" | null
+}
+const CLASE_CALIFICACION = { bueno: "bg-green-100 text-green-800 border-green-200", regular: "bg-amber-100 text-amber-800 border-amber-200", malo: "bg-red-100 text-red-800 border-red-200" }
+const COL_SENALADAS: Columna<Senalada>[] = [
+  { titulo: "Fecha", celda: (s) => formatoDia(s.fecha) },
+  { titulo: "Grupo", celda: (s) => <span className="font-medium">{s.lote.nombre}</span> },
+  { titulo: "Encarnerada", celda: (s) => guion(s.torada?.nombre) },
+  { titulo: "Señalados", celda: (s) => s.corderosSenalados, derecha: true },
+  { titulo: "Muertos antes", celda: (s) => s.corderosMuertos, derecha: true },
+  { titulo: "Machos / castr. / hembras", celda: (s) => (s.machosMantenidos + s.machosCastrados + s.hembras ? `${s.machosMantenidos} / ${s.machosCastrados} / ${s.hembras}` : guion(null)) },
+  { titulo: "% señalada", celda: (s) => (s.porcentajeSenalada != null ? (
+    <span className="flex items-center gap-1.5" title={`Sobre ${s.encarneradas} ovejas encarneradas · referencia Patagonia: bueno 75–85 %, regular 60–75 %, malo menos de 60 %`}>
+      {s.porcentajeSenalada} %<Badge className={s.calificacion ? CLASE_CALIFICACION[s.calificacion] : ""}>{s.calificacion}</Badge>
+    </span>
+  ) : guion(null)) },
+  { titulo: "Vacuna", celda: (s) => guion(s.productoClostridial?.nombre) },
 ]
 
 // ─── Página ─────────────────────────────────────────────────────────────────
 
-type Pestania = "servicios" | "tactos" | "pariciones" | "destetes" | "toradas"
-const ACCION_DE: Record<Pestania, AccionReproduccion> = { servicios: "servicio", tactos: "tacto", pariciones: "paricion", destetes: "destete", toradas: "torada" }
+type Pestania = "servicios" | "tactos" | "pariciones" | "destetes" | "toradas" | "senaladas"
+const ACCION_DE: Record<Pestania, AccionReproduccion> = { servicios: "servicio", tactos: "tacto", pariciones: "paricion", destetes: "destete", toradas: "torada", senaladas: "senalada" }
+type PorGrupo = "servicio" | "tacto" | "destete" | null
 
 export default function ReproduccionPage() {
   const { establecimientoActivo, isLoading: tenantLoading } = useTenant()
@@ -129,6 +151,7 @@ export default function ReproduccionPage() {
   const puede = (a: AccionReproduccion) => hasRole(...ROLES_REPRODUCCION[a])
   const [pestania, setPestania] = useState<Pestania>("servicios")
   const [abierto, setAbierto] = useState<Pestania | null>(null)
+  const [porGrupo, setPorGrupo] = useState<PorGrupo>(null)
   const [editando, setEditando] = useState<EventoAccion | null>(null)
   const [anulando, setAnulando] = useState<EventoAccion | null>(null)
   const [torada, setTorada] = useState<ToradaEditable | null>(null)
@@ -154,8 +177,8 @@ export default function ReproduccionPage() {
     queryFn: async () => {
       const r = await fetch(`/api/establecimientos/${estId}/lotes`)
       const b = await r.json().catch(() => [])
-      const lista = (Array.isArray(b) ? b : b.data ?? []) as (Opcion & { activo?: boolean })[]
-      return lista.filter((l) => l.activo !== false).map((l) => ({ id: l.id, nombre: l.nombre }))
+      const lista = (Array.isArray(b) ? b : b.data ?? []) as { id: string; nombre: string; activo?: boolean; cantidadAnimales?: number; especie?: { nombre: string } | null }[]
+      return lista.filter((l) => l.activo !== false).map((l): GrupoOpcion => ({ id: l.id, nombre: l.nombre, especie: l.especie?.nombre ?? null, cantidad: l.cantidadAnimales }))
     },
     enabled: !!estId,
   })
@@ -190,6 +213,17 @@ export default function ReproduccionPage() {
           {puede("servicio") && <Button size="sm" variant="outline" onClick={() => abrir("servicios")}><Syringe className="mr-2 h-4 w-4" />Nuevo servicio</Button>}
           {puede("tacto") && <Button size="sm" variant="outline" onClick={() => abrir("tactos")}><Activity className="mr-2 h-4 w-4" />Registrar tacto</Button>}
           {puede("paricion") && <Button size="sm" onClick={() => abrir("pariciones")}><Baby className="mr-2 h-4 w-4" />Registrar parto</Button>}
+          {(puede("servicio") || puede("tacto") || puede("destete") || puede("senalada")) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button size="sm" variant="outline"><Users className="mr-2 h-4 w-4" />Por grupo</Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {puede("servicio") && <DropdownMenuItem onSelect={() => { setPestania("servicios"); setPorGrupo("servicio") }}>Servicio por torada</DropdownMenuItem>}
+                {puede("tacto") && <DropdownMenuItem onSelect={() => { setPestania("tactos"); setPorGrupo("tacto") }}>Planilla de tacto</DropdownMenuItem>}
+                {puede("destete") && <DropdownMenuItem onSelect={() => { setPestania("destetes"); setPorGrupo("destete") }}>Destete por grupo</DropdownMenuItem>}
+                {puede("senalada") && <DropdownMenuItem onSelect={() => abrir("senaladas")}>Señalada (ovinos)</DropdownMenuItem>}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 
@@ -206,12 +240,13 @@ export default function ReproduccionPage() {
       </div>
 
       <Tabs value={pestania} onValueChange={(v) => setPestania(v as Pestania)}>
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid h-auto w-full grid-cols-3 sm:grid-cols-6">
           <TabsTrigger value="servicios">Servicios</TabsTrigger>
           <TabsTrigger value="tactos">Tactos</TabsTrigger>
           <TabsTrigger value="pariciones">Partos</TabsTrigger>
           <TabsTrigger value="destetes">Destetes</TabsTrigger>
           <TabsTrigger value="toradas">Toradas</TabsTrigger>
+          <TabsTrigger value="senaladas">Señaladas</TabsTrigger>
         </TabsList>
         <TabsContent value="servicios"><ListaEventos<Servicio> titulo="Servicios" ruta="servicios" estId={estId} columnas={COL_SERVICIOS} vacio="No hay servicios registrados."
           acciones={acciones("servicio", "servicio", (s: Servicio) => `Servicio de ${etiquetaAnimal(s.hembra)} del ${formatoDia(s.fecha)}`, (s: Servicio) => ({ toroNombre: s.toroNombre, loteSemen: s.loteSemen, inseminador: s.inseminador, observ: s.observ }))} nuevo={puede("servicio") ? { texto: "Nuevo servicio", onClick: () => setAbierto("servicios") } : undefined} /></TabsContent>
@@ -221,8 +256,10 @@ export default function ReproduccionPage() {
           acciones={acciones("paricion", "paricion", (p: Paricion) => `Parto de ${etiquetaAnimal(p.madre)} del ${formatoDia(p.fecha)}`, (p: Paricion) => ({ tipoParto: p.tipoParto, dificultad: p.dificultad, observ: p.observ }))} nuevo={puede("paricion") ? { texto: "Nuevo parto", onClick: () => setAbierto("pariciones") } : undefined} /></TabsContent>
         <TabsContent value="destetes"><ListaEventos<Destete> titulo="Destetes" ruta="destetes" estId={estId} columnas={COL_DESTETES} vacio="No hay destetes registrados."
           acciones={acciones("destete", "destete", (d: Destete) => `Destete de ${etiquetaAnimal(d.animal)} del ${formatoDia(d.fecha)}`, (d: Destete) => ({ metodo: d.metodo, observ: d.observ }))} nuevo={puede("destete") ? { texto: "Nuevo destete", onClick: () => setAbierto("destetes") } : undefined} /></TabsContent>
-        <TabsContent value="toradas"><ListaEventos<Torada> titulo="Temporadas de servicio" ruta="toradas" estId={estId} columnas={COL_TORADAS} vacio="No hay toradas. Creá una para empezar." sinBusqueda sinAnulados
+        <TabsContent value="toradas"><ListaEventos<Torada> titulo="Toradas y encarneradas" ruta="toradas" estId={estId} columnas={COL_TORADAS} vacio="No hay toradas. Creá una para empezar." sinBusqueda sinAnulados
           acciones={puede("torada") ? (t: Torada) => <Button size="sm" variant="outline" onClick={() => setTorada(t)}>{t.fechaFin ? "Editar" : "Cerrar / toros"}</Button> : undefined} nuevo={puede("torada") ? { texto: "Nueva torada", onClick: () => setAbierto("toradas") } : undefined} /></TabsContent>
+        <TabsContent value="senaladas"><ListaEventos<Senalada> titulo="Señaladas de corderos" ruta="senaladas" estId={estId} columnas={COL_SENALADAS} vacio="No hay señaladas registradas." sinBusqueda
+          acciones={acciones("senalada", "senalada", (x: Senalada) => `Señalada de ${x.lote.nombre} del ${formatoDia(x.fecha)}`, (x: Senalada) => ({ observ: x.observ }))} nuevo={puede("senalada") ? { texto: "Nueva señalada", onClick: () => setAbierto("senaladas") } : undefined} /></TabsContent>
       </Tabs>
 
       <ServicioDialog open={abierto === "servicios" && puede(ACCION_DE.servicios)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} onSuccess={invalidar} />
@@ -230,6 +267,10 @@ export default function ReproduccionPage() {
       <ParicionDialog open={abierto === "pariciones" && puede(ACCION_DE.pariciones)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} onSuccess={invalidar} />
       <DesteteDialog open={abierto === "destetes" && puede(ACCION_DE.destetes)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} lotes={lotes.data ?? []} onSuccess={invalidar} />
       <ToradaDialog open={abierto === "toradas" && puede(ACCION_DE.toradas)} onOpenChange={(o) => !o && setAbierto(null)} lotes={lotes.data ?? []} onSuccess={invalidar} />
+      <SenaladaDialog open={abierto === "senaladas" && puede("senalada")} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} lotes={lotes.data ?? []} onSuccess={invalidar} />
+      <ServicioMasivoDialog open={porGrupo === "servicio"} onOpenChange={(o) => !o && setPorGrupo(null)} estId={estId} onSuccess={invalidar} />
+      <PlanillaTactoDialog open={porGrupo === "tacto"} onOpenChange={(o) => !o && setPorGrupo(null)} estId={estId} onSuccess={invalidar} />
+      <DesteteMasivoDialog open={porGrupo === "destete"} onOpenChange={(o) => !o && setPorGrupo(null)} estId={estId} lotes={lotes.data ?? []} onSuccess={() => { invalidar(); queryClient.invalidateQueries({ queryKey: ["ganado"] }) }} />
       <EditarEventoDialog evento={editando} onOpenChange={(o) => !o && setEditando(null)} onGuardado={invalidar} />
       <AnularEventoDialog evento={anulando} onOpenChange={(o) => !o && setAnulando(null)} onAnulado={() => { invalidar(); queryClient.invalidateQueries({ queryKey: ["ganado"] }) }} />
       <ToradaEditarDialog torada={torada} estId={estId} onOpenChange={(o) => !o && setTorada(null)} onGuardado={invalidar} />

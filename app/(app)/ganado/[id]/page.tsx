@@ -78,6 +78,7 @@ import { esSanitario } from "@/lib/inventario/validation"
 import { usePermissions } from "@/lib/hooks/use-permissions"
 import { AnimalDialog } from "../components/animal-dialog"
 import { MOTIVOS_BAJA } from "@/lib/validations/eventos-schema"
+import { EstadoReproductivoBadge } from "@/components/reproduccion/estado-badge"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -109,6 +110,7 @@ interface AnimalDetail {
   eventosSanidad: SanidadEvent[]
   /** Carencia vigente: no se puede faenar hasta `hasta` (AAAA-MM-DD). */
   retiro: { hasta: string; producto: string; fechaAplicacion: string } | null
+  estadoReproductivo?: { estado: string; desde: string; fechaProbableParto: string | null } | null
   serviciosHembra: ServicioEvent[]
   tactos: TactoEvent[]
   partosComoMadre: PartoEvent[]
@@ -550,6 +552,7 @@ export default function AnimalDetailPage() {
                   Bajo retiro hasta {formatoDia(animal.retiro.hasta)}
                 </Badge>
               )}
+              <EstadoReproductivoBadge estado={animal.estadoReproductivo} />
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">
               {animal.especie?.nombre ? `${animal.especie.nombre} — ` : ""}

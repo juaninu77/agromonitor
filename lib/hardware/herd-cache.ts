@@ -26,6 +26,8 @@ export interface CachedAnimal {
   /** Carencia: bajo retiro hasta esta fecha (AAAA-MM-DD), según la última descarga del rodeo */
   bajoRetiroHasta?: string | null
   retiroProducto?: string | null
+  /** Estado reproductivo (vacía, servida, preñada…) según la última descarga del rodeo */
+  estadoReproductivo?: { estado: string; desde: string; fechaProbableParto: string | null } | null
   [key: string]: unknown
 }
 
@@ -105,6 +107,7 @@ export async function saveHerd(
       ubicacion: (animal.ubicacion as string) ?? (animal.location as string) ?? null,
       bajoRetiroHasta: (animal.bajoRetiroHasta as string) ?? null,
       retiroProducto: (animal.retiroProducto as string) ?? null,
+      estadoReproductivo: (animal.estadoReproductivo as CachedAnimal["estadoReproductivo"]) ?? null,
     }
 
     store.put(entry)

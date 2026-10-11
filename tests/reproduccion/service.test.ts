@@ -217,7 +217,7 @@ describe("destete", () => {
 
 describe("torada", () => {
   it("la crean admin o encargado del campo del grupo, con fechas coherentes", async () => {
-    m.lote.mockResolvedValue({ establecimientoId: EST, activo: true })
+    m.lote.mockResolvedValue({ establecimientoId: EST, activo: true, especie: { nombre: "bovino" } })
     const t = { nombre: "Otoño 2026", loteId: LOTE, fechaInicio: "2026-04-01", tipo: "natural" }
     await expect(crearTorada(vet, t)).rejects.toMatchObject({ status: 403 })
     await expect(crearTorada(encargado, t)).resolves.toMatchObject({ nombre: "Otoño 2026" })

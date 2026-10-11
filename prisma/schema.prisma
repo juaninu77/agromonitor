@@ -446,6 +446,8 @@ model Lote {
   // Sesiones de manga con este lote como origen
   sesionesMangaOrigen SesionManga[] @relation("MangaLoteOrigen")
 
+  senaladas EvtSenalada[]
+
   @@unique([establecimientoId, nombre])
   @@index([tipo])
   @@index([activo])
@@ -483,6 +485,8 @@ model Producto {
   itemsProtocolo   ItemProtocolo[]
   movimientosStock MovimientoStock[]
   sesionesManga    SesionManga[]
+
+  senaladas EvtSenalada[]
 
   @@index([tipo])
   @@index([organizacionId])
@@ -794,6 +798,8 @@ model EvtDestete {
   metodo          String? // 'tradicional' | 'precoz' | 'hiperprecoz' | 'destetador'
   observ          String?
   createdAt       DateTime  @default(now()) @map("created_at")
+  /// Carga por grupo: los eventos comparten operacionId (también es la clave de idempotencia)
+  operacionId     String?   @map("operacion_id") @db.Uuid
   /// Anulación (no se borra): fecha, quién y por qué
   anuladoAt       DateTime? @map("anulado_at")
   anuladoPorId    String?   @map("anulado_por_id") @db.Uuid
@@ -809,6 +815,7 @@ model EvtDestete {
   @@index([animalId])
   @@index([fecha])
   @@index([loteDesteteId])
+  @@index([operacionId])
   @@map("evt_destete")
 }
 
@@ -934,6 +941,8 @@ model Torada {
   fechaInicio     DateTime  @map("fecha_inicio") @db.Date
   fechaFin        DateTime? @map("fecha_fin") @db.Date
   tipo            String // 'natural' | 'ia' | 'iatf' | 'mixto'
+  /// 'torada' (bovinos) | 'encarnerada' (ovinos), spec 03 §3.3
+  tipoGrupo       String    @default("torada") @map("tipo_grupo")
   cantidadHembras Int?      @map("cantidad_hembras")
   cantidadMachos  Int?      @map("cantidad_machos")
   observ          String?
@@ -944,6 +953,7 @@ model Torada {
 
   servicios EvtServicio[]
   machos    ToradaMacho[]
+  senaladas EvtSenalada[]
 
   @@index([loteId])
   @@map("toradas")
@@ -962,6 +972,41 @@ model ToradaMacho {
   @@map("toradas_machos")
 }
 
+/// Señalada de corderos de un grupo (ovinos, spec 03 §3.4): se registra por lote, no por animal
+model EvtSenalada {
+  id                String   @id @default(uuid()) @db.Uuid
+  fecha             DateTime @db.Date
+  corderosSenalados Int      @map("corderos_senalados")
+  corderosMuertos   Int      @default(0) @map("corderos_muertos") // mortandad pre-señalada
+  machosMantenidos  Int      @default(0) @map("machos_mantenidos") // no castrados
+  machosCastrados   Int      @default(0) @map("machos_castrados")
+  hembras           Int      @default(0)
+  observ            String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  /// Clave del dispositivo: un reintento no duplica
+  clave             String?  @unique @db.Uuid
+
+  loteId String @map("lote_id") @db.Uuid
+  lote   Lote   @relation(fields: [loteId], references: [id])
+
+  /// Encarnerada de la que vienen los corderos (base del % señalada)
+  toradaId String? @map("torada_id") @db.Uuid
+  torada   Torada? @relation(fields: [toradaId], references: [id], onDelete: SetNull)
+
+  productoClostridialId String?   @map("producto_clostridial_id") @db.Uuid
+  productoClostridial   Producto? @relation(fields: [productoClostridialId], references: [id])
+
+  /// Anulación (no se borra): fecha, quién y por qué
+  anuladoAt       DateTime? @map("anulado_at")
+  anuladoPorId    String?   @map("anulado_por_id") @db.Uuid
+  motivoAnulacion String?   @map("motivo_anulacion")
+
+  @@index([loteId])
+  @@index([toradaId])
+  @@index([fecha])
+  @@map("evt_senalada")
+}
+
 // Servicio (monta o IA)
 model EvtServicio {
   id              String    @id @default(uuid()) @db.Uuid
@@ -972,6 +1017,8 @@ model EvtServicio {
   inseminador     String?
   observ          String?
   createdAt       DateTime  @default(now()) @map("created_at")
+  /// Carga por grupo: los eventos comparten operacionId (también es la clave de idempotencia)
+  operacionId     String?   @map("operacion_id") @db.Uuid
   /// Anulación (no se borra): fecha, quién y por qué
   anuladoAt       DateTime? @map("anulado_at")
   anuladoPorId    String?   @map("anulado_por_id") @db.Uuid
@@ -993,6 +1040,7 @@ model EvtServicio {
   @@index([machoId])
   @@index([toradaId])
   @@index([fecha])
+  @@index([operacionId])
   @@map("evt_servicio")
 }
 
@@ -1007,6 +1055,8 @@ model EvtTacto {
   veterinario        String?
   observ             String?
   createdAt          DateTime  @default(now()) @map("created_at")
+  /// Carga por grupo: los eventos comparten operacionId (también es la clave de idempotencia)
+  operacionId        String?   @map("operacion_id") @db.Uuid
   /// Anulación (no se borra): fecha, quién y por qué
   anuladoAt          DateTime? @map("anulado_at")
   anuladoPorId       String?   @map("anulado_por_id") @db.Uuid
@@ -1021,6 +1071,7 @@ model EvtTacto {
   @@index([hembraId])
   @@index([fecha])
   @@index([resultado])
+  @@index([operacionId])
   @@map("evt_tacto")
 }
 

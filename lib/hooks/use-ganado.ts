@@ -1,5 +1,7 @@
 "use client"
 
+import type { EstadoReproductivo } from "@/lib/reproduccion/validation"
+
 import { useQuery } from "@tanstack/react-query"
 import { ganadoParams, type GanadoQuery } from "@/lib/ganado/query"
 
@@ -9,6 +11,8 @@ export interface AnimalAPI {
   /** Carencia sanitaria vigente (AAAA-MM-DD) y producto que la origina */
   bajoRetiroHasta?: string | null
   retiroProducto?: string | null
+  /** Estado reproductivo derivado (solo hembras con eventos) */
+  estadoReproductivo?: { estado: EstadoReproductivo; desde: string; fechaProbableParto: string | null } | null
   cuig?: string
   caravanaVisual?: string
   caravanaRfid?: string

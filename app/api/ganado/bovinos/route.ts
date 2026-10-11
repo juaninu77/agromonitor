@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma"
 import { ejecutarAltas, mapearErrorPrisma, prepararAltas } from "@/lib/ganado/alta"
 import { animalIdsPorUltimaPesada, estadisticasDeAnimales } from "@/lib/ganado/estadisticas"
 import { retirosVigentes } from "@/lib/sanidad/retiro"
+import { estadosReproductivos } from "@/lib/reproduccion/estado"
 
 // ============================================
 // GET /api/ganado/bovinos
@@ -166,7 +167,11 @@ export const GET = withAuth(async (request, ctx) => {
     })
 
     // Retiro sanitario vigente de los animales de la página (una consulta SQL)
-    const retiros = await retirosVigentes(prisma, { animalIds: animales.map((a) => a.id) })
+    const [retiros, estadosRepro] = await Promise.all([
+      retirosVigentes(prisma, { animalIds: animales.map((a) => a.id) }),
+      // Estado reproductivo de las hembras de la página (derivado de los eventos, una consulta)
+      estadosReproductivos(animales.filter((a) => a.sexo === "F").map((a) => a.id)),
+    ])
 
     // Transformar para la UI
     const animalesConDetalles = animales.map(animal => {
@@ -221,6 +226,7 @@ export const GET = withAuth(async (request, ctx) => {
         // Carencia: no se puede faenar ni vender a faena hasta esta fecha (AAAA-MM-DD)
         bajoRetiroHasta: retiro?.hasta ?? null,
         retiroProducto: retiro?.producto ?? null,
+        estadoReproductivo: estadosRepro.get(animal.id) ?? null,
         // Para compatibilidad con UI existente
         weight: ultimoPeso?.pesoKg || 0,
         bodyConditionScore: ultimoPeso?.cc || 0,

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Beef, Tag, Hash, Calendar, Scale, AlertTriangle, UserPlus, ShieldAlert } from "lucide-react"
 import { formatoDia } from "@/lib/inventario/fechas"
+import { EstadoReproductivoBadge } from "@/components/reproduccion/estado-badge"
 
 interface AnimalQuickCardProps {
   animal: any | null
@@ -96,6 +97,7 @@ export function AnimalQuickCard({ animal, eid, isNew, onRegister }: AnimalQuickC
                   {animal.sexo === "M" ? "Macho" : "Hembra"}
                 </Badge>
               )}
+              <EstadoReproductivoBadge estado={animal.estadoReproductivo} />
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 mt-2 text-sm">

@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma"
 import type { AuthContext } from "@/lib/api/with-auth"
 import { altaDeCria, identificadoresDeCriasLibres } from "@/lib/ganado/alta"
 import { estadosReproductivos } from "./estado"
+import { sincronizarTareasReproductivas } from "./agenda"
 import { normalizeEID } from "@/lib/hardware/eid"
 import { diasEntre, formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import {
@@ -102,7 +103,7 @@ export async function registrarServicio(ctx: AuthContext, raw: unknown) {
   if (await prisma.evtServicio.count({ where: { hembraId: hembra.id, fecha: fechaDia(v.fecha), tipo: v.tipo, ...vigente } })) {
     throw new ReproduccionError(`Ya hay un servicio ${v.tipo === "natural" ? "natural" : v.tipo.toUpperCase()} de ${etiqueta(hembra)} ese día`, 409)
   }
-  return prisma.$transaction(async (tx) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     const servicio = await tx.evtServicio.create({
       data: {
         fecha: fechaDia(v.fecha), tipo: v.tipo, hembraId: hembra.id, machoId: v.machoId, toradaId: v.toradaId,
@@ -112,6 +113,8 @@ export async function registrarServicio(ctx: AuthContext, raw: unknown) {
     await auditar(tx, ctx, hembra.establecimientoId, "evt_servicio", servicio.id, { hembraId: hembra.id, fecha: v.fecha, tipo: v.tipo, machoId: v.machoId, toradaId: v.toradaId })
     return servicio
   })
+  await sincronizarTareasReproductivas(hembra.establecimientoId)
+  return resultado
 }
 
 export async function registrarTacto(ctx: AuthContext, raw: unknown) {
@@ -137,7 +140,7 @@ export async function registrarTacto(ctx: AuthContext, raw: unknown) {
     mesesGest = mesesGest ?? calc.mesesGest
     fechaProbableParto = fechaProbableParto ?? calc.fecha
   }
-  return prisma.$transaction(async (tx) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     const tacto = await tx.evtTacto.create({
       data: {
         fecha: fechaDia(v.fecha), resultado: v.resultado, metodo: v.metodo, hembraId: hembra.id, servicioId: v.servicioId,
@@ -147,6 +150,8 @@ export async function registrarTacto(ctx: AuthContext, raw: unknown) {
     await auditar(tx, ctx, hembra.establecimientoId, "evt_tacto", tacto.id, { hembraId: hembra.id, fecha: v.fecha, resultado: v.resultado, servicioId: v.servicioId })
     return tacto
   })
+  await sincronizarTareasReproductivas(hembra.establecimientoId)
+  return resultado
 }
 
 export async function registrarParicion(ctx: AuthContext, raw: unknown) {
@@ -187,7 +192,7 @@ export async function registrarParicion(ctx: AuthContext, raw: unknown) {
   const partoId = crypto.randomUUID()
   const datosParto = { fecha: fechaDia(v.fecha), madreId: madre.id, padreId: v.padreId, padreExterno: v.padreExterno, tipoParto: v.tipoParto, dificultad: v.dificultad, observ: v.observ, partoId }
 
-  return prisma.$transaction(async (tx) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     const filas: { id: string; resultado: string; criaId: string | null; caravanaVisual: string | null }[] = []
     if (v.aborto) {
       const f = await tx.evtParicion.create({ data: { ...datosParto, resultado: "aborto" } })
@@ -209,6 +214,8 @@ export async function registrarParicion(ctx: AuthContext, raw: unknown) {
     await auditar(tx, ctx, madre.establecimientoId, "evt_paricion", partoId, { madreId: madre.id, fecha: v.fecha, aborto: v.aborto, crias: filas, padreId: v.padreId })
     return { partoId, filas }
   })
+  await sincronizarTareasReproductivas(madre.establecimientoId)
+  return resultado
 }
 
 /** Caravana electrónica obligatoria post destete en bovinos (Res. 841/2025, spec 01 §1.4). */
@@ -254,6 +261,7 @@ export async function registrarDestete(ctx: AuthContext, raw: unknown) {
     await auditar(tx, ctx, animal.establecimientoId, "evt_destete", destete.id, { animalId: animal.id, fecha: v.fecha, pesoKg: v.pesoKg, loteDesteteId: v.loteDesteteId, movido })
     return destete
   })
+  await sincronizarTareasReproductivas(animal.establecimientoId)
   return { ...destete, aviso }
 }
 
@@ -341,6 +349,7 @@ export async function anularEvento(ctx: AuthContext, tipo: TipoEvento, id: strin
       data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[est] ?? null, tabla: TABLA_DE_TIPO[tipo], rowPk: id, accion: "UPDATE", detalle: JSON.parse(JSON.stringify({ anulado: true, motivo: v.motivo, ids, servicioId: ev.servicioId ?? undefined })) },
     })
   })
+  await sincronizarTareasReproductivas(est)
   return { anulados: ids.length, aviso }
 }
 
@@ -513,7 +522,7 @@ export async function buscarAnimales(ctx: AuthContext, raw: unknown) {
   const f = busquedaAnimalesSchema.parse(raw)
   if (!ctx.establecimientoIds.includes(f.establecimientoId)) throw new ReproduccionError("Campo no encontrado", 404)
   const animales = await prisma.animal.findMany({
-    where: { establecimientoId: f.establecimientoId, estadoVital: "activo", ...(f.sexo ? { sexo: f.sexo } : {}), ...(f.especieId ? { especieId: f.especieId } : {}), ...buscarAnimal(f.q) },
+    where: { establecimientoId: f.establecimientoId, estadoVital: "activo", ...(f.id ? { id: f.id } : {}), ...(f.sexo ? { sexo: f.sexo } : {}), ...(f.especieId ? { especieId: f.especieId } : {}), ...buscarAnimal(f.q) },
     select: { id: true, caravanaVisual: true, cuig: true, caravanaRfid: true, sexo: true, especieId: true, especie: { select: { nombre: true } }, categoria: { select: { nombre: true } } },
     orderBy: [{ caravanaVisual: "asc" }, { id: "asc" }], take: f.limit,
   })

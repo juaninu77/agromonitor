@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Activity, Baby, Ban, Users, ChevronLeft, ChevronRight, Heart, Loader2, MoreHorizontal, Pencil, Plus, Search, Syringe, TrendingUp } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -11,6 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { AgendaTab, IndicadoresTab, type PendienteAgenda } from "@/components/reproduccion/agenda-indicadores"
 import { AnularEventoDialog, EditarEventoDialog, ToradaEditarDialog, type EventoAccion, type ToradaEditable } from "@/components/reproduccion/acciones"
 import { etiquetaAnimal, type AnimalOpcion } from "@/components/reproduccion/animal-combobox"
 import { DesteteDialog, ParicionDialog, ServicioDialog, TactoDialog, ToradaDialog } from "@/components/reproduccion/dialogos"
@@ -139,8 +141,10 @@ const COL_SENALADAS: Columna<Senalada>[] = [
 
 // ─── Página ─────────────────────────────────────────────────────────────────
 
-type Pestania = "servicios" | "tactos" | "pariciones" | "destetes" | "toradas" | "senaladas"
-const ACCION_DE: Record<Pestania, AccionReproduccion> = { servicios: "servicio", tactos: "tacto", pariciones: "paricion", destetes: "destete", toradas: "torada", senaladas: "senalada" }
+type Pestania = "agenda" | "servicios" | "tactos" | "pariciones" | "destetes" | "toradas" | "senaladas" | "indicadores"
+const ACCION_DE: Record<Exclude<Pestania, "agenda" | "indicadores">, AccionReproduccion> = { servicios: "servicio", tactos: "tacto", pariciones: "paricion", destetes: "destete", toradas: "torada", senaladas: "senalada" }
+const ACCION_PENDIENTE = { tacto: "tacto", parto: "paricion", senalada: "senalada", destete: "destete" } as const
+const PESTANIAS: Pestania[] = ["agenda", "servicios", "tactos", "pariciones", "destetes", "toradas", "senaladas", "indicadores"]
 type PorGrupo = "servicio" | "tacto" | "destete" | null
 
 export default function ReproduccionPage() {
@@ -149,8 +153,12 @@ export default function ReproduccionPage() {
   const queryClient = useQueryClient()
   const { hasRole } = usePermissions()
   const puede = (a: AccionReproduccion) => hasRole(...ROLES_REPRODUCCION[a])
-  const [pestania, setPestania] = useState<Pestania>("servicios")
+  // ?tab= abre una pestaña (enlaces del Panel y de Tareas)
+  const tabParam = useSearchParams().get("tab") as Pestania | null
+  const [pestania, setPestania] = useState<Pestania>(() => (tabParam && PESTANIAS.includes(tabParam) ? tabParam : "agenda"))
   const [abierto, setAbierto] = useState<Pestania | null>(null)
+  /** Lo que precarga la agenda en el diálogo que abre. */
+  const [preset, setPreset] = useState<{ toradaId?: string | null; loteId?: string | null; animalId?: string | null }>({})
   const [porGrupo, setPorGrupo] = useState<PorGrupo>(null)
   const [editando, setEditando] = useState<EventoAccion | null>(null)
   const [anulando, setAnulando] = useState<EventoAccion | null>(null)
@@ -182,8 +190,16 @@ export default function ReproduccionPage() {
     },
     enabled: !!estId,
   })
-  const invalidar = () => queryClient.invalidateQueries({ queryKey: ["repro"] })
+  const invalidar = () => { queryClient.invalidateQueries({ queryKey: ["repro"] }); queryClient.invalidateQueries({ queryKey: ["tareas"] }) }
   const abrir = (p: Pestania) => { setPestania(p); setAbierto(p) }
+  /** Acción de un pendiente de la agenda: abre el registro que lo resuelve, ya precargado. */
+  const resolver = (p: PendienteAgenda) => {
+    setPreset({ toradaId: p.toradaId, loteId: p.loteId, animalId: p.animalId })
+    if (p.tipo === "tacto") { if (p.toradaId) setPorGrupo("tacto"); else setAbierto("tactos") }
+    else if (p.tipo === "parto") setAbierto("pariciones")
+    else if (p.tipo === "senalada") setAbierto("senaladas")
+    else setPorGrupo("destete")
+  }
 
   if (tenantLoading) {
     return <div className="space-y-6"><Skeleton className="h-10 w-64" /><div className="grid gap-4 md:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)}</div><Skeleton className="h-96" /></div>
@@ -240,14 +256,18 @@ export default function ReproduccionPage() {
       </div>
 
       <Tabs value={pestania} onValueChange={(v) => setPestania(v as Pestania)}>
-        <TabsList className="grid h-auto w-full grid-cols-3 sm:grid-cols-6">
+        <TabsList className="grid h-auto w-full grid-cols-4 lg:grid-cols-8">
+          <TabsTrigger value="agenda">Agenda</TabsTrigger>
           <TabsTrigger value="servicios">Servicios</TabsTrigger>
           <TabsTrigger value="tactos">Tactos</TabsTrigger>
           <TabsTrigger value="pariciones">Partos</TabsTrigger>
           <TabsTrigger value="destetes">Destetes</TabsTrigger>
           <TabsTrigger value="toradas">Toradas</TabsTrigger>
           <TabsTrigger value="senaladas">Señaladas</TabsTrigger>
+          <TabsTrigger value="indicadores">Indicadores</TabsTrigger>
         </TabsList>
+        <TabsContent value="agenda"><AgendaTab estId={estId} puede={(t) => puede(ACCION_PENDIENTE[t])} onAccion={resolver} /></TabsContent>
+        <TabsContent value="indicadores">{pestania === "indicadores" && <IndicadoresTab estId={estId} />}</TabsContent>
         <TabsContent value="servicios"><ListaEventos<Servicio> titulo="Servicios" ruta="servicios" estId={estId} columnas={COL_SERVICIOS} vacio="No hay servicios registrados."
           acciones={acciones("servicio", "servicio", (s: Servicio) => `Servicio de ${etiquetaAnimal(s.hembra)} del ${formatoDia(s.fecha)}`, (s: Servicio) => ({ toroNombre: s.toroNombre, loteSemen: s.loteSemen, inseminador: s.inseminador, observ: s.observ }))} nuevo={puede("servicio") ? { texto: "Nuevo servicio", onClick: () => setAbierto("servicios") } : undefined} /></TabsContent>
         <TabsContent value="tactos"><ListaEventos<Tacto> titulo="Diagnósticos de preñez" ruta="tactos" estId={estId} columnas={COL_TACTOS} vacio="No hay tactos registrados."
@@ -263,14 +283,14 @@ export default function ReproduccionPage() {
       </Tabs>
 
       <ServicioDialog open={abierto === "servicios" && puede(ACCION_DE.servicios)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} onSuccess={invalidar} />
-      <TactoDialog open={abierto === "tactos" && puede(ACCION_DE.tactos)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} onSuccess={invalidar} />
+      <TactoDialog open={abierto === "tactos" && puede(ACCION_DE.tactos)} onOpenChange={(o) => { if (!o) { setAbierto(null); setPreset({}) } }} estId={estId} onSuccess={invalidar} hembraInicial={preset.animalId} />
       <ParicionDialog open={abierto === "pariciones" && puede(ACCION_DE.pariciones)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} onSuccess={invalidar} />
       <DesteteDialog open={abierto === "destetes" && puede(ACCION_DE.destetes)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} lotes={lotes.data ?? []} onSuccess={invalidar} />
       <ToradaDialog open={abierto === "toradas" && puede(ACCION_DE.toradas)} onOpenChange={(o) => !o && setAbierto(null)} lotes={lotes.data ?? []} onSuccess={invalidar} />
-      <SenaladaDialog open={abierto === "senaladas" && puede("senalada")} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} lotes={lotes.data ?? []} onSuccess={invalidar} />
+      <SenaladaDialog open={abierto === "senaladas" && puede("senalada")} onOpenChange={(o) => { if (!o) { setAbierto(null); setPreset({}) } }} estId={estId} lotes={lotes.data ?? []} onSuccess={invalidar} loteInicial={preset.loteId} />
       <ServicioMasivoDialog open={porGrupo === "servicio"} onOpenChange={(o) => !o && setPorGrupo(null)} estId={estId} onSuccess={invalidar} />
-      <PlanillaTactoDialog open={porGrupo === "tacto"} onOpenChange={(o) => !o && setPorGrupo(null)} estId={estId} onSuccess={invalidar} />
-      <DesteteMasivoDialog open={porGrupo === "destete"} onOpenChange={(o) => !o && setPorGrupo(null)} estId={estId} lotes={lotes.data ?? []} onSuccess={() => { invalidar(); queryClient.invalidateQueries({ queryKey: ["ganado"] }) }} />
+      <PlanillaTactoDialog open={porGrupo === "tacto"} onOpenChange={(o) => { if (!o) { setPorGrupo(null); setPreset({}) } }} estId={estId} onSuccess={invalidar} toradaInicial={preset.toradaId} />
+      <DesteteMasivoDialog open={porGrupo === "destete"} onOpenChange={(o) => { if (!o) { setPorGrupo(null); setPreset({}) } }} estId={estId} lotes={lotes.data ?? []} onSuccess={() => { invalidar(); queryClient.invalidateQueries({ queryKey: ["ganado"] }) }} loteInicial={preset.loteId} />
       <EditarEventoDialog evento={editando} onOpenChange={(o) => !o && setEditando(null)} onGuardado={invalidar} />
       <AnularEventoDialog evento={anulando} onOpenChange={(o) => !o && setAnulando(null)} onAnulado={() => { invalidar(); queryClient.invalidateQueries({ queryKey: ["ganado"] }) }} />
       <ToradaEditarDialog torada={torada} estId={estId} onOpenChange={(o) => !o && setTorada(null)} onGuardado={invalidar} />

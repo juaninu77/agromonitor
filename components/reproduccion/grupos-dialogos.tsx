@@ -194,13 +194,13 @@ function ListaHembras({ hembras, elegidas, onCambiar }: { hembras: HembraTorada[
 }
 
 /** Planilla de tacto de una torada: un resultado por hembra, vinculado a su servicio. */
-export function PlanillaTactoDialog({ open, onOpenChange, estId, onSuccess }: Props) {
+export function PlanillaTactoDialog({ open, onOpenChange, estId, onSuccess, toradaInicial }: Props & { toradaInicial?: string | null }) {
   const op = useOperacion(open)
   const toradas = useToradas(estId, open, false)
   const [form, setForm] = useState({ toradaId: "", fecha: hoyArgentina(), metodo: "palpacion", veterinario: "" })
   const [resultados, setResultados] = useState<Record<string, { resultado: ResultadoTacto; meses: string }>>({})
   const [filtro, setFiltro] = useState("")
-  useEffect(() => { if (open) { setForm({ toradaId: "", fecha: hoyArgentina(), metodo: "palpacion", veterinario: "" }); setResultados({}); setFiltro("") } }, [open])
+  useEffect(() => { if (open) { setForm({ toradaId: toradaInicial ?? "", fecha: hoyArgentina(), metodo: "palpacion", veterinario: "" }); setResultados({}); setFiltro("") } }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   const datos = useQuery({
     queryKey: ["repro", "torada-hembras", form.toradaId, "tacto"],
     queryFn: () => getJson<DatosTorada>(`/api/reproduccion/toradas/${form.toradaId}/hembras`),
@@ -282,11 +282,11 @@ export function PlanillaTactoDialog({ open, onOpenChange, estId, onSuccess }: Pr
 interface CriaGrupo { id: string; caravanaVisual: string | null; cuig: string | null; sexo: string; fechaNacimiento: string | null; edadDias: number | null; madre: string | null; categoria: { nombre: string } | null }
 
 /** Destete de varios animales de un grupo: pesada, cambio de grupo y edad para cada uno. */
-export function DesteteMasivoDialog({ open, onOpenChange, estId, lotes, onSuccess }: Props & { lotes: GrupoOpcion[] }) {
+export function DesteteMasivoDialog({ open, onOpenChange, estId, lotes, onSuccess, loteInicial }: Props & { lotes: GrupoOpcion[]; loteInicial?: string | null }) {
   const op = useOperacion(open)
   const [form, setForm] = useState({ loteId: "", fecha: hoyArgentina(), metodo: "", loteDesteteId: "" })
   const [elegidos, setElegidos] = useState<Record<string, string>>({})
-  useEffect(() => { if (open) { setForm({ loteId: "", fecha: hoyArgentina(), metodo: "", loteDesteteId: "" }); setElegidos({}) } }, [open])
+  useEffect(() => { if (open) { setForm({ loteId: loteInicial ?? "", fecha: hoyArgentina(), metodo: "", loteDesteteId: "" }); setElegidos({}) } }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   const crias = useQuery({
     queryKey: ["repro", "crias", form.loteId],
     queryFn: () => getJson<{ animales: CriaGrupo[] }>(`/api/reproduccion/grupos/${form.loteId}/crias`),
@@ -355,13 +355,13 @@ export function DesteteMasivoDialog({ open, onOpenChange, estId, lotes, onSucces
 }
 
 /** Señalada de corderos de un grupo ovino (spec 03 §3.4). */
-export function SenaladaDialog({ open, onOpenChange, estId, lotes, onSuccess }: Props & { lotes: GrupoOpcion[] }) {
+export function SenaladaDialog({ open, onOpenChange, estId, lotes, onSuccess, loteInicial }: Props & { lotes: GrupoOpcion[]; loteInicial?: string | null }) {
   const op = useOperacion(open)
   const toradas = useToradas(estId, open, false)
   const ovinos = lotes.filter((l) => tipoGrupoDeEspecie(l.especie) === "encarnerada")
   const vacio = { loteId: "", toradaId: "", fecha: hoyArgentina(), corderosSenalados: "", corderosMuertos: "", machosMantenidos: "", machosCastrados: "", hembras: "", productoClostridialId: "", observ: "" }
   const [form, setForm] = useState(vacio)
-  useEffect(() => { if (open) setForm(vacio) }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) setForm({ ...vacio, loteId: loteInicial ?? "" }) }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   const productos = useQuery({
     queryKey: ["repro", "productos-sanitarios"],
     queryFn: async () => { const r = await fetch("/api/inventario?limit=500"); const b = await r.json(); return ((b.data ?? []) as { id: string; nombre: string; tipo: string; activo?: boolean }[]).filter((p) => p.activo !== false && esSanitario(p.tipo)) },

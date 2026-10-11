@@ -6,10 +6,13 @@ import { Prisma } from "@prisma/client"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import type { AuthContext } from "@/lib/api/with-auth"
+import { altaDeCria, identificadoresDeCriasLibres } from "@/lib/ganado/alta"
+import { normalizeEID } from "@/lib/hardware/eid"
 import { diasEntre, formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import {
-  ROLES_REPRODUCCION, busquedaAnimalesSchema, desteteSchema, filtrosReproduccionSchema, paricionSchema, servicioSchema, tactoSchema, toradaSchema,
-  TIPOS_SERVICIO, RESULTADOS_TACTO, type AccionReproduccion, type FiltrosReproduccion,
+  ROLES_ANULAR, ROLES_REPRODUCCION, EDICION_POR_TIPO, anulacionSchema, busquedaAnimalesSchema, calcularParto, desteteSchema, edicionToradaSchema,
+  filtrosReproduccionSchema, paricionSchema, servicioSchema, tactoSchema, toradaSchema,
+  TIPOS_SERVICIO, RESULTADOS_TACTO, type AccionReproduccion, type FiltrosReproduccion, type TipoEvento,
 } from "./validation"
 
 export class ReproduccionError extends Error {
@@ -24,9 +27,15 @@ const diaDe = (d: Date) => d.toISOString().slice(0, 10)
 /** Límites del día en Argentina, para comparar con historiales guardados como instantes. */
 const inicioDia = (d: string) => new Date(`${d}T00:00:00-03:00`)
 const finDia = (d: string) => new Date(`${d}T23:59:59.999-03:00`)
+/** Instante de un evento del día para los historiales (mediodía de Argentina, nunca futuro). */
+const instanteDe = (d: string) => new Date(Math.min(Date.parse(`${d}T12:00:00-03:00`), Date.now()))
+const vigente = { anuladoAt: null }
 
 const NOMBRE_ACCION: Record<AccionReproduccion, string> = { servicio: "servicios", tacto: "tactos", paricion: "partos", destete: "destetes", torada: "toradas" }
-const SEL_ANIMAL = { id: true, sexo: true, estadoVital: true, especieId: true, establecimientoId: true, fechaNacimiento: true, caravanaVisual: true, cuig: true } as const
+const SEL_ANIMAL = {
+  id: true, sexo: true, estadoVital: true, especieId: true, razaId: true, establecimientoId: true, fechaNacimiento: true, caravanaVisual: true, cuig: true, caravanaRfid: true,
+  especie: { select: { nombre: true } },
+} as const
 type AnimalBase = Prisma.AnimalGetPayload<{ select: typeof SEL_ANIMAL }>
 const etiqueta = (a: { caravanaVisual: string | null; cuig: string | null }) => a.caravanaVisual || a.cuig || "sin caravana"
 
@@ -83,12 +92,12 @@ export async function registrarServicio(ctx: AuthContext, raw: unknown) {
     if (!enGrupo) throw new ReproduccionError(`${etiqueta(hembra)} no estaba en el grupo de la torada «${torada.nombre}» en esa fecha`, 400)
   }
   // Una hembra preñada (último tacto positivo sin parto posterior) se sirve solo confirmando
-  const ultimoTacto = await prisma.evtTacto.findFirst({ where: { hembraId: hembra.id, fecha: { lte: fechaDia(v.fecha) } }, orderBy: [{ fecha: "desc" }, { createdAt: "desc" }], select: { fecha: true, resultado: true } })
+  const ultimoTacto = await prisma.evtTacto.findFirst({ where: { hembraId: hembra.id, fecha: { lte: fechaDia(v.fecha) }, ...vigente }, orderBy: [{ fecha: "desc" }, { createdAt: "desc" }], select: { fecha: true, resultado: true } })
   if (ultimoTacto?.resultado === "preñada" && !v.aceptarPrenada) {
-    const parto = await prisma.evtParicion.count({ where: { madreId: hembra.id, fecha: { gte: ultimoTacto.fecha, lte: fechaDia(v.fecha) } } })
+    const parto = await prisma.evtParicion.count({ where: { madreId: hembra.id, fecha: { gte: ultimoTacto.fecha, lte: fechaDia(v.fecha) }, ...vigente } })
     if (!parto) throw new ReproduccionError(`${etiqueta(hembra)} figura preñada (tacto del ${formatoDia(ultimoTacto.fecha)}). ¿Registrar el servicio igual?`, 409, "prenada")
   }
-  if (await prisma.evtServicio.count({ where: { hembraId: hembra.id, fecha: fechaDia(v.fecha), tipo: v.tipo } })) {
+  if (await prisma.evtServicio.count({ where: { hembraId: hembra.id, fecha: fechaDia(v.fecha), tipo: v.tipo, ...vigente } })) {
     throw new ReproduccionError(`Ya hay un servicio ${v.tipo === "natural" ? "natural" : v.tipo.toUpperCase()} de ${etiqueta(hembra)} ese día`, 409)
   }
   return prisma.$transaction(async (tx) => {
@@ -107,20 +116,30 @@ export async function registrarTacto(ctx: AuthContext, raw: unknown) {
   const v = tactoSchema.parse(raw)
   const hembra = await animalParaEvento(ctx, v.hembraId, "tacto", { nombre: "La hembra", sexo: "F" })
   nacidoAntes(hembra, v.fecha)
+  let servicioFecha: string | null = null
   if (v.servicioId) {
-    const s = await prisma.evtServicio.findUnique({ where: { id: v.servicioId }, select: { hembraId: true, fecha: true, tacto: { select: { id: true } } } })
-    if (!s || s.hembraId !== hembra.id) throw new ReproduccionError(`El servicio elegido no es de ${etiqueta(hembra)}`, 400)
+    const s = await prisma.evtServicio.findUnique({ where: { id: v.servicioId }, select: { hembraId: true, fecha: true, anuladoAt: true, tacto: { select: { id: true } } } })
+    if (!s || s.hembraId !== hembra.id || s.anuladoAt) throw new ReproduccionError(`El servicio elegido no es de ${etiqueta(hembra)}`, 400)
     if (diaDe(s.fecha) > v.fecha) throw new ReproduccionError(`El tacto no puede ser anterior a su servicio (${formatoDia(s.fecha)})`, 400)
     if (s.tacto) throw new ReproduccionError("Ese servicio ya tiene un tacto registrado", 409)
+    servicioFecha = diaDe(s.fecha)
   }
-  if (await prisma.evtTacto.count({ where: { hembraId: hembra.id, fecha: fechaDia(v.fecha) } })) {
+  if (await prisma.evtTacto.count({ where: { hembraId: hembra.id, fecha: fechaDia(v.fecha), ...vigente } })) {
     throw new ReproduccionError(`Ya hay un tacto de ${etiqueta(hembra)} ese día`, 409)
+  }
+  // Preñada: la fecha probable de parto se calcula del servicio o de los meses (spec 03 §3.7)
+  let { mesesGest, fechaProbableParto } = v
+  if (v.resultado === "preñada") {
+    if (v.metodo === "ecografia" && mesesGest == null && !servicioFecha) throw new ReproduccionError("Por ecografía, indicá los meses de gestación (o vinculá el servicio)", 400)
+    const calc = calcularParto(hembra.especie.nombre, v.fecha, { servicioFecha, mesesGest })
+    mesesGest = mesesGest ?? calc.mesesGest
+    fechaProbableParto = fechaProbableParto ?? calc.fecha
   }
   return prisma.$transaction(async (tx) => {
     const tacto = await tx.evtTacto.create({
       data: {
         fecha: fechaDia(v.fecha), resultado: v.resultado, metodo: v.metodo, hembraId: hembra.id, servicioId: v.servicioId,
-        mesesGest: v.mesesGest, fechaProbableParto: v.fechaProbableParto ? fechaDia(v.fechaProbableParto) : null, veterinario: v.veterinario, observ: v.observ,
+        mesesGest, fechaProbableParto: fechaProbableParto ? fechaDia(fechaProbableParto) : null, veterinario: v.veterinario, observ: v.observ,
       },
     })
     await auditar(tx, ctx, hembra.establecimientoId, "evt_tacto", tacto.id, { hembraId: hembra.id, fecha: v.fecha, resultado: v.resultado, servicioId: v.servicioId })
@@ -133,19 +152,60 @@ export async function registrarParicion(ctx: AuthContext, raw: unknown) {
   const madre = await animalParaEvento(ctx, v.madreId, "paricion", { nombre: "La madre", sexo: "F" })
   nacidoAntes(madre, v.fecha)
   // El padre pudo haberse vendido después del servicio: no se exige que siga activo
-  if (v.padreId) await machoCompatible(ctx, v.padreId, madre, { nombre: "El padre", exigirActivo: false })
-  if (!v.confirmarMellizo && await prisma.evtParicion.count({ where: { madreId: madre.id, fecha: fechaDia(v.fecha) } })) {
-    throw new ReproduccionError(`Ya hay un parto de ${etiqueta(madre)} ese día. ¿Es un mellizo?`, 409, "mellizo")
+  const padre = v.padreId ? await machoCompatible(ctx, v.padreId, madre, { nombre: "El padre", exigirActivo: false }) : null
+  if (!v.confirmarMellizo && await prisma.evtParicion.count({ where: { madreId: madre.id, fecha: fechaDia(v.fecha), ...vigente } })) {
+    throw new ReproduccionError(`Ya hay un parto de ${etiqueta(madre)} ese día. ¿Registrar otro?`, 409, "mellizo")
   }
+  // Crías vivas: caravanas libres y EID válido
+  const crias = v.crias.map((c, n) => {
+    const rfid = c.caravanaRfid ? normalizeEID(c.caravanaRfid) : null
+    if (c.caravanaRfid && !rfid) throw new ReproduccionError(`El EID de la cría ${n + 1} no es válido`, 400)
+    return { ...c, caravanaRfid: c.resultado === "vivo" ? rfid : null, caravanaVisual: c.resultado === "vivo" ? c.caravanaVisual : null }
+  })
+  const vivas = crias.filter((c) => c.resultado === "vivo")
+  const errores = vivas.length ? await identificadoresDeCriasLibres(madre.establecimientoId, vivas) : []
+  if (errores.length) throw new ReproduccionError(errores[0], 409)
+  // La cría queda con la madre: su grupo y su lugar; categoría inicial del catálogo según sexo
+  const org = ctx.organizacionDeEstablecimiento[madre.establecimientoId]
+  const [loteMadre, lugarMadre, categorias] = vivas.length
+    ? await Promise.all([
+        prisma.animalLoteHist.findFirst({ where: { animalId: madre.id, hasta: null }, orderBy: { desde: "desc" }, select: { loteId: true } }),
+        prisma.ubicacionHist.findFirst({ where: { animalId: madre.id, hasta: null }, orderBy: { desde: "desc" }, select: { sectorId: true } }),
+        prisma.categoria.findMany({ where: { especieId: madre.especieId, OR: [{ organizacionId: org }, { organizacionId: null }] }, select: { id: true, sexo: true, edadMinMeses: true, edadMaxMeses: true, organizacionId: true } }),
+      ])
+    : [null, null, []]
+  const categoriaInicial = (sexo: string) =>
+    categorias.filter((c) => c.sexo === sexo || c.sexo == null)
+      // La de menor edad (sin mínimo = desde el nacimiento); a igual edad, la que tiene tope de edad,
+      // la del sexo exacto y la de la organización antes que la global
+      .sort((a, b) => (a.edadMinMeses ?? 0) - (b.edadMinMeses ?? 0) || Number(a.edadMaxMeses == null) - Number(b.edadMaxMeses == null)
+        || Number(!a.sexo) - Number(!b.sexo) || Number(!a.organizacionId) - Number(!b.organizacionId))[0]?.id ?? null
+  // Raza de la madre si el padre es de la misma raza o no se conoce
+  const raza = !padre || padre.razaId === madre.razaId ? madre.razaId : null
+  const partoId = crypto.randomUUID()
+  const datosParto = { fecha: fechaDia(v.fecha), madreId: madre.id, padreId: v.padreId, padreExterno: v.padreExterno, tipoParto: v.tipoParto, dificultad: v.dificultad, observ: v.observ, partoId }
+
   return prisma.$transaction(async (tx) => {
-    const paricion = await tx.evtParicion.create({
-      data: {
-        fecha: fechaDia(v.fecha), resultado: v.resultado, madreId: madre.id, padreId: v.padreId, padreExterno: v.padreExterno,
-        pesoNacerKg: v.pesoNacerKg, tipoParto: v.tipoParto, dificultad: v.dificultad, sexoCria: v.sexoCria, observ: v.observ,
-      },
-    })
-    await auditar(tx, ctx, madre.establecimientoId, "evt_paricion", paricion.id, { madreId: madre.id, fecha: v.fecha, resultado: v.resultado, padreId: v.padreId })
-    return paricion
+    const filas: { id: string; resultado: string; criaId: string | null; caravanaVisual: string | null }[] = []
+    if (v.aborto) {
+      const f = await tx.evtParicion.create({ data: { ...datosParto, resultado: "aborto" } })
+      filas.push({ id: f.id, resultado: "aborto", criaId: null, caravanaVisual: null })
+    }
+    for (const c of crias) {
+      const criaId = c.resultado === "vivo"
+        ? await altaDeCria(tx, {
+            especieId: madre.especieId, razaId: raza, categoriaId: categoriaInicial(c.sexo!), sexo: c.sexo!, fechaNacimiento: fechaDia(v.fecha),
+            establecimientoId: madre.establecimientoId, caravanaVisual: c.caravanaVisual, caravanaRfid: c.caravanaRfid,
+            madreId: madre.id, padreId: v.padreId, padreExterno: v.padreExterno, loteId: loteMadre?.loteId ?? null, sectorId: lugarMadre?.sectorId ?? null, desde: instanteDe(v.fecha),
+          })
+        : null
+      // El peso al nacer también es la primera pesada de la cría (base de su ganancia diaria)
+      if (criaId && c.pesoNacerKg) await tx.evtPesada.create({ data: { animalId: criaId, fecha: fechaDia(v.fecha), pesoKg: c.pesoNacerKg, observ: "Peso al nacer" } })
+      const f = await tx.evtParicion.create({ data: { ...datosParto, resultado: c.resultado, sexoCria: c.sexo, pesoNacerKg: c.pesoNacerKg, nacidoAnimalId: criaId } })
+      filas.push({ id: f.id, resultado: c.resultado, criaId, caravanaVisual: c.caravanaVisual })
+    }
+    await auditar(tx, ctx, madre.establecimientoId, "evt_paricion", partoId, { madreId: madre.id, fecha: v.fecha, aborto: v.aborto, crias: filas, padreId: v.padreId })
+    return { partoId, filas }
   })
 }
 
@@ -153,22 +213,41 @@ export async function registrarDestete(ctx: AuthContext, raw: unknown) {
   const v = desteteSchema.parse(raw)
   const animal = await animalParaEvento(ctx, v.animalId, "destete", { nombre: "El animal" })
   nacidoAntes(animal, v.fecha)
-  const previo = await prisma.evtDestete.findUnique({ where: { animalId: animal.id }, select: { fecha: true } })
+  const previo = await prisma.evtDestete.findFirst({ where: { animalId: animal.id, ...vigente }, select: { fecha: true } })
   if (previo) throw new ReproduccionError(`${etiqueta(animal)} ya tiene un destete registrado (${formatoDia(previo.fecha)})`, 409)
   if (v.loteDesteteId) {
-    const lote = await prisma.lote.findFirst({ where: { id: v.loteDesteteId, establecimientoId: animal.establecimientoId }, select: { activo: true } })
+    const lote = await prisma.lote.findFirst({ where: { id: v.loteDesteteId, establecimientoId: animal.establecimientoId }, select: { activo: true, especieId: true } })
     if (!lote) throw new ReproduccionError("El grupo de destete no es del campo del animal", 400)
     if (!lote.activo) throw new ReproduccionError("El grupo de destete está inactivo", 400)
+    if (lote.especieId !== animal.especieId) throw new ReproduccionError("El grupo de destete es de otra especie", 400)
   }
   // La edad sale de la fecha de nacimiento cuando se conoce
   const edadDias = animal.fechaNacimiento ? diasEntre(diaDe(animal.fechaNacimiento), v.fecha) : v.edadDias
-  return prisma.$transaction(async (tx) => {
+  // Caravana electrónica obligatoria post destete en bovinos (Res. 841/2025, spec 01 §1.4)
+  const aviso = animal.especie.nombre.toLowerCase() === "bovino" && !animal.caravanaRfid
+    ? `${etiqueta(animal)} no tiene caravana electrónica: es obligatoria después del destete.` : null
+  const destete = await prisma.$transaction(async (tx) => {
     const destete = await tx.evtDestete.create({
       data: { fecha: fechaDia(v.fecha), animalId: animal.id, pesoKg: v.pesoKg, edadDias, metodo: v.metodo, loteDesteteId: v.loteDesteteId, observ: v.observ },
     })
-    await auditar(tx, ctx, animal.establecimientoId, "evt_destete", destete.id, { animalId: animal.id, fecha: v.fecha, pesoKg: v.pesoKg })
+    // Pesada del destete (spec 03 §3.9)
+    if (v.pesoKg) await tx.evtPesada.create({ data: { animalId: animal.id, fecha: fechaDia(v.fecha), pesoKg: v.pesoKg, observ: "Destete" } })
+    // Pasa al grupo de destete: se cierra el grupo actual y se abre el nuevo
+    let movido = false
+    if (v.loteDesteteId) {
+      const abiertos = await tx.animalLoteHist.findMany({ where: { animalId: animal.id, hasta: null }, select: { id: true, loteId: true, desde: true } })
+      if (!abiertos.some((h) => h.loteId === v.loteDesteteId)) {
+        const ultimo = Math.max(0, ...abiertos.map((h) => h.desde.getTime()))
+        const cuando = new Date(Math.max(instanteDe(v.fecha).getTime(), ultimo))
+        if (abiertos.length) await tx.animalLoteHist.updateMany({ where: { id: { in: abiertos.map((h) => h.id) } }, data: { hasta: cuando } })
+        await tx.animalLoteHist.create({ data: { animalId: animal.id, loteId: v.loteDesteteId, desde: cuando, motivo: "destete" } })
+        movido = true
+      }
+    }
+    await auditar(tx, ctx, animal.establecimientoId, "evt_destete", destete.id, { animalId: animal.id, fecha: v.fecha, pesoKg: v.pesoKg, loteDesteteId: v.loteDesteteId, movido })
     return destete
   })
+  return { ...destete, aviso }
 }
 
 export async function crearTorada(ctx: AuthContext, raw: unknown) {
@@ -189,6 +268,129 @@ export async function crearTorada(ctx: AuthContext, raw: unknown) {
   })
 }
 
+// ─── Anular y editar ────────────────────────────────────────────────────────
+
+type EventoBase = { id: string; fecha: Date; anuladoAt: Date | null; establecimientoId: string | null }
+const ACCION_DE_TIPO: Record<TipoEvento, AccionReproduccion> = { servicio: "servicio", tacto: "tacto", paricion: "paricion", destete: "destete" }
+const TABLA_DE_TIPO: Record<TipoEvento, string> = { servicio: "evt_servicio", tacto: "evt_tacto", paricion: "evt_paricion", destete: "evt_destete" }
+
+/** Evento del usuario (por el campo del animal) con el que se va a operar. */
+async function eventoDelUsuario(ctx: AuthContext, tipo: TipoEvento, id: string): Promise<EventoBase & Record<string, unknown>> {
+  const animalVisible = { establecimientoId: { in: ctx.establecimientoIds } }
+  const sel = { id: true, fecha: true, anuladoAt: true } as const
+  const ev =
+    tipo === "servicio" ? await prisma.evtServicio.findFirst({ where: { id, hembra: animalVisible }, select: { ...sel, hembra: { select: { establecimientoId: true } }, tacto: { select: { fecha: true, anuladoAt: true } } } }).then((e) => e && { ...e, establecimientoId: e.hembra.establecimientoId })
+    : tipo === "tacto" ? await prisma.evtTacto.findFirst({ where: { id, hembra: animalVisible }, select: { ...sel, servicioId: true, hembra: { select: { establecimientoId: true } } } }).then((e) => e && { ...e, establecimientoId: e.hembra.establecimientoId })
+    : tipo === "paricion" ? await prisma.evtParicion.findFirst({ where: { id, madre: animalVisible }, select: { ...sel, partoId: true, madre: { select: { establecimientoId: true } } } }).then((e) => e && { ...e, establecimientoId: e.madre.establecimientoId })
+    : await prisma.evtDestete.findFirst({ where: { id, animal: animalVisible }, select: { ...sel, animal: { select: { establecimientoId: true } } } }).then((e) => e && { ...e, establecimientoId: e.animal.establecimientoId })
+  if (!ev || !ev.establecimientoId) throw new ReproduccionError("Evento no encontrado", 404)
+  return ev
+}
+
+/**
+ * Anula un evento (no se borra): admin o encargado del campo, con motivo. Un servicio con
+ * tacto vigente no se anula (primero el tacto); un tacto libera su servicio para un nuevo
+ * tacto; un parto se anula entero (todas sus crías) y, si hay crías dadas de alta, se pide
+ * confirmar porque quedan en el rodeo (se dan de baja desde su ficha si fue un error).
+ */
+export async function anularEvento(ctx: AuthContext, tipo: TipoEvento, id: string, raw: unknown) {
+  const v = anulacionSchema.parse(raw)
+  const ev = await eventoDelUsuario(ctx, tipo, id)
+  const est = ev.establecimientoId!
+  if (!ctx.establecimientoIdsConRol([...ROLES_ANULAR]).includes(est)) throw new ReproduccionError("Solo un administrador o encargado del campo puede anular eventos", 403)
+  if (ev.anuladoAt) throw new ReproduccionError("El evento ya está anulado", 409)
+  const anulacion = { anuladoAt: new Date(), anuladoPorId: ctx.userId, motivoAnulacion: v.motivo }
+  let aviso: string | null = null
+  let ids = [id]
+
+  if (tipo === "servicio") {
+    const tacto = ev.tacto as { fecha: Date; anuladoAt: Date | null } | null
+    if (tacto && !tacto.anuladoAt) throw new ReproduccionError(`El servicio tiene un tacto del ${formatoDia(tacto.fecha)}: anulá primero el tacto`, 409)
+  }
+  if (tipo === "paricion") {
+    const filas = ev.partoId
+      ? await prisma.evtParicion.findMany({ where: { partoId: ev.partoId as string, ...vigente }, select: { id: true, nacido: { select: { caravanaVisual: true, cuig: true } } } })
+      : await prisma.evtParicion.findMany({ where: { id }, select: { id: true, nacido: { select: { caravanaVisual: true, cuig: true } } } })
+    ids = filas.map((f) => f.id)
+    const crias = filas.flatMap((f) => (f.nacido ? [etiqueta(f.nacido)] : []))
+    if (crias.length && !v.aceptarCria) {
+      throw new ReproduccionError(`${crias.length === 1 ? `La cría ${crias[0]} queda` : `Las crías ${crias.join(", ")} quedan`} en el rodeo con su genealogía. Si fue un error de carga, dalas de baja desde su ficha. ¿Anular el parto?`, 409, "paricion_con_cria")
+    }
+  }
+  if (tipo === "destete") aviso = "La pesada y el cambio de grupo del destete quedan registrados: corregilos desde la ficha del animal si hace falta."
+
+  await prisma.$transaction(async (tx) => {
+    if (tipo === "servicio") await tx.evtServicio.updateMany({ where: { id: { in: ids } }, data: anulacion })
+    // El tacto anulado libera su servicio (se puede volver a tactar)
+    if (tipo === "tacto") await tx.evtTacto.updateMany({ where: { id: { in: ids } }, data: { ...anulacion, servicioId: null } })
+    if (tipo === "paricion") await tx.evtParicion.updateMany({ where: { id: { in: ids } }, data: anulacion })
+    if (tipo === "destete") await tx.evtDestete.updateMany({ where: { id: { in: ids } }, data: anulacion })
+    await tx.auditLog.create({
+      data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[est] ?? null, tabla: TABLA_DE_TIPO[tipo], rowPk: id, accion: "UPDATE", detalle: JSON.parse(JSON.stringify({ anulado: true, motivo: v.motivo, ids, servicioId: ev.servicioId ?? undefined })) },
+    })
+  })
+  return { anulados: ids.length, aviso }
+}
+
+/** Edita datos no críticos de un evento (quien puede registrarlo en ese campo). */
+export async function editarEvento(ctx: AuthContext, tipo: TipoEvento, id: string, raw: unknown) {
+  const datos = EDICION_POR_TIPO[tipo].parse(raw) as Record<string, unknown>
+  const cambios = Object.fromEntries(Object.entries(datos).filter(([, x]) => x !== undefined))
+  if (!Object.keys(cambios).length) throw new ReproduccionError("No hay cambios para guardar", 400)
+  const ev = await eventoDelUsuario(ctx, tipo, id)
+  exigirRol(ctx, ev.establecimientoId!, ACCION_DE_TIPO[tipo])
+  if (ev.anuladoAt) throw new ReproduccionError("No se puede editar un evento anulado", 409)
+  return prisma.$transaction(async (tx) => {
+    const r =
+      tipo === "servicio" ? await tx.evtServicio.update({ where: { id }, data: cambios })
+      : tipo === "tacto" ? await tx.evtTacto.update({ where: { id }, data: cambios })
+      : tipo === "paricion" ? await tx.evtParicion.update({ where: { id }, data: cambios })
+      : await tx.evtDestete.update({ where: { id }, data: cambios })
+    await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[ev.establecimientoId!] ?? null, tabla: TABLA_DE_TIPO[tipo], rowPk: id, accion: "UPDATE", detalle: JSON.parse(JSON.stringify(cambios)) } })
+    return r
+  })
+}
+
+/** Cierra una torada (fecha de fin), cambia sus datos o los toros asignados. */
+export async function editarTorada(ctx: AuthContext, id: string, raw: unknown) {
+  const v = edicionToradaSchema.parse(raw)
+  const torada = await prisma.torada.findFirst({
+    where: { id, lote: { establecimientoId: { in: ctx.establecimientoIds } } },
+    select: { id: true, fechaInicio: true, lote: { select: { establecimientoId: true, especieId: true } } },
+  })
+  if (!torada) throw new ReproduccionError("Torada no encontrada", 404)
+  const est = torada.lote.establecimientoId
+  exigirRol(ctx, est, "torada")
+  if (v.fechaFin) {
+    if (v.fechaFin < diaDe(torada.fechaInicio)) throw new ReproduccionError("El fin no puede ser anterior al inicio", 400)
+    const ultimo = await prisma.evtServicio.findFirst({ where: { toradaId: id, ...vigente }, orderBy: { fecha: "desc" }, select: { fecha: true } })
+    if (ultimo && v.fechaFin < diaDe(ultimo.fecha)) throw new ReproduccionError(`La torada tiene servicios hasta el ${formatoDia(ultimo.fecha)}: el fin no puede ser anterior`, 400)
+  }
+  if (v.machoIds?.length) {
+    const org = ctx.organizacionDeEstablecimiento[est]
+    const machos = await prisma.animal.findMany({ where: { id: { in: v.machoIds }, establecimientoId: { in: ctx.establecimientoIds } }, select: SEL_ANIMAL })
+    for (const mid of new Set(v.machoIds)) {
+      const m = machos.find((x) => x.id === mid)
+      if (!m || !m.establecimientoId || ctx.organizacionDeEstablecimiento[m.establecimientoId] !== org) throw new ReproduccionError("Un toro no es de la organización", 404)
+      if (m.sexo !== "M") throw new ReproduccionError(`${etiqueta(m)} es hembra: no puede ser toro de la torada`, 400)
+      if (m.especieId !== torada.lote.especieId) throw new ReproduccionError(`${etiqueta(m)} es de otra especie que el grupo`, 400)
+      if (m.estadoVital !== "activo") throw new ReproduccionError(`${etiqueta(m)} está dado de baja (${m.estadoVital})`, 400)
+    }
+  }
+  const { machoIds, fechaFin, ...datos } = v
+  const data = Object.fromEntries(Object.entries({ ...datos, ...(fechaFin !== undefined ? { fechaFin: fechaFin ? fechaDia(fechaFin) : null } : {}) }).filter(([, x]) => x !== undefined))
+  return prisma.$transaction(async (tx) => {
+    if (Object.keys(data).length) await tx.torada.update({ where: { id }, data })
+    if (machoIds) {
+      // Reemplaza los toros asignados de esta torada
+      await tx.toradaMacho.deleteMany({ where: { toradaId: id } })
+      if (machoIds.length) await tx.toradaMacho.createMany({ data: [...new Set(machoIds)].map((animalId) => ({ toradaId: id, animalId })) })
+    }
+    await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[est] ?? null, tabla: "toradas", rowPk: id, accion: "UPDATE", detalle: JSON.parse(JSON.stringify({ ...v })) } })
+    return tx.torada.findUniqueOrThrow({ where: { id }, include: { machos: { include: { animal: { select: { id: true, caravanaVisual: true, cuig: true } } } } } })
+  })
+}
+
 // ─── Lecturas ───────────────────────────────────────────────────────────────
 
 function filtros(ctx: AuthContext, raw: unknown) {
@@ -203,11 +405,14 @@ const buscarAnimal = (q?: string): Prisma.AnimalWhereInput =>
 const paginacion = (f: FiltrosReproduccion, total: number) => ({ page: f.page, limit: f.limit, total, totalPages: Math.max(1, Math.ceil(total / f.limit)) })
 const pagina = (f: FiltrosReproduccion) => ({ skip: (f.page - 1) * f.limit, take: f.limit })
 const SEL_ID = { id: true, caravanaVisual: true, cuig: true } as const
+const SEL_ANULACION = { anuladoAt: true, motivoAnulacion: true } as const
+/** Por defecto solo los vigentes; con verAnulados, también los anulados. */
+const soloVigentes = (f: FiltrosReproduccion) => (f.verAnulados ? {} : vigente)
 
 export async function listarServicios(ctx: AuthContext, raw: unknown) {
   const f = filtros(ctx, raw)
   const where: Prisma.EvtServicioWhereInput = {
-    hembra: { establecimientoId: f.establecimientoId, ...buscarAnimal(f.q) }, ...rangoFechas(f),
+    hembra: { establecimientoId: f.establecimientoId, ...buscarAnimal(f.q) }, ...rangoFechas(f), ...soloVigentes(f),
     ...(f.hembraId ? { hembraId: f.hembraId } : {}), ...(f.machoId ? { machoId: f.machoId } : {}), ...(f.toradaId ? { toradaId: f.toradaId } : {}),
     ...(f.tipo && (TIPOS_SERVICIO as readonly string[]).includes(f.tipo) ? { tipo: f.tipo } : {}),
     ...(f.sinTacto ? { tacto: { is: null } } : {}),
@@ -215,7 +420,7 @@ export async function listarServicios(ctx: AuthContext, raw: unknown) {
   const [data, total] = await Promise.all([
     prisma.evtServicio.findMany({
       where, orderBy: [{ fecha: "desc" }, { createdAt: "desc" }], ...pagina(f),
-      include: { hembra: { select: { ...SEL_ID, categoria: { select: { nombre: true } } } }, macho: { select: SEL_ID }, torada: { select: { id: true, nombre: true } }, tacto: { select: { id: true, fecha: true, resultado: true } } },
+      include: { hembra: { select: { ...SEL_ID, categoria: { select: { nombre: true } } } }, macho: { select: SEL_ID }, torada: { select: { id: true, nombre: true } }, tacto: { select: { id: true, fecha: true, resultado: true, anuladoAt: true } } },
     }),
     prisma.evtServicio.count({ where }),
   ])
@@ -225,7 +430,7 @@ export async function listarServicios(ctx: AuthContext, raw: unknown) {
 export async function listarTactos(ctx: AuthContext, raw: unknown) {
   const f = filtros(ctx, raw)
   const where: Prisma.EvtTactoWhereInput = {
-    hembra: { establecimientoId: f.establecimientoId, ...buscarAnimal(f.q) }, ...rangoFechas(f),
+    hembra: { establecimientoId: f.establecimientoId, ...buscarAnimal(f.q) }, ...rangoFechas(f), ...soloVigentes(f),
     ...(f.hembraId ? { hembraId: f.hembraId } : {}),
     ...(f.resultado && (RESULTADOS_TACTO as readonly string[]).includes(f.resultado) ? { resultado: f.resultado } : {}),
   }
@@ -239,8 +444,8 @@ export async function listarTactos(ctx: AuthContext, raw: unknown) {
 export async function listarPariciones(ctx: AuthContext, raw: unknown) {
   const f = filtros(ctx, raw)
   const where: Prisma.EvtParicionWhereInput = {
-    madre: { establecimientoId: f.establecimientoId, ...buscarAnimal(f.q) }, ...rangoFechas(f),
-    ...(f.hembraId ? { madreId: f.hembraId } : {}), ...(f.resultado === "vivo" || f.resultado === "muerto" ? { resultado: f.resultado } : {}),
+    madre: { establecimientoId: f.establecimientoId, ...buscarAnimal(f.q) }, ...rangoFechas(f), ...soloVigentes(f),
+    ...(f.hembraId ? { madreId: f.hembraId } : {}), ...(f.resultado === "vivo" || f.resultado === "muerto" || f.resultado === "aborto" ? { resultado: f.resultado } : {}),
   }
   const [data, total] = await Promise.all([
     prisma.evtParicion.findMany({ where, orderBy: [{ fecha: "desc" }, { createdAt: "desc" }], ...pagina(f), include: { madre: { select: SEL_ID }, padre: { select: SEL_ID }, nacido: { select: { ...SEL_ID, sexo: true } } } }),
@@ -251,14 +456,23 @@ export async function listarPariciones(ctx: AuthContext, raw: unknown) {
 
 export async function listarDestetes(ctx: AuthContext, raw: unknown) {
   const f = filtros(ctx, raw)
-  const where: Prisma.EvtDesteteWhereInput = { animal: { establecimientoId: f.establecimientoId, ...buscarAnimal(f.q) }, ...rangoFechas(f) }
-  const [data, total] = await Promise.all([
+  const where: Prisma.EvtDesteteWhereInput = { animal: { establecimientoId: f.establecimientoId, ...buscarAnimal(f.q) }, ...rangoFechas(f), ...soloVigentes(f) }
+  const [filas, total] = await Promise.all([
     prisma.evtDestete.findMany({
       where, orderBy: [{ fecha: "desc" }, { createdAt: "desc" }], ...pagina(f),
-      include: { animal: { select: { ...SEL_ID, sexo: true, raza: { select: { nombre: true } } } }, loteDestete: { select: { id: true, nombre: true } } },
+      include: {
+        animal: { select: { ...SEL_ID, sexo: true, raza: { select: { nombre: true } }, nacimiento: { select: { pesoNacerKg: true, anuladoAt: true } } } },
+        loteDestete: { select: { id: true, nombre: true } },
+      },
     }),
     prisma.evtDestete.count({ where }),
   ])
+  // Ganancia diaria nacer→destete y peso ajustado a 205 días (necesitan el peso al nacer)
+  const data = filas.map(({ animal: { nacimiento, ...animal }, ...d }) => {
+    const pesoNacer = nacimiento && !nacimiento.anuladoAt ? nacimiento.pesoNacerKg : null
+    const gdp = d.pesoKg != null && pesoNacer != null && d.edadDias ? (d.pesoKg - pesoNacer) / d.edadDias : null
+    return { ...d, animal, pesoNacerKg: pesoNacer, gdpKg: gdp != null ? Math.round(gdp * 1000) / 1000 : null, peso205: gdp != null ? Math.round(pesoNacer! + gdp * 205) : null }
+  })
   return { data, pagination: paginacion(f, total) }
 }
 
@@ -268,7 +482,14 @@ export async function listarToradas(ctx: AuthContext, raw: unknown) {
     lote: { establecimientoId: f.establecimientoId }, ...(f.activa ? { fechaFin: null } : {}), ...(f.tipo ? { tipo: f.tipo } : {}),
   }
   const [data, total] = await Promise.all([
-    prisma.torada.findMany({ where, orderBy: [{ fechaInicio: "desc" }, { createdAt: "desc" }], ...pagina(f), include: { lote: { select: { id: true, nombre: true } }, _count: { select: { servicios: true } } } }),
+    prisma.torada.findMany({
+      where, orderBy: [{ fechaInicio: "desc" }, { createdAt: "desc" }], ...pagina(f),
+      include: {
+        lote: { select: { id: true, nombre: true, especieId: true } },
+        machos: { include: { animal: { select: { ...SEL_ID, sexo: true, especieId: true, especie: { select: { nombre: true } }, categoria: { select: { nombre: true } }, caravanaRfid: true } } } },
+        _count: { select: { servicios: { where: vigente } } },
+      },
+    }),
     prisma.torada.count({ where }),
   ])
   return { data, pagination: paginacion(f, total) }
@@ -297,11 +518,11 @@ export async function partosPrevistos(establecimientoIds: string[], desde: strin
     SELECT COUNT(*)::int AS n FROM (
       SELECT DISTINCT ON (t.hembra_id) t.hembra_id, t.fecha, t.resultado, t.fecha_probable_parto
       FROM evt_tacto t JOIN animales a ON a.id = t.hembra_id
-      WHERE a.establecimiento_id = ANY(${establecimientoIds}::uuid[]) AND a.estado_vital = 'activo'
+      WHERE a.establecimiento_id = ANY(${establecimientoIds}::uuid[]) AND a.estado_vital = 'activo' AND t.anulado_at IS NULL
       ORDER BY t.hembra_id, t.fecha DESC, t.created_at DESC
     ) u
     WHERE u.resultado = 'preñada' AND u.fecha_probable_parto BETWEEN ${desde}::date AND ${hasta}::date
-      AND NOT EXISTS (SELECT 1 FROM evt_paricion p WHERE p.madre_id = u.hembra_id AND p.fecha >= u.fecha)`
+      AND NOT EXISTS (SELECT 1 FROM evt_paricion p WHERE p.madre_id = u.hembra_id AND p.fecha >= u.fecha AND p.anulado_at IS NULL)`
   return r?.n ?? 0
 }
 
@@ -322,24 +543,24 @@ export async function resumenReproduccion(ctx: AuthContext, establecimientoId: s
     prisma.$queryRaw<{ n: number }[]>`
       SELECT COUNT(*)::int AS n FROM (
         SELECT s.hembra_id, MAX(s.fecha) AS f FROM evt_servicio s JOIN animales a ON a.id = s.hembra_id
-        WHERE a.establecimiento_id = ${establecimientoId}::uuid AND a.estado_vital = 'activo' AND s.fecha >= ${hace12}::date
+        WHERE a.establecimiento_id = ${establecimientoId}::uuid AND a.estado_vital = 'activo' AND s.fecha >= ${hace12}::date AND s.anulado_at IS NULL
         GROUP BY s.hembra_id
-      ) u WHERE NOT EXISTS (SELECT 1 FROM evt_tacto t WHERE t.hembra_id = u.hembra_id AND t.fecha >= u.f)`,
+      ) u WHERE NOT EXISTS (SELECT 1 FROM evt_tacto t WHERE t.hembra_id = u.hembra_id AND t.fecha >= u.f AND t.anulado_at IS NULL)`,
     prisma.$queryRaw<{ resultado: string; n: number }[]>`
       SELECT resultado, COUNT(*)::int AS n FROM (
         SELECT DISTINCT ON (t.hembra_id) t.resultado FROM evt_tacto t JOIN animales a ON a.id = t.hembra_id
-        WHERE a.establecimiento_id = ${establecimientoId}::uuid AND a.estado_vital = 'activo' AND t.fecha >= ${hace12}::date
+        WHERE a.establecimiento_id = ${establecimientoId}::uuid AND a.estado_vital = 'activo' AND t.fecha >= ${hace12}::date AND t.anulado_at IS NULL
         ORDER BY t.hembra_id, t.fecha DESC, t.created_at DESC
       ) u GROUP BY resultado`,
     prisma.$queryRaw<{ n: number; atrasadas: number }[]>`
       SELECT COUNT(*)::int AS n, COUNT(*) FILTER (WHERE u.fecha_probable_parto < ${hoy}::date)::int AS atrasadas FROM (
         SELECT DISTINCT ON (t.hembra_id) t.hembra_id, t.fecha, t.resultado, t.fecha_probable_parto
         FROM evt_tacto t JOIN animales a ON a.id = t.hembra_id
-        WHERE a.establecimiento_id = ${establecimientoId}::uuid AND a.estado_vital = 'activo'
+        WHERE a.establecimiento_id = ${establecimientoId}::uuid AND a.estado_vital = 'activo' AND t.anulado_at IS NULL
         ORDER BY t.hembra_id, t.fecha DESC, t.created_at DESC
-      ) u WHERE u.resultado = 'preñada' AND NOT EXISTS (SELECT 1 FROM evt_paricion p WHERE p.madre_id = u.hembra_id AND p.fecha >= u.fecha)`,
-    prisma.evtParicion.groupBy({ by: ["resultado"], where: { madre: { establecimientoId }, fecha: { gte: fechaDia(`${anio}-01-01`), lte: fechaDia(`${anio}-12-31`) } }, _count: { _all: true } }),
-    prisma.evtDestete.count({ where: { animal: { establecimientoId }, fecha: { gte: fechaDia(`${anio}-01-01`), lte: fechaDia(`${anio}-12-31`) } } }),
+      ) u WHERE u.resultado = 'preñada' AND NOT EXISTS (SELECT 1 FROM evt_paricion p WHERE p.madre_id = u.hembra_id AND p.fecha >= u.fecha AND p.anulado_at IS NULL)`,
+    prisma.evtParicion.groupBy({ by: ["resultado"], where: { madre: { establecimientoId }, ...vigente, fecha: { gte: fechaDia(`${anio}-01-01`), lte: fechaDia(`${anio}-12-31`) } }, _count: { _all: true } }),
+    prisma.evtDestete.count({ where: { animal: { establecimientoId }, ...vigente, fecha: { gte: fechaDia(`${anio}-01-01`), lte: fechaDia(`${anio}-12-31`) } } }),
     partosPrevistos([establecimientoId], hoy, en30),
   ])
   const porResultado = Object.fromEntries(tactos.map((t) => [t.resultado, t.n])) as Record<string, number>
@@ -353,7 +574,7 @@ export async function resumenReproduccion(ctx: AuthContext, establecimientoId: s
     aParir: aParir[0]?.n ?? 0,
     partosAtrasados: aParir[0]?.atrasadas ?? 0,
     partosProximos30: previstos,
-    partosAnio: { vivos: nacidos("vivo"), muertos: nacidos("muerto") },
+    partosAnio: { vivos: nacidos("vivo"), muertos: nacidos("muerto"), abortos: nacidos("aborto") },
     destetesAnio: destetes,
   }
 }

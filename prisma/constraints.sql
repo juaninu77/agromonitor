@@ -86,6 +86,27 @@ BEGIN
       CHECK (resultado IN ('preñada', 'vacia', 'dudosa', 'absorcion')) NOT VALID;
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evt_servicio_anulacion_chk') THEN
+    ALTER TABLE evt_servicio ADD CONSTRAINT evt_servicio_anulacion_chk CHECK (anulado_at IS NULL OR motivo_anulacion IS NOT NULL);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evt_tacto_anulacion_chk') THEN
+    ALTER TABLE evt_tacto ADD CONSTRAINT evt_tacto_anulacion_chk CHECK (anulado_at IS NULL OR motivo_anulacion IS NOT NULL);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evt_paricion_anulacion_chk') THEN
+    ALTER TABLE evt_paricion ADD CONSTRAINT evt_paricion_anulacion_chk CHECK (anulado_at IS NULL OR motivo_anulacion IS NOT NULL);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evt_destete_anulacion_chk') THEN
+    ALTER TABLE evt_destete ADD CONSTRAINT evt_destete_anulacion_chk CHECK (anulado_at IS NULL OR motivo_anulacion IS NOT NULL);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evt_paricion_resultado_chk') THEN
+    ALTER TABLE evt_paricion ADD CONSTRAINT evt_paricion_resultado_chk
+      CHECK (resultado IN ('vivo', 'muerto', 'aborto')) NOT VALID;
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tareas_estado_chk') THEN
     ALTER TABLE tareas ADD CONSTRAINT tareas_estado_chk
       CHECK (estado IN ('pendiente', 'en_progreso', 'completada', 'cancelada')) NOT VALID;
@@ -277,3 +298,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS cuentas_financieras_nombre_unico
 
 CREATE UNIQUE INDEX IF NOT EXISTS invitaciones_pendiente_unica
   ON invitaciones (organizacion_id, lower(email)) WHERE estado = 'pendiente';
+
+-- Un destete vigente por animal (los anulados no cuentan)
+CREATE UNIQUE INDEX IF NOT EXISTS evt_destete_animal_vigente_key
+  ON evt_destete (animal_id) WHERE anulado_at IS NULL;

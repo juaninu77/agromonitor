@@ -6,7 +6,38 @@ export const TIPOS_SERVICIO = ["natural", "ia", "iatf"] as const
 export const TIPOS_TORADA = ["natural", "ia", "iatf", "mixto"] as const
 export const RESULTADOS_TACTO = ["preñada", "vacia", "dudosa", "absorcion"] as const
 export const METODOS_TACTO = ["palpacion", "ecografia"] as const
-export const RESULTADOS_PARTO = ["vivo", "muerto"] as const
+export const RESULTADOS_CRIA = ["vivo", "muerto"] as const
+/** Resultado guardado en cada fila de parto: una cría viva o muerta, o un aborto (sin cría). */
+export const RESULTADOS_PARTO = ["vivo", "muerto", "aborto"] as const
+export const TIPOS_EVENTO = ["servicio", "tacto", "paricion", "destete"] as const
+export type TipoEvento = (typeof TIPOS_EVENTO)[number]
+/** Anular un evento: solo admin o encargado del campo (spec 10 §3). */
+export const ROLES_ANULAR = ["admin", "encargado"] as const
+
+/** Días de gestación por especie (spec 03 §3.1–3.2). */
+export const DIAS_GESTACION: Record<string, number> = { bovino: 283, ovino: 150, caprino: 150, equino: 340, porcino: 114 }
+const DIA_MS = 86_400_000
+const sumarDias = (dia: string, n: number) => new Date(Date.parse(`${dia}T00:00:00Z`) + n * DIA_MS).toISOString().slice(0, 10)
+
+/**
+ * Fecha probable de parto de un tacto positivo (spec 03 §3.7): desde el servicio vinculado
+ * (servicio + gestación) o desde los meses de gestación (tacto + gestación − meses·30).
+ * También devuelve los meses calculados desde el servicio. Sin datos, null.
+ */
+export function calcularParto(especie: string | null | undefined, fechaTacto: string, datos: { servicioFecha?: string | null; mesesGest?: number | null }) {
+  const dias = DIAS_GESTACION[(especie ?? "").toLowerCase()] ?? DIAS_GESTACION.bovino
+  let fecha: string | null = null
+  let mesesGest = datos.mesesGest ?? null
+  if (datos.servicioFecha) {
+    fecha = sumarDias(datos.servicioFecha, dias)
+    if (mesesGest == null) mesesGest = Math.round(((Date.parse(fechaTacto) - Date.parse(datos.servicioFecha)) / DIA_MS / 30) * 10) / 10
+  } else if (mesesGest != null) {
+    fecha = sumarDias(fechaTacto, Math.round(dias - mesesGest * 30))
+  }
+  if (fecha && fecha <= fechaTacto) fecha = null
+  if (mesesGest != null && mesesGest <= 0) mesesGest = null
+  return { fecha, mesesGest }
+}
 export const TIPOS_PARTO = ["normal", "asistido", "cesarea"] as const
 export const METODOS_DESTETE = ["tradicional", "precoz", "hiperprecoz", "destetador"] as const
 
@@ -83,20 +114,32 @@ export const tactoSchema = z.object({
   .refine((v) => !v.fechaProbableParto || v.fechaProbableParto > v.fecha, { message: "La fecha probable de parto tiene que ser posterior al tacto", path: ["fechaProbableParto"] })
 export type TactoInput = z.input<typeof tactoSchema>
 
+/** Una cría del parto: la viva se da de alta como animal (spec 03 §3.8). */
+export const criaSchema = z.object({
+  resultado: z.enum(RESULTADOS_CRIA, { errorMap: () => ({ message: "Indicá si la cría nació viva o muerta" }) }),
+  sexo: enumOpcional(["M", "F"] as const, "Sexo de la cría inválido"),
+  pesoNacerKg: numero(z.number({ invalid_type_error: "El peso debe ser un número" }).positive("El peso debe ser mayor a 0").max(100, "El peso al nacer no puede superar 100 kg")),
+  caravanaVisual: texto(30),
+  caravanaRfid: texto(32),
+}).refine((c) => c.resultado === "muerto" || !!c.sexo, { message: "Indicá el sexo de la cría viva", path: ["sexo"] })
+export type CriaInput = z.input<typeof criaSchema>
+
 export const paricionSchema = z.object({
   madreId: z.string({ required_error: "Elegí la madre" }).uuid("Elegí la madre"),
   padreId: idOpcional,
   padreExterno: texto(120),
   fecha: diaEvento,
-  resultado: z.enum(RESULTADOS_PARTO, { errorMap: () => ({ message: "Resultado inválido" }) }),
-  pesoNacerKg: numero(z.number({ invalid_type_error: "El peso debe ser un número" }).positive("El peso debe ser mayor a 0").max(100, "El peso al nacer no puede superar 100 kg")),
+  /** Aborto: se registra el evento sin crías. */
+  aborto: z.boolean().default(false),
+  crias: z.array(criaSchema).max(4, "Hasta 4 crías por parto").default([]),
   tipoParto: enumOpcional(TIPOS_PARTO, "Tipo de parto inválido"),
   dificultad: numero(z.number().int("La dificultad va de 1 a 5").min(1, "La dificultad va de 1 a 5").max(5, "La dificultad va de 1 a 5")),
-  sexoCria: enumOpcional(["M", "F"] as const, "Sexo de la cría inválido"),
   observ: texto(1000),
-  /** Confirmación para un segundo parto de la misma madre el mismo día (mellizos). */
+  /** Confirmación para un segundo parto de la misma madre el mismo día. */
   confirmarMellizo: z.boolean().default(false),
-}).refine((v) => !(v.padreId && v.padreExterno), { message: "Indicá el padre del rodeo o uno externo, no ambos", path: ["padreExterno"] })
+})
+  .refine((v) => !(v.padreId && v.padreExterno), { message: "Indicá el padre del rodeo o uno externo, no ambos", path: ["padreExterno"] })
+  .refine((v) => (v.aborto ? v.crias.length === 0 : v.crias.length > 0), { message: "Cargá al menos una cría (o marcá aborto)", path: ["crias"] })
 export type ParicionInput = z.input<typeof paricionSchema>
 
 export const desteteSchema = z.object({
@@ -139,6 +182,8 @@ export const filtrosReproduccionSchema = z.object({
   /** Servicios todavía sin tacto (para vincular un tacto). */
   sinTacto: z.enum(["true", "false"]).optional().transform((v) => v === "true"),
   activa: z.enum(["true", "false"]).optional().transform((v) => v === "true"),
+  /** Incluir los eventos anulados (se muestran tachados). */
+  verAnulados: z.enum(["true", "false"]).optional().transform((v) => v === "true"),
 })
 export type FiltrosReproduccion = z.output<typeof filtrosReproduccionSchema>
 
@@ -150,3 +195,32 @@ export const busquedaAnimalesSchema = z.object({
   q: z.string().trim().max(60).optional().transform((v) => v || undefined),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 })
+
+/** Edición de datos no críticos: lo ausente no se toca; "" lo borra. */
+const textoEdicion = (max: number) => z.string().trim().max(max).nullish().transform((v) => (v === undefined ? undefined : v || null))
+export const EDICION_POR_TIPO = {
+  servicio: z.object({ toroNombre: textoEdicion(120), loteSemen: textoEdicion(60), inseminador: textoEdicion(120), observ: textoEdicion(1000) }).strict(),
+  tacto: z.object({ veterinario: textoEdicion(120), observ: textoEdicion(1000) }).strict(),
+  paricion: z.object({
+    tipoParto: z.enum(TIPOS_PARTO).nullish(),
+    dificultad: z.number().int().min(1).max(5).nullish(),
+    observ: textoEdicion(1000),
+  }).strict(),
+  destete: z.object({ metodo: z.enum(METODOS_DESTETE).nullish(), observ: textoEdicion(1000) }).strict(),
+} as const
+
+export const anulacionSchema = z.object({
+  motivo: z.string({ required_error: "Indicá por qué se anula" }).trim().min(3, "Indicá por qué se anula").max(500),
+  /** Confirmación para anular un parto cuya cría ya está dada de alta. */
+  aceptarCria: z.boolean().default(false),
+})
+
+/** Edición de una torada: cerrar (fecha de fin), toros asignados y datos. */
+export const edicionToradaSchema = z.object({
+  nombre: z.string().trim().min(2, "Poné un nombre").max(120).optional(),
+  fechaFin: diaOpcional.optional(),
+  machoIds: z.array(uuid).max(100, "Demasiados toros").optional(),
+  // Ausente = no se toca; "" = se borra
+  cantidadHembras: z.preprocess((v) => (v === "" ? null : typeof v === "string" ? Number(v) : v), z.number().int().positive().max(100_000).nullable().optional()),
+  observ: textoEdicion(1000),
+}).strict()

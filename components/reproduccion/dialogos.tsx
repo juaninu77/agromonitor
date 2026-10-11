@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { AnimalCombobox, type AnimalOpcion } from "./animal-combobox"
 import { formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import {
-  ETIQUETA_METODO_DESTETE, ETIQUETA_METODO_TACTO, ETIQUETA_RESULTADO_TACTO, ETIQUETA_TIPO_PARTO, ETIQUETA_TIPO_SERVICIO,
+  calcularParto, ETIQUETA_METODO_DESTETE, ETIQUETA_METODO_TACTO, ETIQUETA_RESULTADO_TACTO, ETIQUETA_TIPO_PARTO, ETIQUETA_TIPO_SERVICIO,
   METODOS_DESTETE, METODOS_TACTO, RESULTADOS_TACTO, TIPOS_PARTO, TIPOS_SERVICIO, TIPOS_TORADA,
 } from "@/lib/reproduccion/validation"
 
@@ -147,8 +147,12 @@ export function TactoDialog({ open, onOpenChange, estId, onSuccess }: PropsDialo
     enabled: open && !!form.hembra,
   })
   const prenada = form.resultado === "preñada"
+  const servicio = servicios.data?.find((x) => x.id === form.servicioId)
+  const meses = form.mesesGest ? Number(form.mesesGest.replace(",", ".")) : null
+  const calculo = prenada && form.fecha ? calcularParto(form.hembra?.especie?.nombre, form.fecha, { servicioFecha: servicio?.fecha.slice(0, 10), mesesGest: meses && meses > 0 ? meses : null }) : null
   function guardar() {
     if (!form.hembra) return r.setError("Elegí la hembra")
+    if (prenada && form.metodo === "ecografia" && !form.mesesGest && !form.servicioId) return r.setError("Por ecografía, indicá los meses de gestación (o vinculá el servicio)")
     void r.guardar(() => enviar("/api/reproduccion/tactos", {
       fecha: form.fecha, resultado: form.resultado, metodo: form.metodo, hembraId: form.hembra!.id, servicioId: form.servicioId || null,
       mesesGest: prenada ? form.mesesGest : null, fechaProbableParto: prenada ? form.fechaProbableParto : null, veterinario: form.veterinario, observ: form.observ,
@@ -180,6 +184,11 @@ export function TactoDialog({ open, onOpenChange, estId, onSuccess }: PropsDialo
         <div className="grid grid-cols-2 gap-3">
           <Campo id="tc-meses" label="Meses de gestación"><Input id="tc-meses" type="number" inputMode="decimal" min="0.5" max="10" step="0.5" value={form.mesesGest} onChange={(e) => set({ mesesGest: e.target.value })} /></Campo>
           <Campo id="tc-fpp" label="Fecha probable de parto"><Input id="tc-fpp" type="date" min={form.fecha} value={form.fechaProbableParto} onChange={(e) => set({ fechaProbableParto: e.target.value })} /></Campo>
+          <p className="col-span-2 text-xs text-muted-foreground" role="status">
+            {form.fechaProbableParto ? "Se usa la fecha cargada."
+              : calculo?.fecha ? <>Parto probable calculado: <strong>{formatoDia(calculo.fecha)}</strong> ({servicio ? "desde el servicio" : "desde los meses de gestación"}). Podés cargar otra fecha.</>
+              : "Vinculá el servicio o cargá los meses para calcular la fecha probable de parto."}
+          </p>
         </div>
       )}
       <Campo id="tc-vet" label="Veterinario"><Input id="tc-vet" maxLength={120} value={form.veterinario} onChange={(e) => set({ veterinario: e.target.value })} /></Campo>
@@ -188,23 +197,30 @@ export function TactoDialog({ open, onOpenChange, estId, onSuccess }: PropsDialo
   )
 }
 
+type CriaForm = { resultado: "vivo" | "muerto"; sexo: string; pesoNacerKg: string; caravanaVisual: string; caravanaRfid: string }
+const criaVacia = (): CriaForm => ({ resultado: "vivo", sexo: "", pesoNacerKg: "", caravanaVisual: "", caravanaRfid: "" })
+
 export function ParicionDialog({ open, onOpenChange, estId, onSuccess }: PropsDialogo) {
-  const r = useRegistro(open, () => ({ fecha: hoyArgentina(), resultado: "vivo", madre: null as AnimalOpcion | null, padre: null as AnimalOpcion | null, padreExterno: "", pesoNacerKg: "", tipoParto: "", sexoCria: "", dificultad: "", observ: "" }))
+  const r = useRegistro(open, () => ({ fecha: hoyArgentina(), aborto: false, madre: null as AnimalOpcion | null, padre: null as AnimalOpcion | null, padreExterno: "", tipoParto: "", dificultad: "", observ: "", crias: [criaVacia()] }))
   const { form, set } = r
+  const setCria = (n: number, patch: Partial<CriaForm>) => set({ crias: form.crias.map((c, k) => (k === n ? { ...c, ...patch } : c)) })
   function guardar() {
     if (!form.madre) return r.setError("Elegí la madre")
-    void r.guardar(() => enviarConfirmando("/api/reproduccion/pariciones", {
-      fecha: form.fecha, resultado: form.resultado, madreId: form.madre!.id, padreId: form.padre?.id ?? null, padreExterno: form.padre ? null : form.padreExterno,
-      pesoNacerKg: form.pesoNacerKg, tipoParto: form.tipoParto, sexoCria: form.sexoCria, dificultad: form.dificultad, observ: form.observ,
-    }, { mellizo: "confirmarMellizo" }), "Parto registrado", () => { onOpenChange(false); onSuccess() })
+    if (!form.aborto && form.crias.some((c) => c.resultado === "vivo" && !c.sexo)) return r.setError("Indicá el sexo de cada cría viva")
+    void r.guardar(async () => {
+      const res = await enviarConfirmando("/api/reproduccion/pariciones", {
+        fecha: form.fecha, madreId: form.madre!.id, padreId: form.padre?.id ?? null, padreExterno: form.padre ? null : form.padreExterno,
+        aborto: form.aborto, crias: form.aborto ? [] : form.crias, tipoParto: form.tipoParto, dificultad: form.dificultad, observ: form.observ,
+      }, { mellizo: "confirmarMellizo" }) as { filas: { criaId: string | null }[] }
+      const altas = res.filas.filter((f) => f.criaId).length
+      if (altas) toast.info(altas === 1 ? "La cría quedó dada de alta en Ganado, con su madre" : `${altas} crías quedaron dadas de alta en Ganado`)
+    }, form.aborto ? "Aborto registrado" : "Parto registrado", () => { onOpenChange(false); onSuccess() })
   }
   return (
-    <DialogoRegistro open={open} onOpenChange={onOpenChange} titulo="Registrar parto" descripcion="Un parto por cría: los mellizos se cargan como dos partos del mismo día." textoBoton="Registrar parto" enviando={r.enviando} error={r.error} onGuardar={guardar}>
+    <DialogoRegistro open={open} onOpenChange={onOpenChange} titulo="Registrar parto" descripcion="Cada cría viva se da de alta en Ganado con su madre y su padre, en el grupo y el lugar de la madre." textoBoton={form.aborto ? "Registrar aborto" : "Registrar parto"} enviando={r.enviando} error={r.error} onGuardar={guardar}>
       <div className="grid grid-cols-2 gap-3">
         <Campo id="pa-fecha" label="Fecha *"><Input id="pa-fecha" type="date" max={hoyArgentina()} value={form.fecha} onChange={(e) => set({ fecha: e.target.value })} required /></Campo>
-        <Campo id="pa-res" label="Cría *">
-          <select id="pa-res" className={selectClass} value={form.resultado} onChange={(e) => set({ resultado: e.target.value })}><option value="vivo">Nació viva</option><option value="muerto">Nació muerta</option></select>
-        </Campo>
+        <label className="flex items-end gap-2 pb-2 text-sm"><input type="checkbox" checked={form.aborto} onChange={(e) => set({ aborto: e.target.checked })} />Fue un aborto (sin cría)</label>
       </div>
       <Campo id="pa-madre" label="Madre *"><AnimalCombobox id="pa-madre" estId={estId} sexo="F" value={form.madre} onChange={(a) => set({ madre: a, padre: null })} placeholder="Buscar madre" /></Campo>
       <div className="grid grid-cols-2 gap-3">
@@ -213,18 +229,43 @@ export function ParicionDialog({ open, onOpenChange, estId, onSuccess }: PropsDi
         </Campo>
         <Campo id="pa-externo" label="Padre externo (IA)"><Input id="pa-externo" maxLength={120} placeholder="Nombre del toro" value={form.padreExterno} disabled={!!form.padre} onChange={(e) => set({ padreExterno: e.target.value })} /></Campo>
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        <Campo id="pa-peso" label="Peso al nacer (kg)"><Input id="pa-peso" type="number" inputMode="decimal" min="0" max="100" step="0.1" value={form.pesoNacerKg} onChange={(e) => set({ pesoNacerKg: e.target.value })} /></Campo>
-        <Campo id="pa-sexo" label="Sexo de la cría">
-          <select id="pa-sexo" className={selectClass} value={form.sexoCria} onChange={(e) => set({ sexoCria: e.target.value })}><option value="">—</option><option value="M">Macho</option><option value="F">Hembra</option></select>
-        </Campo>
+      {!form.aborto && (
+        <fieldset className="space-y-3 rounded-md border p-3">
+          <legend className="px-1 text-sm font-medium">{form.crias.length > 1 ? `Crías (${form.crias.length})` : "Cría"}</legend>
+          {form.crias.map((c, n) => (
+            <div key={n} className={`grid gap-2 ${n ? "border-t pt-3" : ""}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm text-muted-foreground">{form.crias.length > 1 ? `Cría ${n + 1}` : ""}</span>
+                {form.crias.length > 1 && <Button type="button" variant="ghost" size="sm" onClick={() => set({ crias: form.crias.filter((_, k) => k !== n) })}>Quitar</Button>}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <Campo id={`pa-cr-res-${n}`} label="Nació">
+                  <select id={`pa-cr-res-${n}`} className={selectClass} value={c.resultado} onChange={(e) => setCria(n, { resultado: e.target.value as CriaForm["resultado"] })}><option value="vivo">Viva</option><option value="muerto">Muerta</option></select>
+                </Campo>
+                <Campo id={`pa-cr-sexo-${n}`} label={c.resultado === "vivo" ? "Sexo *" : "Sexo"}>
+                  <select id={`pa-cr-sexo-${n}`} className={selectClass} value={c.sexo} onChange={(e) => setCria(n, { sexo: e.target.value })}><option value="">—</option><option value="M">Macho</option><option value="F">Hembra</option></select>
+                </Campo>
+                <Campo id={`pa-cr-peso-${n}`} label="Peso (kg)"><Input id={`pa-cr-peso-${n}`} type="number" inputMode="decimal" min="0" max="100" step="0.1" value={c.pesoNacerKg} onChange={(e) => setCria(n, { pesoNacerKg: e.target.value })} /></Campo>
+              </div>
+              {c.resultado === "vivo" && (
+                <div className="grid grid-cols-2 gap-2">
+                  <Campo id={`pa-cr-car-${n}`} label="Caravana"><Input id={`pa-cr-car-${n}`} maxLength={30} value={c.caravanaVisual} onChange={(e) => setCria(n, { caravanaVisual: e.target.value })} /></Campo>
+                  <Campo id={`pa-cr-eid-${n}`} label="EID (opcional)"><Input id={`pa-cr-eid-${n}`} inputMode="numeric" maxLength={32} value={c.caravanaRfid} onChange={(e) => setCria(n, { caravanaRfid: e.target.value })} /></Campo>
+                </div>
+              )}
+            </div>
+          ))}
+          {form.crias.length < 4 && <Button type="button" variant="outline" size="sm" onClick={() => set({ crias: [...form.crias, criaVacia()] })}>Agregar mellizo</Button>}
+        </fieldset>
+      )}
+      <div className="grid grid-cols-2 gap-3">
         <Campo id="pa-tipo" label="Tipo de parto">
           <select id="pa-tipo" className={selectClass} value={form.tipoParto} onChange={(e) => set({ tipoParto: e.target.value })}><option value="">—</option>{TIPOS_PARTO.map((t) => <option key={t} value={t}>{ETIQUETA_TIPO_PARTO[t]}</option>)}</select>
         </Campo>
+        <Campo id="pa-dif" label="Dificultad (1 a 5)">
+          <select id="pa-dif" className={selectClass} value={form.dificultad} onChange={(e) => set({ dificultad: e.target.value })}><option value="">—</option>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select>
+        </Campo>
       </div>
-      <Campo id="pa-dif" label="Dificultad (1 = sin ayuda, 5 = muy difícil)">
-        <select id="pa-dif" className={selectClass} value={form.dificultad} onChange={(e) => set({ dificultad: e.target.value })}><option value="">—</option>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select>
-      </Campo>
       <Campo id="pa-obs" label="Observaciones"><Textarea id="pa-obs" rows={2} maxLength={1000} value={form.observ} onChange={(e) => set({ observ: e.target.value })} /></Campo>
     </DialogoRegistro>
   )
@@ -235,12 +276,15 @@ export function DesteteDialog({ open, onOpenChange, estId, lotes, onSuccess }: P
   const { form, set } = r
   function guardar() {
     if (!form.animal) return r.setError("Elegí el animal")
-    void r.guardar(() => enviar("/api/reproduccion/destetes", {
-      fecha: form.fecha, animalId: form.animal!.id, pesoKg: form.pesoKg, edadDias: form.edadDias, metodo: form.metodo, loteDesteteId: form.loteDesteteId || null, observ: form.observ,
-    }), "Destete registrado", () => { onOpenChange(false); onSuccess() })
+    void r.guardar(async () => {
+      const res = await enviar("/api/reproduccion/destetes", {
+        fecha: form.fecha, animalId: form.animal!.id, pesoKg: form.pesoKg, edadDias: form.edadDias, metodo: form.metodo, loteDesteteId: form.loteDesteteId || null, observ: form.observ,
+      }) as { aviso: string | null }
+      if (res.aviso) toast.warning(res.aviso, { duration: 8000 })
+    }, "Destete registrado", () => { onOpenChange(false); onSuccess() })
   }
   return (
-    <DialogoRegistro open={open} onOpenChange={onOpenChange} titulo="Registrar destete" descripcion="Destete de un ternero o cordero." textoBoton="Registrar destete" enviando={r.enviando} error={r.error} onGuardar={guardar}>
+    <DialogoRegistro open={open} onOpenChange={onOpenChange} titulo="Registrar destete" descripcion="El peso queda como pesada y el animal pasa al grupo de destete." textoBoton="Registrar destete" enviando={r.enviando} error={r.error} onGuardar={guardar}>
       <Campo id="de-fecha" label="Fecha *"><Input id="de-fecha" type="date" max={hoyArgentina()} value={form.fecha} onChange={(e) => set({ fecha: e.target.value })} required /></Campo>
       <Campo id="de-animal" label="Animal *"><AnimalCombobox id="de-animal" estId={estId} value={form.animal} onChange={(a) => set({ animal: a })} placeholder="Buscar ternero o cordero" /></Campo>
       <div className="grid grid-cols-2 gap-3">

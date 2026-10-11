@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AgendaTab, IndicadoresTab, type PendienteAgenda } from "@/components/reproduccion/agenda-indicadores"
+import { ApartarVaciasDialog, MenuHoja, PronosticoCard, ZafraCard } from "@/components/reproduccion/informes"
 import { AnularEventoDialog, EditarEventoDialog, ToradaEditarDialog, type EventoAccion, type ToradaEditable } from "@/components/reproduccion/acciones"
 import { etiquetaAnimal, type AnimalOpcion } from "@/components/reproduccion/animal-combobox"
 import { DesteteDialog, ParicionDialog, ServicioDialog, TactoDialog, ToradaDialog } from "@/components/reproduccion/dialogos"
@@ -154,12 +155,21 @@ export default function ReproduccionPage() {
   const { hasRole } = usePermissions()
   const puede = (a: AccionReproduccion) => hasRole(...ROLES_REPRODUCCION[a])
   // ?tab= abre una pestaña (enlaces del Panel y de Tareas)
-  const tabParam = useSearchParams().get("tab") as Pestania | null
+  const params = useSearchParams()
+  const tabParam = params.get("tab") as Pestania | null
   const [pestania, setPestania] = useState<Pestania>(() => (tabParam && PESTANIAS.includes(tabParam) ? tabParam : "agenda"))
   const [abierto, setAbierto] = useState<Pestania | null>(null)
-  /** Lo que precarga la agenda en el diálogo que abre. */
+  /** Lo que precarga la agenda (o la ficha del animal) en el diálogo que abre. */
   const [preset, setPreset] = useState<{ toradaId?: string | null; loteId?: string | null; animalId?: string | null }>({})
+  // Desde la ficha del animal: /reproduccion?registrar=servicio|tacto|parto&animal=ID
+  useEffect(() => {
+    const registrar = params.get("registrar"), animal = params.get("animal")
+    const destino = registrar === "servicio" ? "servicios" : registrar === "tacto" ? "tactos" : registrar === "parto" ? "pariciones" : null
+    if (!destino || !animal) return
+    setPreset({ animalId: animal }); setPestania(destino); setAbierto(destino)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const [porGrupo, setPorGrupo] = useState<PorGrupo>(null)
+  const [apartar, setApartar] = useState<string | null>(null)
   const [editando, setEditando] = useState<EventoAccion | null>(null)
   const [anulando, setAnulando] = useState<EventoAccion | null>(null)
   const [torada, setTorada] = useState<ToradaEditable | null>(null)
@@ -185,8 +195,8 @@ export default function ReproduccionPage() {
     queryFn: async () => {
       const r = await fetch(`/api/establecimientos/${estId}/lotes`)
       const b = await r.json().catch(() => [])
-      const lista = (Array.isArray(b) ? b : b.data ?? []) as { id: string; nombre: string; activo?: boolean; cantidadAnimales?: number; especie?: { nombre: string } | null }[]
-      return lista.filter((l) => l.activo !== false).map((l): GrupoOpcion => ({ id: l.id, nombre: l.nombre, especie: l.especie?.nombre ?? null, cantidad: l.cantidadAnimales }))
+      const lista = (Array.isArray(b) ? b : b.data ?? []) as { id: string; nombre: string; activo?: boolean; cantidadAnimales?: number; especieId?: string; especie?: { nombre: string } | null }[]
+      return lista.filter((l) => l.activo !== false).map((l): GrupoOpcion => ({ id: l.id, nombre: l.nombre, especie: l.especie?.nombre ?? null, especieId: l.especieId, cantidad: l.cantidadAnimales }))
     },
     enabled: !!estId,
   })
@@ -267,7 +277,18 @@ export default function ReproduccionPage() {
           <TabsTrigger value="indicadores">Indicadores</TabsTrigger>
         </TabsList>
         <TabsContent value="agenda"><AgendaTab estId={estId} puede={(t) => puede(ACCION_PENDIENTE[t])} onAccion={resolver} /></TabsContent>
-        <TabsContent value="indicadores">{pestania === "indicadores" && <IndicadoresTab estId={estId} />}</TabsContent>
+        <TabsContent value="indicadores">
+          {pestania === "indicadores" && (
+            <IndicadoresTab estId={estId}
+              acciones={(t) => (
+                <>
+                  <MenuHoja toradaId={t.id} />
+                  {puedeAnular && t.tactadas > t.prenadas && <Button size="sm" variant="ghost" onClick={() => setApartar(t.id)}>Apartar vacías</Button>}
+                </>
+              )}
+              pie={(d) => <div className="grid gap-4 lg:grid-cols-2"><PronosticoCard estId={estId} /><ZafraCard indicadores={d} /></div>} />
+          )}
+        </TabsContent>
         <TabsContent value="servicios"><ListaEventos<Servicio> titulo="Servicios" ruta="servicios" estId={estId} columnas={COL_SERVICIOS} vacio="No hay servicios registrados."
           acciones={acciones("servicio", "servicio", (s: Servicio) => `Servicio de ${etiquetaAnimal(s.hembra)} del ${formatoDia(s.fecha)}`, (s: Servicio) => ({ toroNombre: s.toroNombre, loteSemen: s.loteSemen, inseminador: s.inseminador, observ: s.observ }))} nuevo={puede("servicio") ? { texto: "Nuevo servicio", onClick: () => setAbierto("servicios") } : undefined} /></TabsContent>
         <TabsContent value="tactos"><ListaEventos<Tacto> titulo="Diagnósticos de preñez" ruta="tactos" estId={estId} columnas={COL_TACTOS} vacio="No hay tactos registrados."
@@ -282,15 +303,16 @@ export default function ReproduccionPage() {
           acciones={acciones("senalada", "senalada", (x: Senalada) => `Señalada de ${x.lote.nombre} del ${formatoDia(x.fecha)}`, (x: Senalada) => ({ observ: x.observ }))} nuevo={puede("senalada") ? { texto: "Nueva señalada", onClick: () => setAbierto("senaladas") } : undefined} /></TabsContent>
       </Tabs>
 
-      <ServicioDialog open={abierto === "servicios" && puede(ACCION_DE.servicios)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} onSuccess={invalidar} />
+      <ServicioDialog open={abierto === "servicios" && puede(ACCION_DE.servicios)} onOpenChange={(o) => { if (!o) { setAbierto(null); setPreset({}) } }} estId={estId} onSuccess={invalidar} hembraInicial={preset.animalId} />
       <TactoDialog open={abierto === "tactos" && puede(ACCION_DE.tactos)} onOpenChange={(o) => { if (!o) { setAbierto(null); setPreset({}) } }} estId={estId} onSuccess={invalidar} hembraInicial={preset.animalId} />
-      <ParicionDialog open={abierto === "pariciones" && puede(ACCION_DE.pariciones)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} onSuccess={invalidar} />
+      <ParicionDialog open={abierto === "pariciones" && puede(ACCION_DE.pariciones)} onOpenChange={(o) => { if (!o) { setAbierto(null); setPreset({}) } }} estId={estId} onSuccess={invalidar} madreInicial={preset.animalId} />
       <DesteteDialog open={abierto === "destetes" && puede(ACCION_DE.destetes)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} lotes={lotes.data ?? []} onSuccess={invalidar} />
       <ToradaDialog open={abierto === "toradas" && puede(ACCION_DE.toradas)} onOpenChange={(o) => !o && setAbierto(null)} lotes={lotes.data ?? []} onSuccess={invalidar} />
       <SenaladaDialog open={abierto === "senaladas" && puede("senalada")} onOpenChange={(o) => { if (!o) { setAbierto(null); setPreset({}) } }} estId={estId} lotes={lotes.data ?? []} onSuccess={invalidar} loteInicial={preset.loteId} />
       <ServicioMasivoDialog open={porGrupo === "servicio"} onOpenChange={(o) => !o && setPorGrupo(null)} estId={estId} onSuccess={invalidar} />
       <PlanillaTactoDialog open={porGrupo === "tacto"} onOpenChange={(o) => { if (!o) { setPorGrupo(null); setPreset({}) } }} estId={estId} onSuccess={invalidar} toradaInicial={preset.toradaId} />
       <DesteteMasivoDialog open={porGrupo === "destete"} onOpenChange={(o) => { if (!o) { setPorGrupo(null); setPreset({}) } }} estId={estId} lotes={lotes.data ?? []} onSuccess={() => { invalidar(); queryClient.invalidateQueries({ queryKey: ["ganado"] }) }} loteInicial={preset.loteId} />
+      <ApartarVaciasDialog toradaId={apartar} lotes={lotes.data ?? []} onOpenChange={(o) => !o && setApartar(null)} onHecho={() => { invalidar(); queryClient.invalidateQueries({ queryKey: ["ganado"] }) }} />
       <EditarEventoDialog evento={editando} onOpenChange={(o) => !o && setEditando(null)} onGuardado={invalidar} />
       <AnularEventoDialog evento={anulando} onOpenChange={(o) => !o && setAnulando(null)} onAnulado={() => { invalidar(); queryClient.invalidateQueries({ queryKey: ["ganado"] }) }} />
       <ToradaEditarDialog torada={torada} estId={estId} onOpenChange={(o) => !o && setTorada(null)} onGuardado={invalidar} />

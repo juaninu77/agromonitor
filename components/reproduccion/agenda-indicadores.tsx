@@ -72,7 +72,7 @@ export function AgendaTab({ estId, puede, onAccion }: { estId: string; puede: (t
   )
 }
 
-interface IndicadorTorada {
+export interface IndicadorTorada {
   id: string; nombre: string; tipo: string; tipoGrupo: TipoGrupo; lote: string; especie: string; fechaInicio: string; fechaFin: string | null
   entoradas: number; servidas: number; tactadas: number; prenadas: number; paridas: number; abortos: number; nacidosVivos: number; nacidosMuertos: number; destetados: number; senalados: number
   porcentaje: { prenez: number | null; paricion: number | null; destete: number | null; senalada: number | null; mellizos: number | null }
@@ -99,7 +99,14 @@ function Distribucion({ d }: { d: NonNullable<IndicadorTorada["distribucion"]> }
 }
 
 /** Indicadores reproductivos por torada/encarnerada (spec 03 §3.5). */
-export function IndicadoresTab({ estId, informes }: { estId: string; informes?: React.ReactNode }) {
+export function IndicadoresTab({ estId, informes, acciones, pie }: {
+  estId: string
+  informes?: React.ReactNode
+  /** Acciones por torada (hoja de servicio, apartar vacías) */
+  acciones?: (t: IndicadorTorada) => React.ReactNode
+  /** Informes que usan los indicadores (zafra por año) */
+  pie?: (d: Indicadores | undefined) => React.ReactNode
+}) {
   const q = useQuery({ queryKey: ["repro", "indicadores", estId], queryFn: () => getJson<Indicadores>(`/api/reproduccion/indicadores?establecimientoId=${estId}`), enabled: !!estId, staleTime: 60_000 })
   const d = q.data
   return (
@@ -133,6 +140,7 @@ export function IndicadoresTab({ estId, informes }: { estId: string; informes?: 
                       <th className="px-2 py-2 text-right font-medium">% Destete / señalada</th><th className="px-2 py-2 text-right font-medium">Pérdida tacto→parto</th>
                       <th className="px-2 py-2 text-right font-medium">Pérdida parto→destete</th><th className="px-2 py-2 text-right font-medium">Mellizos</th>
                       <th className="px-2 py-2 font-medium">Cabeza / cuerpo / cola</th><th className="px-2 py-2 text-right font-medium">Kg destetados por hembra</th>
+                      {acciones && <th className="px-2 py-2"><span className="sr-only">Acciones</span></th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -153,6 +161,7 @@ export function IndicadoresTab({ estId, informes }: { estId: string; informes?: 
                           <td className="px-2 py-2 text-right tabular-nums">{p(t.porcentaje.mellizos)}</td>
                           <td className="px-2 py-2">{t.distribucion ? <Distribucion d={t.distribucion} /> : <span className="text-muted-foreground">—</span>}</td>
                           <td className="px-2 py-2 text-right tabular-nums">{t.kgDestetadosPorHembra != null ? `${t.kgDestetadosPorHembra.toLocaleString("es-AR")} kg` : <span className="text-muted-foreground">—</span>}</td>
+                          {acciones && <td className="px-2 py-2"><span className="flex justify-end gap-2">{acciones(t)}</span></td>}
                         </tr>
                       )
                     })}
@@ -166,6 +175,7 @@ export function IndicadoresTab({ estId, informes }: { estId: string; informes?: 
             )}
         </CardContent>
       </Card>
+      {pie?.(d)}
     </div>
   )
 }

@@ -19,7 +19,7 @@ import {
 } from "@/lib/reproduccion/validation"
 
 const selectClass = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-export interface GrupoOpcion { id: string; nombre: string; especie?: string | null; cantidad?: number }
+export interface GrupoOpcion { id: string; nombre: string; especie?: string | null; especieId?: string; cantidad?: number }
 interface ToradaOpcion { id: string; nombre: string; tipo: string; tipoGrupo: TipoGrupo; fechaInicio: string; fechaFin: string | null; lote: { nombre: string; especieId: string } }
 interface HembraTorada {
   id: string; caravanaVisual: string | null; cuig: string | null; categoria: { nombre: string } | null

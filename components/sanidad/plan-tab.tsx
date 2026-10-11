@@ -227,9 +227,29 @@ function NuevoCalendarioDialog({ abierto, onOpenChange, estId, lotes, onCreado }
     queryFn: async () => { const r = await fetch(`/api/sanidad/protocolos?establecimientoId=${estId}`); const b = await r.json(); if (!r.ok) throw new Error(b.error); return b.data as { protocolos: ProtocoloOpcion[]; campo: { zonaAftosa: string | null } | null } },
     enabled: abierto && !!estId,
   })
-  useEffect(() => { if (abierto) { setForm(vacio); setPrevia(null); setError("") } }, [abierto]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (abierto) { setForm(vacio); setPrevia(null); setError(""); setPrecargadas({}) } }, [abierto]) // eslint-disable-line react-hooks/exhaustive-deps
   const protocolo = prot.data?.protocolos.find((p) => p.id === form.protocoloId)
   const anclas = useMemo(() => (protocolo ? anclasNecesarias(protocolo.items) : []), [protocolo])
+  // Fechas que salen de Reproducción: inicio del servicio de la torada y destete del primer parto
+  const usaReproduccion = anclas.includes("fechaPreServicio") || anclas.includes("fechaDestete")
+  const sugeridas = useQuery({
+    queryKey: ["repro", "anclas", estId, form.anio, form.loteId, protocolo?.especie],
+    queryFn: async () => {
+      const r = await fetch(`/api/reproduccion/anclas?establecimientoId=${estId}&anio=${form.anio}${form.loteId ? `&loteId=${form.loteId}` : ""}${protocolo ? `&especie=${protocolo.especie}` : ""}`)
+      const b = await r.json().catch(() => ({}))
+      return (r.ok ? b.data : null) as { fechaPreServicio: string | null; origenPreServicio: string | null; fechaDestete: string | null; origenDestete: string | null } | null
+    },
+    enabled: abierto && usaReproduccion && /^\d{4}$/.test(form.anio),
+  })
+  const [precargadas, setPrecargadas] = useState<Record<string, string>>({})
+  useEffect(() => {
+    const s = sugeridas.data
+    if (!s) return
+    const cambios: Record<string, string> = {}, origen: Record<string, string> = {}
+    if (anclas.includes("fechaPreServicio") && !form.fechaPreServicio && s.fechaPreServicio) { cambios.fechaPreServicio = s.fechaPreServicio; origen.fechaPreServicio = s.origenPreServicio ?? "" }
+    if (anclas.includes("fechaDestete") && !form.fechaDestete && s.fechaDestete) { cambios.fechaDestete = s.fechaDestete; origen.fechaDestete = s.origenDestete ?? "" }
+    if (Object.keys(cambios).length) { setForm((f) => ({ ...f, ...cambios })); setPrecargadas((p) => ({ ...p, ...origen })) }
+  }, [sugeridas.data, anclas]) // eslint-disable-line react-hooks/exhaustive-deps
   const cuerpo = () => ({ ...form, establecimientoId: estId, anio: Number(form.anio), loteId: form.loteId || null })
 
   // Vista previa automática al cambiar el formulario
@@ -275,7 +295,8 @@ function NuevoCalendarioDialog({ abierto, onOpenChange, estId, lotes, onCreado }
           <div className="space-y-1.5"><Label htmlFor="nc-inicio">Inicio del calendario</Label><Input id="nc-inicio" type="date" value={form.fechaInicio} onChange={(e) => setForm({ ...form, fechaInicio: e.target.value })} /></div>
           {anclas.map((a) => (
             <div key={a} className="space-y-1.5"><Label htmlFor={`nc-${a}`}>{ETIQUETA_ANCLA[a]}</Label>
-              <Input id={`nc-${a}`} type="date" value={form[a as keyof typeof form]} onChange={(e) => setForm({ ...form, [a]: e.target.value })} /></div>
+              <Input id={`nc-${a}`} type="date" value={form[a as keyof typeof form]} onChange={(e) => { setForm({ ...form, [a]: e.target.value }); setPrecargadas((p) => { const x = { ...p }; delete x[a]; return x }) }} />
+              {precargadas[a] && <p className="text-xs text-muted-foreground">Sugerida por Reproducción: {precargadas[a]}</p>}</div>
           ))}
         </div>
         {prot.data?.campo && !prot.data.campo.zonaAftosa && protocolo?.items.some((i) => i.esAftosa) && <p className="erp-notice text-sm">El protocolo incluye aftosa y el campo no tiene zona definida: <Link className="underline" href="/sanidad/protocolos">definila en Plan sanitario</Link>.</p>}

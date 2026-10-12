@@ -156,6 +156,8 @@ The `/manga` module reads electronic ear tags (EID) with a **Tru-Test XRS2i** wa
 
 Route groups: `/app/(app)/*` (authenticated, wrapped in AppShell layout) and `/app/(auth)/*` (login, register).
 
+**Ayuda** (`/ayuda`): in-app user guide, one section per menu module with step-by-step guides; content lives in `lib/ayuda/` (`general.ts`, `hacienda.ts`, `campo.ts`, `gestion.ts`, assembled in `contenido.ts`; button names quoted «like this» exactly as on screen — update the guide when you change a module's UI), search and route→section mapping in the client-safe `lib/ayuda/buscar.ts` (`seccionDeRuta()`, used by the header «?» button). A test checks every nav item has a section.
+
 **Main Modules:** `/ganado` (livestock), `/sanidad` (health), `/reproduccion` (breeding), `/manga` (RFID handling), `/potreros` (paddocks), `/ventas` (sales), `/cultivos`, `/finanzas`, `/inventario`, `/tareas` (Kanban), `/flota`, `/mercado`, `/mapa`, `/iot`, `/configuracion`. Navigation is defined in `lib/config/navigation.ts`.
 
 ### Server vs Client Components & Data Fetching

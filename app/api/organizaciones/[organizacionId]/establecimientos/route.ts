@@ -85,7 +85,8 @@ export const POST = withAuth(async (request, ctx) => {
       )
     }
 
-    if (hectareas !== undefined && (typeof hectareas !== "number" || hectareas <= 0)) {
+    // Vacío (null) = sin dato
+    if (hectareas != null && (typeof hectareas !== "number" || hectareas <= 0)) {
       return NextResponse.json(
         { error: "Las hectáreas deben ser un número positivo" },
         { status: 400 }

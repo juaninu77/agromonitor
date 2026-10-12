@@ -20,6 +20,7 @@ interface Establecimiento {
   renspa?: string | null
   provincia?: string | null
   localidad?: string | null
+  ubicacion?: string | null
 }
 
 interface TenantContextType {

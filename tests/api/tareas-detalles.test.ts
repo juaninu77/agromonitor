@@ -14,7 +14,7 @@ vi.mock("@/lib/prisma", () => ({
     documentoTransito: { findUnique: m.dte, create: async ({ data }: { data: object }) => ({ id: "D1", ...data }) },
   },
 }))
-import { DELETE } from "@/app/api/tareas/[id]/route"
+import { DELETE, PATCH } from "@/app/api/tareas/[id]/route"
 import { GET } from "@/app/api/tareas/route"
 import { POST as crearDte } from "@/app/api/ventas/documentos/route"
 
@@ -27,15 +27,34 @@ beforeEach(() => {
   m.ctx = { userId: "u1", params: { id: "T1" }, establecimientoIds: [EST], organizacionDeEstablecimiento: { [EST]: "o1" }, establecimientoIdsConRol: () => [EST] }
 })
 
-describe("eliminar tareas", () => {
-  it("una tarea manual se borra; una del plan o de la agenda se cancela", async () => {
-    m.tarea.mockResolvedValue({ id: "T1", titulo: "Arreglar alambrado", establecimientoId: EST, calendarioSanitarioId: null, itemProtocoloId: null, claveReproduccion: null })
-    expect(await (await DELETE(req(), ctx)).json()).toMatchObject({ success: true, cancelada: false })
-    expect(m.borrar).toHaveBeenCalledWith({ where: { id: "T1" } })
-    m.tarea.mockResolvedValue({ id: "T1", titulo: "Tacto torada", establecimientoId: EST, claveReproduccion: "tacto:torada:X" })
+describe("cancelar tareas", () => {
+  it("ninguna tarea se borra: las manuales y las del plan o la agenda se cancelan", async () => {
+    m.tarea.mockResolvedValue({ id: "T1", titulo: "Arreglar alambrado", estado: "pendiente", establecimientoId: EST, calendarioSanitarioId: null, itemProtocoloId: null, claveReproduccion: null })
     expect(await (await DELETE(req(), ctx)).json()).toMatchObject({ success: true, cancelada: true })
-    expect(m.actualizar).toHaveBeenCalledWith({ where: { id: "T1" }, data: { estado: "cancelada" } })
-    expect(m.borrar).toHaveBeenCalledOnce()
+    m.tarea.mockResolvedValue({ id: "T1", titulo: "Tacto torada", estado: "en_progreso", establecimientoId: EST, claveReproduccion: "tacto:torada:X" })
+    expect(await (await DELETE(req(), ctx)).json()).toMatchObject({ success: true, cancelada: true })
+    expect(m.actualizar).toHaveBeenCalledTimes(2)
+    expect(m.actualizar).toHaveBeenCalledWith({ where: { id: "T1" }, data: { estado: "cancelada", fechaCompletada: null } })
+    expect(m.borrar).not.toHaveBeenCalled()
+    expect(m.audit.mock.calls[0][0]).toMatchObject({ accion: "UPDATE", detalle: { cancelada: true, estadoAnterior: "pendiente" } })
+  })
+
+  it("una completada no se cancela y una ya cancelada no cambia", async () => {
+    m.tarea.mockResolvedValue({ id: "T1", titulo: "Vacunar", estado: "completada", establecimientoId: EST })
+    expect((await DELETE(req(), ctx)).status).toBe(409)
+    m.tarea.mockResolvedValue({ id: "T1", titulo: "Vacunar", estado: "cancelada", establecimientoId: EST })
+    expect(await (await DELETE(req(), ctx)).json()).toMatchObject({ success: true, cancelada: true })
+    expect(m.actualizar).not.toHaveBeenCalled()
+  })
+
+  it("cancelar por PATCH exige administrador o encargado del campo", async () => {
+    m.tarea.mockResolvedValue({ id: "T1", titulo: "Vacunar", estado: "pendiente", establecimientoId: EST })
+    m.ctx.establecimientoIdsConRol = () => []
+    const patch = (estado: string) => PATCH(req("http://localhost/x", { method: "PATCH", body: JSON.stringify({ estado }) }), ctx)
+    expect((await patch("cancelada")).status).toBe(403)
+    m.actualizar.mockResolvedValue({ id: "T1", establecimientoId: EST })
+    expect((await patch("en_progreso")).status).toBe(200)
+    expect(m.actualizar).toHaveBeenCalledOnce()
   })
 })
 

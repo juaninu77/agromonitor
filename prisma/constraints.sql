@@ -189,7 +189,7 @@ BEGIN
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'movimientos_stock_origen_chk') THEN
     ALTER TABLE movimientos_stock ADD CONSTRAINT movimientos_stock_origen_chk
-      CHECK (origen_tipo IS NULL OR origen_tipo IN ('sanidad', 'manga', 'compra', 'senalada')) NOT VALID;
+      CHECK (origen_tipo IS NULL OR origen_tipo IN ('sanidad', 'manga', 'compra', 'senalada', 'servicio')) NOT VALID;
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'establecimientos_zona_aftosa_chk') THEN

@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AgendaTab, IndicadoresTab, type PendienteAgenda } from "@/components/reproduccion/agenda-indicadores"
-import { ApartarVaciasDialog, MenuHoja, PronosticoCard, ZafraCard } from "@/components/reproduccion/informes"
+import { ApartarVaciasDialog, MenuHoja, PronosticoCard, TorosCard, ZafraCard } from "@/components/reproduccion/informes"
 import { AnularEventoDialog, EditarEventoDialog, ToradaEditarDialog, type EventoAccion, type ToradaEditable } from "@/components/reproduccion/acciones"
 import { etiquetaAnimal, type AnimalOpcion } from "@/components/reproduccion/animal-combobox"
 import { DesteteDialog, ParicionDialog, ServicioDialog, TactoDialog, ToradaDialog } from "@/components/reproduccion/dialogos"
@@ -286,7 +286,7 @@ export default function ReproduccionPage() {
                   {puedeAnular && t.tactadas > t.prenadas && <Button size="sm" variant="ghost" onClick={() => setApartar(t.id)}>Apartar vacías</Button>}
                 </>
               )}
-              pie={(d) => <div className="grid gap-4 lg:grid-cols-2"><PronosticoCard estId={estId} /><ZafraCard indicadores={d} /></div>} />
+              pie={(d) => <div className="space-y-4"><TorosCard estId={estId} /><div className="grid gap-4 lg:grid-cols-2"><PronosticoCard estId={estId} /><ZafraCard indicadores={d} /></div></div>} />
           )}
         </TabsContent>
         <TabsContent value="servicios"><ListaEventos<Servicio> titulo="Servicios" ruta="servicios" estId={estId} columnas={COL_SERVICIOS} vacio="No hay servicios registrados."

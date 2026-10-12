@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { AnimalCombobox, etiquetaAnimal, type AnimalOpcion } from "./animal-combobox"
 import { EstadoReproductivoBadge } from "./estado-badge"
+import { PajuelaSelector } from "./pajuela-selector"
 import { DescuentoStock, camposDescuento, descuentoInicial, postSanidad, textoStock, type EstadoDescuento, type ProductoConStock } from "@/components/sanidad/descuento-stock"
 import { formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import { esSanitario } from "@/lib/inventario/validation"
@@ -98,9 +99,9 @@ interface Props { open: boolean; onOpenChange: (o: boolean) => void; estId: stri
 export function ServicioMasivoDialog({ open, onOpenChange, estId, onSuccess }: Props) {
   const op = useOperacion(open)
   const toradas = useToradas(estId, open, true)
-  const [form, setForm] = useState({ toradaId: "", fecha: hoyArgentina(), tipo: "natural", macho: null as AnimalOpcion | null, toroNombre: "", loteSemen: "", inseminador: "", incluirPrenadas: false })
+  const [form, setForm] = useState({ toradaId: "", fecha: hoyArgentina(), tipo: "natural", macho: null as AnimalOpcion | null, toroNombre: "", loteSemen: "", inseminador: "", incluirPrenadas: false, pajuela: { productoId: "", loteId: "" } })
   const [elegidas, setElegidas] = useState<Set<string>>(new Set())
-  useEffect(() => { if (open) { setForm({ toradaId: "", fecha: hoyArgentina(), tipo: "natural", macho: null, toroNombre: "", loteSemen: "", inseminador: "", incluirPrenadas: false }); setElegidas(new Set()) } }, [open])
+  useEffect(() => { if (open) { setForm({ toradaId: "", fecha: hoyArgentina(), tipo: "natural", macho: null, toroNombre: "", loteSemen: "", inseminador: "", incluirPrenadas: false, pajuela: { productoId: "", loteId: "" } }); setElegidas(new Set()) } }, [open])
   const datos = useQuery({
     queryKey: ["repro", "torada-hembras", form.toradaId, form.fecha],
     queryFn: () => getJson<DatosTorada>(`/api/reproduccion/toradas/${form.toradaId}/hembras?fecha=${form.fecha}`),
@@ -118,10 +119,13 @@ export function ServicioMasivoDialog({ open, onOpenChange, estId, onSuccess }: P
     void op.ejecutar(async () => {
       const r = await enviar("/api/reproduccion/servicios/masivo", {
         clave: op.clave, toradaId: form.toradaId, fecha: form.fecha, tipo: form.tipo, incluirPrenadas: form.incluirPrenadas,
-        ...(natural ? { machoId: form.macho?.id ?? null } : { hembraIds: [...elegidas], toroNombre: form.toroNombre, loteSemen: form.loteSemen, inseminador: form.inseminador }),
-      }) as { cantidad: number; omitidas: { prenadas: number; yaServidas: number }; repetido: boolean }
+        ...(natural ? { machoId: form.macho?.id ?? null } : {
+          hembraIds: [...elegidas], toroNombre: form.toroNombre, loteSemen: form.loteSemen, inseminador: form.inseminador,
+          productoSemenId: form.pajuela.productoId || null, loteProductoId: form.pajuela.loteId || null,
+        }),
+      }) as { cantidad: number; omitidas: { prenadas: number; yaServidas: number }; repetido: boolean; pajuelas?: number }
       const omit = [r.omitidas.prenadas && `${r.omitidas.prenadas} preñadas`, r.omitidas.yaServidas && `${r.omitidas.yaServidas} ya servidas`].filter(Boolean).join(" y ")
-      toast.success(`${r.cantidad} servicios registrados${omit ? ` · se omitieron ${omit}` : ""}${r.repetido ? " (ya estaban guardados)" : ""}`)
+      toast.success(`${r.cantidad} servicios registrados${omit ? ` · se omitieron ${omit}` : ""}${r.pajuelas ? ` · se descontaron ${r.pajuelas} pajuelas` : ""}${r.repetido ? " (ya estaban guardados)" : ""}`)
       onOpenChange(false); onSuccess()
     })
   }
@@ -148,6 +152,12 @@ export function ServicioMasivoDialog({ open, onOpenChange, estId, onSuccess }: P
           </Campo>
         ) : (
           <>
+            <div className="sm:col-span-2">
+              <PajuelaSelector id="sm-paj" enabled={open} cantidad={Math.max(1, elegidas.size)} value={form.pajuela} onChange={(v, p) => {
+                const partida = p?.lotes.find((l) => l.id === v.loteId)?.nroLote
+                set({ pajuela: v, ...(p ? { toroNombre: p.nombre } : {}), ...(partida ? { loteSemen: partida } : {}) })
+              }} />
+            </div>
             <Campo id="sm-toro" label="Toro (semen)"><Input id="sm-toro" maxLength={120} value={form.toroNombre} onChange={(e) => set({ toroNombre: e.target.value })} /></Campo>
             <Campo id="sm-insem" label="Inseminador"><Input id="sm-insem" maxLength={120} value={form.inseminador} onChange={(e) => set({ inseminador: e.target.value })} /></Campo>
           </>

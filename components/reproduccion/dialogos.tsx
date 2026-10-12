@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { PajuelaSelector } from "./pajuela-selector"
 import { AnimalCombobox, type AnimalOpcion } from "./animal-combobox"
 import { formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import {
@@ -91,7 +92,7 @@ function useAnimalInicial(open: boolean, estId: string, id: string | null | unde
 }
 
 export function ServicioDialog({ open, onOpenChange, estId, onSuccess, hembraInicial }: PropsDialogo & { hembraInicial?: string | null }) {
-  const r = useRegistro(open, () => ({ fecha: hoyArgentina(), tipo: "natural", hembra: null as AnimalOpcion | null, macho: null as AnimalOpcion | null, toradaId: "", toroNombre: "", loteSemen: "", inseminador: "", observ: "" }))
+  const r = useRegistro(open, () => ({ fecha: hoyArgentina(), tipo: "natural", hembra: null as AnimalOpcion | null, macho: null as AnimalOpcion | null, toradaId: "", toroNombre: "", loteSemen: "", inseminador: "", observ: "", pajuela: { productoId: "", loteId: "" } }))
   const { form, set } = r
   useAnimalInicial(open, estId, hembraInicial, (a) => set({ hembra: a }))
   const toradas = useQuery({
@@ -106,7 +107,10 @@ export function ServicioDialog({ open, onOpenChange, estId, onSuccess, hembraIni
     void r.guardar(() => enviarConfirmando("/api/reproduccion/servicios", {
       fecha: form.fecha, tipo: natural ? "natural" : form.tipo, hembraId: form.hembra!.id, toradaId: form.toradaId || null, observ: form.observ,
       // Monta natural: macho del rodeo; IA/IATF: toro (semen), pajuela e inseminador
-      ...(natural ? { machoId: form.macho?.id ?? null } : { toroNombre: form.toroNombre, loteSemen: form.loteSemen, inseminador: form.inseminador }),
+      ...(natural ? { machoId: form.macho?.id ?? null } : {
+        toroNombre: form.toroNombre, loteSemen: form.loteSemen, inseminador: form.inseminador,
+        productoSemenId: form.pajuela.productoId || null, loteProductoId: form.pajuela.loteId || null,
+      }),
     }, { prenada: "aceptarPrenada" }), "Servicio registrado", () => { onOpenChange(false); onSuccess() })
   }
   return (
@@ -114,7 +118,7 @@ export function ServicioDialog({ open, onOpenChange, estId, onSuccess, hembraIni
       <div className="grid grid-cols-2 gap-3">
         <Campo id="sv-fecha" label="Fecha *"><Input id="sv-fecha" type="date" max={hoyArgentina()} value={form.fecha} onChange={(e) => set({ fecha: e.target.value })} required /></Campo>
         <Campo id="sv-tipo" label="Tipo *">
-          <select id="sv-tipo" className={selectClass} value={natural ? "natural" : form.tipo} disabled={soloNatural} title={soloNatural ? "En ovinos el servicio es solo natural" : undefined} onChange={(e) => set({ tipo: e.target.value, macho: null, toroNombre: "", loteSemen: "", inseminador: "" })}>
+          <select id="sv-tipo" className={selectClass} value={natural ? "natural" : form.tipo} disabled={soloNatural} title={soloNatural ? "En ovinos el servicio es solo natural" : undefined} onChange={(e) => set({ tipo: e.target.value, macho: null, toroNombre: "", loteSemen: "", inseminador: "", pajuela: { productoId: "", loteId: "" } })}>
             {TIPOS_SERVICIO.map((t) => <option key={t} value={t}>{ETIQUETA_TIPO_SERVICIO[t]}</option>)}
           </select>
         </Campo>
@@ -126,6 +130,10 @@ export function ServicioDialog({ open, onOpenChange, estId, onSuccess, hembraIni
         </Campo>
       ) : (
         <>
+          <PajuelaSelector id="sv-paj" enabled={open} value={form.pajuela} onChange={(v, p) => {
+            const partida = p?.lotes.find((l) => l.id === v.loteId)?.nroLote
+            set({ pajuela: v, ...(p ? { toroNombre: p.nombre } : {}), ...(partida ? { loteSemen: partida } : {}) })
+          }} />
           <Campo id="sv-toro" label="Toro (semen)"><Input id="sv-toro" maxLength={120} value={form.toroNombre} onChange={(e) => set({ toroNombre: e.target.value })} /></Campo>
           <div className="grid grid-cols-2 gap-3">
             <Campo id="sv-pajuela" label="Partida de semen"><Input id="sv-pajuela" maxLength={60} value={form.loteSemen} onChange={(e) => set({ loteSemen: e.target.value })} /></Campo>

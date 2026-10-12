@@ -95,9 +95,12 @@ export const servicioSchema = z.object({
   loteSemen: texto(60),
   inseminador: texto(120),
   observ: texto(1000),
+  /** IA/IATF: pajuela del inventario (se descuenta 1) y, opcional, su partida */
+  productoSemenId: idOpcional,
+  loteProductoId: idOpcional,
   /** Confirmación para servir a una hembra que figura preñada. */
   aceptarPrenada: z.boolean().default(false),
-})
+}).refine((v) => v.tipo !== "natural" || !v.productoSemenId, { message: "La pajuela es solo para IA o IATF", path: ["productoSemenId"] })
 export type ServicioInput = z.input<typeof servicioSchema>
 
 export const tactoSchema = z.object({
@@ -267,7 +270,11 @@ export const servicioMasivoSchema = z.object({
   observ: texto(1000),
   /** Por defecto las que figuran preñadas se omiten. */
   incluirPrenadas: z.boolean().default(false),
+  /** IA/IATF: pajuela del inventario (se descuenta 1 por hembra) y, opcional, su partida */
+  productoSemenId: idOpcional,
+  loteProductoId: idOpcional,
 }).refine((v) => v.tipo === "natural" || !!v.hembraIds, { message: "En IA o IATF elegí las hembras inseminadas", path: ["hembraIds"] })
+  .refine((v) => v.tipo !== "natural" || !v.productoSemenId, { message: "La pajuela es solo para IA o IATF", path: ["productoSemenId"] })
 
 /** Planilla de tacto: un resultado por hembra (C2). */
 export const tactoMasivoSchema = z.object({

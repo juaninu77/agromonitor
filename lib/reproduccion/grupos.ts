@@ -10,7 +10,7 @@ import { estadosReproductivos } from "./estado"
 import { sincronizarTareasReproductivas } from "./agenda"
 import { descontarAplicacion } from "@/lib/inventario/aplicaciones"
 import {
-  ReproduccionError, SEL_ANIMAL, auditar, avisoCaravana, diaDe, etiqueta, exigirRol, fechaDia, finDia, grupoDeDestete, inicioDia, moverAGrupo, vigente,
+  ReproduccionError, SEL_ANIMAL, auditar, avisoCaravana, descontarPajuela, diaDe, etiqueta, exigirRol, fechaDia, finDia, grupoDeDestete, inicioDia, moverAGrupo, pajuelaDelCampo, vigente,
 } from "./service"
 import {
   calcularParto, desteteMasivoSchema, filtrosReproduccionSchema, senaladaSchema, servicioMasivoSchema, soloServicioNatural, tactoMasivoSchema, tipoGrupoDeEspecie,
@@ -109,19 +109,29 @@ export async function servicioMasivo(ctx: AuthContext, raw: unknown) {
   if (!aServir.length) {
     throw new ReproduccionError(hembras.length ? "No queda ninguna hembra para servir: todas figuran preñadas o ya tienen ese servicio ese día" : "No hay hembras activas en el grupo de la torada ese día", 400)
   }
+  const pajuela = v.productoSemenId ? await pajuelaDelCampo(ctx, est, v.productoSemenId, v.loteProductoId) : null
   const resultado = await prisma.$transaction(async (tx) => {
-    await tx.evtServicio.createMany({
-      data: aServir.map((h) => ({
-        fecha: fechaDia(v.fecha), tipo: v.tipo, hembraId: h.id, establecimientoId: est, machoId: v.machoId, toradaId: torada.id, operacionId: v.clave,
-        toroNombre: v.toroNombre, loteSemen: v.loteSemen, inseminador: v.inseminador, observ: v.observ,
-      })),
-    })
+    // Una pajuela por hembra, cada una vinculada a su servicio (anular uno devuelve la suya)
+    const filas = []
+    for (const h of aServir) {
+      const id = crypto.randomUUID()
+      const loteProductoId = pajuela
+        ? await descontarPajuela(tx, ctx, { establecimientoId: est, productoId: pajuela.producto.id, loteProductoId: pajuela.lote?.id ?? null, fecha: v.fecha, servicioId: id, motivo: `Servicio ${v.tipo.toUpperCase()} · ${etiqueta(h)}` })
+        : null
+      filas.push({
+        id, fecha: fechaDia(v.fecha), tipo: v.tipo, hembraId: h.id, establecimientoId: est, machoId: v.machoId, toradaId: torada.id, operacionId: v.clave,
+        toroNombre: v.toroNombre ?? pajuela?.producto.nombre ?? null, loteSemen: v.loteSemen ?? pajuela?.lote?.nroLote ?? null, inseminador: v.inseminador, observ: v.observ,
+        productoSemenId: pajuela?.producto.id ?? null, loteProductoId,
+      })
+    }
+    await tx.evtServicio.createMany({ data: filas })
     await auditar(tx, ctx, est, "evt_servicio", v.clave, { masivo: true, toradaId: torada.id, fecha: v.fecha, tipo: v.tipo, cantidad: aServir.length })
     return {
       operacionId: v.clave, cantidad: aServir.length, repetido: false,
       omitidas: { prenadas: v.incluirPrenadas ? 0 : [...prenadas].filter((id) => !yaServidas.has(id)).length, yaServidas: yaServidas.size },
+      pajuelas: pajuela ? aServir.length : 0,
     }
-  })
+  }, { timeout: 60_000 })
   await sincronizarTareasReproductivas(est)
   return resultado
 }

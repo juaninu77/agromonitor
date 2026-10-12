@@ -429,7 +429,7 @@ export default function InventarioPage() {
               {config.label}
             </Badge>
             {row.concepto && <Badge variant="outline">{row.concepto === "transferencia" ? "Transferencia" : "Recuento"}</Badge>}
-            {row.origenTipo && <Badge variant="outline">{row.origenTipo === "compra" ? "Compra" : row.origenTipo === "manga" ? "Manga" : row.origenTipo === "senalada" ? "Señalada" : "Sanidad"}</Badge>}
+            {row.origenTipo && <Badge variant="outline">{row.origenTipo === "compra" ? "Compra" : row.origenTipo === "manga" ? "Manga" : row.origenTipo === "senalada" ? "Señalada" : row.origenTipo === "servicio" ? "Servicio (IA)" : "Sanidad"}</Badge>}
           </div>
         )
       },

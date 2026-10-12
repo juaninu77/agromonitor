@@ -229,6 +229,7 @@ export const INVENTARIO: SeccionAyuda = {
       notas: [
         "Los días de retiro del producto se usan como carencia cuando no se carga otra en el tratamiento.",
         "Solo los productos sanitarios se ofrecen en Sanidad.",
+        "Semen para IA: creá un producto tipo «Semen (pajuelas)» con el nombre del toro y cargá cada partida con «Ingresar lote». Se descuenta al registrar servicios de IA o IATF.",
         "«Archivar» saca el producto de los formularios (solo con stock en cero).",
       ],
     },

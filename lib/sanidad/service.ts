@@ -401,6 +401,8 @@ export async function anularSanidad(ctx: AuthContext, id: string, raw: unknown) 
     const { count } = await tx.evtSanidad.updateMany({ where: { id: { in: ids }, anuladoAt: null }, data: { anuladoAt: new Date(), anuladoPorId: ctx.userId, motivoAnulacion: motivo } })
     if (count !== ids.length) throw new SanidadError("Otro usuario modificó el tratamiento al mismo tiempo. Reintentá.", 409)
     const stock = await revertirAplicaciones(tx, evento.operacionId ? [evento.operacionId] : [evento.id], motivo)
+    // Tratamientos de una sesión de manga: su descuento quedó con origen «manga» y origenId = la sesión
+    if (evento.operacionId) stock.revertido += (await revertirAplicaciones(tx, [evento.operacionId], motivo, "manga")).revertido
     await tx.auditLog.create({
       data: {
         usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[campo], tabla: "evt_sanidad", rowPk: evento.id, accion: "UPDATE",

@@ -302,6 +302,7 @@ export const INVENTARIO: SeccionAyuda = {
       notas: [
         "Sanidad: cada tratamiento descuenta el producto (si no alcanza, avisa y no guarda).",
         "Señalada: la vacuna clostridial se descuenta al registrarla.",
+        "Manga: al finalizar una sesión con tratamiento se descuenta lo aplicado; si falta stock, descuenta lo que hay y avisa.",
         "En «Movimientos», el origen de cada fila dice Compra, Sanidad, Manga, Señalada, Transferencia o Recuento.",
       ],
     },

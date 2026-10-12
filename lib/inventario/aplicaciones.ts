@@ -80,7 +80,7 @@ export async function descontarAplicacion(tx: Tx, d: Descuento, ctx: { estableci
  * masivas o señaladas, por su origenId): una entrada inversa por cada salida, enlazada con
  * anulaAId. No puede dejar stock negativo porque solo suma.
  */
-export async function revertirAplicaciones(tx: Tx, origenIds: string[], motivo: string, origenTipo: "sanidad" | "senalada" = "sanidad") {
+export async function revertirAplicaciones(tx: Tx, origenIds: string[], motivo: string, origenTipo: "sanidad" | "senalada" | "manga" = "sanidad") {
   if (!origenIds.length) return { revertido: 0, productoIds: [] as string[] }
   const filas = await tx.movimientoStock.findMany({
     where: { origenTipo, origenId: { in: origenIds }, tipo: "salida", anulaAId: null, anuladoPor: null },

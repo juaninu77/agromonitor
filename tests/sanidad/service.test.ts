@@ -232,8 +232,10 @@ describe("anular y editar", () => {
     m.findFirst.mockResolvedValue(evento({ operacionId: uuid(50) }))
     m.txFindMany.mockResolvedValue([{ id: "E1" }, { id: "E2" }, { id: "E3" }])
     const r = await anularSanidad(gestor, "E1", { motivo: "dosis equivocada" })
-    expect(r).toMatchObject({ anulados: 3, masiva: true })
+    expect(r).toMatchObject({ anulados: 3, masiva: true, stockDevuelto: 10 })
     expect(m.revertir).toHaveBeenCalledWith(expect.anything(), [uuid(50)], "dosis equivocada")
+    // Si la aplicación vino de una sesión de manga, su descuento (origen «manga») también vuelve
+    expect(m.revertir).toHaveBeenCalledWith(expect.anything(), [uuid(50)], "dosis equivocada", "manga")
   })
   it("no se anula dos veces ni se edita un anulado", async () => {
     m.findFirst.mockResolvedValue(evento({ anuladoAt: new Date() }))

@@ -305,21 +305,22 @@ export async function prepararAltas(
 // Ejecución (todo o nada)
 // ============================================================
 
-/** Inserta las altas preparadas con `createMany` por tabla dentro de una transacción. */
+/** Inserta las altas preparadas con `createMany` por tabla, dentro de la transacción dada. */
+export async function insertarAltas(tx: Prisma.TransactionClient, preparadas: AltaPreparada[]): Promise<void> {
+  if (preparadas.length === 0) return
+  await tx.animal.createMany({ data: preparadas.map((p) => p.animal) })
+  const pesadas = preparadas.flatMap((p) => (p.pesada ? [p.pesada] : []))
+  if (pesadas.length) await tx.evtPesada.createMany({ data: pesadas })
+  const lotes = preparadas.flatMap((p) => (p.loteHist ? [p.loteHist] : []))
+  if (lotes.length) await tx.animalLoteHist.createMany({ data: lotes })
+  const ubicaciones = preparadas.flatMap((p) => (p.ubicacionHist ? [p.ubicacionHist] : []))
+  if (ubicaciones.length) await tx.ubicacionHist.createMany({ data: ubicaciones })
+}
+
+/** Inserta las altas preparadas en una transacción propia (todo o nada). */
 export async function ejecutarAltas(preparadas: AltaPreparada[]): Promise<void> {
   if (preparadas.length === 0) return
-  await prisma.$transaction(
-    async (tx) => {
-      await tx.animal.createMany({ data: preparadas.map((p) => p.animal) })
-      const pesadas = preparadas.flatMap((p) => (p.pesada ? [p.pesada] : []))
-      if (pesadas.length) await tx.evtPesada.createMany({ data: pesadas })
-      const lotes = preparadas.flatMap((p) => (p.loteHist ? [p.loteHist] : []))
-      if (lotes.length) await tx.animalLoteHist.createMany({ data: lotes })
-      const ubicaciones = preparadas.flatMap((p) => (p.ubicacionHist ? [p.ubicacionHist] : []))
-      if (ubicaciones.length) await tx.ubicacionHist.createMany({ data: ubicaciones })
-    },
-    { timeout: 30_000, maxWait: 10_000 },
-  )
+  await prisma.$transaction((tx) => insertarAltas(tx, preparadas), { timeout: 30_000, maxWait: 10_000 })
 }
 
 // ============================================================

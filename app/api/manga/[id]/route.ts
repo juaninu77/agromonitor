@@ -26,7 +26,10 @@ export const GET = withAuth(async (request, ctx) => {
           orderBy: { orden: "asc" },
         },
         loteOrigen: {
-          select: { id: true, nombre: true },
+          select: { id: true, nombre: true, especieId: true },
+        },
+        productoSanidad: {
+          select: { id: true, nombre: true, unidad: true },
         },
       },
     })

@@ -166,7 +166,8 @@ export const MANGA: SeccionAyuda = {
         "Tocá «Nueva Sesión».",
         "Poné un nombre (por ejemplo «Pesada terneros lote 3») y elegí el «Tipo de trabajo»: Pesada de rodeo, Vacunación, Antiparasitario, Tacto, Destete, Señalada, Recepción de hacienda o Trabajo general.",
         "Revisá las «Acciones habilitadas» (Peso, Sanidad, Tacto, Cond. Corporal, Dentición, Apartado, Registro nuevo): se marcan solas según el tipo y las podés cambiar.",
-        "Opcional: elegí el «Lote de origen».",
+        "Si habilitás «Sanidad», completá el «Tratamiento de la sesión»: producto (de Inventario), dosis por animal, vía, motivo y carencia. Lo define un administrador, encargado o veterinario.",
+        "Opcional: elegí el «Lote de origen» (los animales nuevos que registres entran a ese lote).",
         "Tocá «Iniciar Sesión».",
       ],
       notas: [
@@ -193,14 +194,15 @@ export const MANGA: SeccionAyuda = {
       pasos: [
         "Leé la caravana con el bastón (o escribí el EID y tocá «Buscar»).",
         "Revisá la tarjeta del animal: caravana, categoría, raza, edad y último peso. Si aparece el recuadro rojo de retiro, no lo apartes para faena.",
-        "Completá lo que corresponda: «Peso (kg)», «Condición Corporal», «Resultado del tacto» (y «Meses de gestación» si está preñada), «Dentición» o «Apartado».",
+        "Completá lo que corresponda: «Peso (kg)», «Condición Corporal» (1 a 9), «Aplicar tratamiento», «Resultado del tacto» (y «Meses de gestación» si está preñada), «Dentición» o «Apartado».",
         "Tocá «Confirmar y Siguiente». La lista «Animales procesados» muestra lo cargado.",
       ],
       notas: [
         "Un pitido agudo confirma una lectura válida; un pitido grave y vibración indican un EID inválido.",
         "Si el mismo EID se lee dos veces en 3 segundos, la segunda lectura se ignora.",
         "Solo se puede tactar a una hembra.",
-        "Un EID que no está en el rodeo aparece como «No registrado». Para darlo de alta, la sesión tiene que tener habilitado «Registro nuevo» y hay que elegir el sexo.",
+        "En una sesión de vacunación, «Aplicar tratamiento» viene marcado para cada animal.",
+        "Un EID que no está en el rodeo aparece como «No registrado». Con «Registro nuevo» habilitado, tocá «Registrar», elegí sexo, raza y categoría (y la caravana visual): se da de alta en Ganado con ese EID. Sin «Registro nuevo», la lectura queda en la sesión pero no se registra en ningún animal.",
       ],
     },
     {
@@ -217,12 +219,12 @@ export const MANGA: SeccionAyuda = {
       titulo: "Finalizar la sesión",
       pasos: [
         "Tocá «Finalizar» y después «Confirmar».",
-        "La app crea, para cada animal identificado, la pesada (con su condición corporal) y el tacto (con la fecha probable de parto si está preñada y cargaste los meses).",
+        "La app crea, para cada animal identificado, la pesada (con su condición corporal), el tacto (con la fecha probable de parto si está preñada y cargaste los meses) y el tratamiento en Sanidad si lo marcaste, y descuenta el producto del stock (si falta, descuenta lo que hay y avisa).",
         "Se abre el «Resumen de Sesión» con los totales y el detalle. Tocá «Exportar PDF» para guardarlo.",
       ],
       notas: [
         "Las sesiones anteriores quedan en la pestaña «Historial».",
-        "Para registrar un tratamiento sanitario con su producto y descontar el stock, usá «Aplicación masiva» en Sanidad (por grupo o potrero).",
+        "Los tratamientos de la sesión aparecen en Sanidad como una aplicación masiva: si se anula uno, se anulan todos los de la sesión y el producto vuelve al stock.",
       ],
     },
     {

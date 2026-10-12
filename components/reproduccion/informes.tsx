@@ -187,3 +187,82 @@ export function ApartarVaciasDialog({ toradaId, lotes, onOpenChange, onHecho }: 
     </Dialog>
   )
 }
+
+interface ToroDesempeno {
+  clave: string; nombre: string; origen: "rodeo" | "pajuela" | "torada" | "texto"; tipo: string
+  servicios: number; servidas: number; tactadas: number; prenadas: number; porcentajePrenez: number | null
+  partos: number; nacidosVivos: number; abortos: number; distribucion: { cabeza: number | null; cuerpo: number | null; cola: number | null } | null
+  dificultadParto: number | null; destetados: number; pesoDestete: number | null
+}
+const ORIGEN_TORO: Record<ToroDesempeno["origen"], string> = { rodeo: "Toro del rodeo", pajuela: "Pajuela", torada: "Torada", texto: "Semen (texto)" }
+
+/** Desempeño por toro o semen (E4): ranking del año por % preñez, partos y peso al destete de las crías. */
+export function TorosCard({ estId }: { estId: string }) {
+  const actual = Number(hoyArgentina().slice(0, 4))
+  const [anio, setAnio] = useState(actual)
+  const q = useQuery({
+    queryKey: ["repro", "toros", estId, anio],
+    queryFn: () => getJson<{ anio: number; toros: ToroDesempeno[] }>(`/api/reproduccion/toros?establecimientoId=${estId}&anio=${anio}`),
+    enabled: !!estId,
+  })
+  const toros = q.data?.toros ?? []
+  const n = (v: number | null, suf = "") => (v == null ? "—" : `${v.toLocaleString("es-AR")}${suf}`)
+  const exportar = () => exportToExcel({
+    filename: `toros_${anio}.xlsx`, sheetName: `Toros ${anio}`,
+    columns: [
+      { header: "Toro / semen", key: "nombre", width: 28 }, { header: "Origen", key: "origen" }, { header: "Hembras servidas", key: "servidas" }, { header: "Tactadas", key: "tactadas" },
+      { header: "Preñadas", key: "prenadas" }, { header: "% Preñez", key: "porcentajePrenez" }, { header: "Partos", key: "partos" }, { header: "Nacidos vivos", key: "nacidosVivos" },
+      { header: "% Cabeza", key: "cabeza" }, { header: "% Cuerpo", key: "cuerpo" }, { header: "% Cola", key: "cola" }, { header: "Dificultad de parto (1-5)", key: "dificultadParto" },
+      { header: "Destetados", key: "destetados" }, { header: "Peso al destete (kg)", key: "pesoDestete" },
+    ],
+    data: toros.map((t) => ({ ...t, origen: ORIGEN_TORO[t.origen], cabeza: t.distribucion?.cabeza ?? null, cuerpo: t.distribucion?.cuerpo ?? null, cola: t.distribucion?.cola ?? null })),
+  })
+  return (
+    <Card>
+      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
+        <div>
+          <CardTitle className="text-base">Desempeño por toro</CardTitle>
+          <CardDescription>Servicios del año por toro del rodeo o semen: preñez, partos y peso al destete de las crías.</CardDescription>
+        </div>
+        <div className="flex items-center gap-2">
+          <Label htmlFor="toros-anio" className="sr-only">Año</Label>
+          <select id="toros-anio" className="h-9 rounded-md border border-input bg-background px-2 text-sm" value={anio} onChange={(e) => setAnio(Number(e.target.value))}>
+            {[0, 1, 2, 3, 4].map((i) => <option key={i} value={actual - i}>{actual - i}</option>)}
+          </select>
+          {toros.length > 0 && <Button size="sm" variant="outline" onClick={exportar}><FileSpreadsheet className="mr-2 h-4 w-4" />Excel</Button>}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {q.isPending ? <Loader2 className="h-5 w-5 animate-spin" aria-label="Cargando" /> : q.isError ? <p role="alert" className="text-sm text-destructive">{q.error.message}</p> : !toros.length ? (
+          <p className="text-sm text-muted-foreground">No hay servicios en {anio}.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="border-b text-left">
+                  <th className="py-1 font-medium">Toro / semen</th><th className="py-1 text-right font-medium">Servidas</th><th className="py-1 text-right font-medium">% Preñez</th>
+                  <th className="py-1 text-right font-medium">Partos</th><th className="py-1 text-right font-medium">Cabeza / cuerpo / cola</th>
+                  <th className="py-1 text-right font-medium">Dificultad</th><th className="py-1 text-right font-medium">Peso destete</th>
+                </tr>
+              </thead>
+              <tbody>
+                {toros.map((t) => (
+                  <tr key={t.clave} className="border-b last:border-0">
+                    <td className="py-1.5"><span className="font-medium">{t.nombre}</span><span className="ml-2 text-xs text-muted-foreground">{ORIGEN_TORO[t.origen]}</span></td>
+                    <td className="py-1.5 text-right tabular-nums">{t.servidas}</td>
+                    <td className="py-1.5 text-right tabular-nums" title={`${t.prenadas} preñadas de ${t.tactadas} tactadas`}>{n(t.porcentajePrenez, " %")}</td>
+                    <td className="py-1.5 text-right tabular-nums">{t.partos}{t.abortos ? <span className="text-xs text-muted-foreground"> · {t.abortos} abortos</span> : null}</td>
+                    <td className="py-1.5 text-right tabular-nums">{t.distribucion ? `${n(t.distribucion.cabeza)} / ${n(t.distribucion.cuerpo)} / ${n(t.distribucion.cola)} %` : "—"}</td>
+                    <td className="py-1.5 text-right tabular-nums">{n(t.dificultadParto)}</td>
+                    <td className="py-1.5 text-right tabular-nums">{t.pesoDestete != null ? `${n(t.pesoDestete)} kg` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mt-2 text-xs text-muted-foreground">En monta natural con varios toros en la torada, si el servicio no indica el toro, se cuenta para la torada. Cada parto se atribuye al último servicio compatible con la gestación.</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}

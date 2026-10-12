@@ -367,12 +367,13 @@ export const REPRODUCCION: SeccionAyuda = {
       id: "servicio",
       titulo: "Registrar servicios",
       pasos: [
-        "Una hembra: tocá «Nuevo servicio», elegí fecha, tipo (Natural, IA o IATF) y la hembra; si es natural, el macho; si es IA, toro (semen), partida e inseminador. Tocá «Registrar servicio».",
+        "Una hembra: tocá «Nuevo servicio», elegí fecha, tipo (Natural, IA o IATF) y la hembra; si es natural, el macho; si es IA, la «Pajuela del inventario» (completa el toro y la partida) o escribí el toro, y el inseminador. Tocá «Registrar servicio».",
         "Todo el grupo: «Por grupo» › «Servicio por torada». En natural se registran todas las hembras del grupo ese día; en IA elegís cuáles. Tocá «Registrar N servicios».",
       ],
       notas: [
         "Si la hembra figura preñada, la app pregunta antes de registrar el servicio.",
         "El servicio con torada tiene que caer dentro de sus fechas y la hembra tiene que estar en el grupo ese día.",
+        "Con pajuela del inventario se descuenta 1 por servicio (1 por hembra en «Servicio por torada»); si no alcanzan, avisa y no guarda. Anular el servicio devuelve la pajuela.",
       ],
     },
     {
@@ -463,6 +464,7 @@ export const REPRODUCCION: SeccionAyuda = {
         "Arriba: «Servidas sin tactar», «% Preñez», «Preñadas a parir» y «Partos» del año.",
         "Pestaña «Indicadores»: por torada, % preñez, parición, destete o señalada, pérdidas, mellizos, cabeza/cuerpo/cola y kg destetados por hembra, más el intervalo entre partos.",
         "«Hoja de servicio» de cada torada, en Excel o PDF.",
+        "«Desempeño por toro»: por toro del rodeo o pajuela, hembras servidas, % preñez, partos, cabeza/cuerpo/cola, dificultad de parto y peso al destete de las crías, por año y exportable a Excel.",
         "«Pronóstico de parición» por mes y «Resumen de zafra por año», exportables.",
         "«Apartar vacías» (administrador o encargado) mueve las vacías de la torada a otro grupo, sin darlas de baja.",
       ],

@@ -97,7 +97,11 @@ export function ProductoFormDialog({ abierto, producto, organizaciones, onOpenCh
             <div className="space-y-1.5"><Label htmlFor="prod-nombre">Nombre</Label><Input id="prod-nombre" required maxLength={180} autoFocus value={form.nombre} onChange={set("nombre")} /></div>
             <div className="space-y-1.5">
               <Label htmlFor="prod-tipo">Tipo</Label>
-              <select id="prod-tipo" className={selectClass} value={form.tipo} onChange={set("tipo")}>
+              <select id="prod-tipo" className={selectClass} value={form.tipo} onChange={(e) => {
+                // El semen se cuenta en pajuelas
+                const tipo = e.target.value
+                setForm((f) => ({ ...f, tipo, unidad: tipo === "semen" && (!f.unidad || f.unidad === "unidades") ? "pajuelas" : f.unidad }))
+              }}>
                 {CATEGORIAS_INSUMO.map((c) => <optgroup key={c.id} label={c.label}>{c.tipos.map((t) => <option key={t} value={t}>{etiquetaTipo(t)}</option>)}</optgroup>)}
               </select>
             </div>
@@ -109,7 +113,10 @@ export function ProductoFormDialog({ abierto, producto, organizaciones, onOpenCh
               <div className="space-y-1.5"><Label htmlFor="prod-retiro">Días de retiro (carne)</Label><Input id="prod-retiro" type="number" min="0" max="3650" value={form.retiroDias} onChange={set("retiroDias")} /></div>
             </div>
           )}
-          <div className="space-y-1.5"><Label htmlFor="prod-lab">{sanitario ? "Laboratorio" : "Marca / fabricante"} (opcional)</Label><Input id="prod-lab" maxLength={180} value={form.laboratorio} onChange={set("laboratorio")} /></div>
+          {form.tipo === "semen" && (
+            <p className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">Poné como nombre el toro (por ejemplo «Angus · Bull Max 123»). Cada partida se carga como un lote con «Ingresar lote». Al registrar un servicio de IA o IATF con esta pajuela se descuenta 1 del stock.</p>
+          )}
+          <div className="space-y-1.5"><Label htmlFor="prod-lab">{sanitario ? "Laboratorio" : form.tipo === "semen" ? "Centro genético / cabaña" : "Marca / fabricante"} (opcional)</Label><Input id="prod-lab" maxLength={180} value={form.laboratorio} onChange={set("laboratorio")} /></div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="cfg-unidad">Unidad de stock</Label>

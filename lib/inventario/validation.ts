@@ -13,21 +13,24 @@ const fechaDia = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida (AAAA-
 export const CATEGORIAS_INSUMO = [
   { id: "sanitario", label: "Sanidad", tipos: ["vacuna", "antiparasitario", "antibiotico", "antiinflamatorio", "vitaminico"] },
   { id: "nutricion", label: "Nutrición", tipos: ["mineral", "suplemento", "alimento"] },
+  { id: "reproduccion", label: "Reproducción", tipos: ["semen"] },
   { id: "agricola", label: "Agrícola", tipos: ["semilla", "fertilizante", "agroquimico"] },
   { id: "operacion", label: "Operación", tipos: ["combustible", "lubricante", "repuesto", "herramienta"] },
   { id: "otros", label: "Otros", tipos: ["otro"] },
 ] as const
-export const TIPOS_PRODUCTO = ["vacuna", "antiparasitario", "antibiotico", "antiinflamatorio", "vitaminico", "mineral", "suplemento", "alimento", "semilla", "fertilizante", "agroquimico", "combustible", "lubricante", "repuesto", "herramienta", "otro"] as const
+export const TIPOS_PRODUCTO = ["vacuna", "antiparasitario", "antibiotico", "antiinflamatorio", "vitaminico", "mineral", "suplemento", "alimento", "semen", "semilla", "fertilizante", "agroquimico", "combustible", "lubricante", "repuesto", "herramienta", "otro"] as const
 export type TipoProducto = (typeof TIPOS_PRODUCTO)[number]
 export const TIPO_LABEL: Record<TipoProducto, string> = {
   vacuna: "Vacuna", antiparasitario: "Antiparasitario", antibiotico: "Antibiótico", antiinflamatorio: "Antiinflamatorio", vitaminico: "Vitamínico",
-  mineral: "Mineral", suplemento: "Suplemento", alimento: "Alimento / ración", semilla: "Semilla", fertilizante: "Fertilizante", agroquimico: "Agroquímico",
+  mineral: "Mineral", suplemento: "Suplemento", alimento: "Alimento / ración", semen: "Semen (pajuelas)", semilla: "Semilla", fertilizante: "Fertilizante", agroquimico: "Agroquímico",
   combustible: "Combustible", lubricante: "Lubricante", repuesto: "Repuesto", herramienta: "Herramienta", otro: "Otro",
 }
 /** Tipos que se aplican a animales (Sanidad): llevan principio activo, laboratorio, dosis y días de retiro. */
 export const TIPOS_SANITARIOS: readonly string[] = ["vacuna", "antiparasitario", "antibiotico", "antiinflamatorio", "vitaminico", "mineral", "suplemento"]
 export const esSanitario = (tipo: string) => TIPOS_SANITARIOS.includes(tipo)
 export const etiquetaTipo = (tipo: string) => TIPO_LABEL[tipo as TipoProducto] ?? tipo
+/** Semen para IA/IATF: el producto es el toro (o el semen) y cada lote, una partida; se cuenta en pajuelas. */
+export const esSemen = (tipo: string) => tipo === "semen"
 
 export const movimientoStockSchema = z.object({
   productoId: z.string().uuid("ID de producto inválido"),
@@ -96,7 +99,7 @@ export const productoConfigSchema = z.object({
 
 export const MONEDAS_COSTO = ["ARS", "USD"] as const
 
-export const UNIDADES_SUGERIDAS = ["unidades", "dosis", "ml", "litros", "kg", "frascos", "bolsas", "cajas"]
+export const UNIDADES_SUGERIDAS = ["unidades", "dosis", "ml", "litros", "kg", "frascos", "bolsas", "cajas", "pajuelas"]
 
 export const loteSchema = z.object({
   /** Idempotencia del alta (el lote con cantidad genera la entrada al stock). */

@@ -293,6 +293,7 @@ model Establecimiento {
   tactos     EvtTacto[]
   pariciones EvtParicion[]
   destetes   EvtDestete[]
+
   @@unique([organizacionId, nombre])
   @@map("establecimientos")
 }
@@ -491,7 +492,9 @@ model Producto {
   movimientosStock MovimientoStock[]
   sesionesManga    SesionManga[]
 
-  senaladas EvtSenalada[]
+  senaladas      EvtSenalada[]
+  /// Semen (pajuelas) usado en servicios de IA/IATF
+  serviciosSemen EvtServicio[] @relation("SemenServicio")
 
   @@index([tipo])
   @@index([organizacionId])
@@ -517,6 +520,8 @@ model LoteProducto {
 
   eventosSanidad   EvtSanidad[]
   movimientosStock MovimientoStock[]
+
+  servicios EvtServicio[]
 
   @@index([productoId])
   @@index([proveedorId])
@@ -1061,6 +1066,13 @@ model EvtServicio {
   establecimientoId String          @map("establecimiento_id") @db.Uuid
   establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id])
 
+  /// IA/IATF: pajuela del inventario (producto tipo semen) y su partida; se descuenta 1 al registrar
+  productoSemenId String?       @map("producto_semen_id") @db.Uuid
+  productoSemen   Producto?     @relation("SemenServicio", fields: [productoSemenId], references: [id], onDelete: SetNull)
+  loteProductoId  String?       @map("lote_producto_id") @db.Uuid
+  loteProducto    LoteProducto? @relation(fields: [loteProductoId], references: [id], onDelete: SetNull)
+
+  @@index([productoSemenId])
   @@index([establecimientoId, fecha])
   @@index([hembraId])
   @@index([machoId])
@@ -1397,7 +1409,7 @@ model MovimientoStock {
   operacionId String?          @map("operacion_id") @db.Uuid
   /// transferencia (entre galpones, o reubicar stock sin galpón) | recuento (ajuste por conteo físico); null = movimiento común
   concepto    String?
-  /// Qué lo generó: sanidad (EvtSanidad), manga (SesionManga), compra (MovimientoFinanciero del egreso, o null) o senalada (EvtSenalada)
+  /// Qué lo generó: sanidad (EvtSanidad), manga (SesionManga), compra (MovimientoFinanciero del egreso, o null), senalada (EvtSenalada) o servicio (EvtServicio: pajuela)
   origenTipo  String?          @map("origen_tipo")
   origenId    String?          @map("origen_id") @db.Uuid
   /// Contramovimiento: anula al movimiento indicado (cada movimiento se anula una sola vez)

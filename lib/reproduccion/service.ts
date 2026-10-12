@@ -12,7 +12,7 @@ import { sincronizarTareasReproductivas } from "./agenda"
 import { normalizeEID } from "@/lib/hardware/eid"
 import { diasEntre, formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import { InventarioError } from "@/lib/inventario/service"
-import { revertirAplicaciones } from "@/lib/inventario/aplicaciones"
+import { descontarAplicacion, revertirAplicaciones } from "@/lib/inventario/aplicaciones"
 import {
   ROLES_ANULAR, ROLES_REPRODUCCION, EDICION_POR_TIPO, anulacionSchema, busquedaAnimalesSchema, calcularParto, desteteSchema, edicionToradaSchema,
   filtrosReproduccionSchema, paricionSchema, servicioSchema, tactoSchema, toradaSchema,
@@ -80,6 +80,29 @@ export async function auditar(tx: Tx, ctx: AuthContext, establecimientoId: strin
 
 // ─── Escrituras ─────────────────────────────────────────────────────────────
 
+/**
+ * Pajuela del inventario para un servicio de IA/IATF: producto tipo semen, activo y de la
+ * organización del campo (los del catálogo general no tienen stock); la partida, si se elige, del producto.
+ */
+export async function pajuelaDelCampo(ctx: AuthContext, establecimientoId: string, productoSemenId: string, loteProductoId: string | null) {
+  const org = ctx.organizacionDeEstablecimiento[establecimientoId]
+  const producto = org ? await prisma.producto.findFirst({ where: { id: productoSemenId, organizacionId: org }, select: { id: true, nombre: true, tipo: true, activo: true } }) : null
+  if (!producto || producto.tipo !== "semen") throw new ReproduccionError("La pajuela no se encontró en el inventario de la organización", 404)
+  if (!producto.activo) throw new ReproduccionError(`${producto.nombre} está archivado en el inventario`, 400)
+  const lote = loteProductoId ? await prisma.loteProducto.findFirst({ where: { id: loteProductoId, productoId: producto.id }, select: { id: true, nroLote: true } }) : null
+  if (loteProductoId && !lote) throw new ReproduccionError("La partida no es de esa pajuela", 400)
+  return { producto, lote }
+}
+
+/** Descuenta una pajuela por servicio (estricto: si no hay stock, 409) y devuelve la partida usada. */
+export async function descontarPajuela(tx: Tx, ctx: AuthContext, d: { establecimientoId: string; productoId: string; loteProductoId: string | null; fecha: string; servicioId: string; motivo: string }) {
+  const stock = await descontarAplicacion(tx, {
+    productoId: d.productoId, cantidad: 1, loteProductoId: d.loteProductoId, fecha: new Date(`${d.fecha}T12:00:00-03:00`),
+    motivo: d.motivo, origenTipo: "servicio", origenId: d.servicioId,
+  }, { establecimientoIds: ctx.establecimientoIds, establecimientoId: d.establecimientoId, estricto: true, aceptarVencido: true })
+  return d.loteProductoId ?? (stock.lotes.length === 1 ? stock.lotes[0].loteProductoId : null)
+}
+
 export async function registrarServicio(ctx: AuthContext, raw: unknown) {
   const v = servicioSchema.parse(raw)
   const hembra = await animalParaEvento(ctx, v.hembraId, "servicio", { nombre: "La hembra", sexo: "F" })
@@ -105,11 +128,19 @@ export async function registrarServicio(ctx: AuthContext, raw: unknown) {
   if (await prisma.evtServicio.count({ where: { hembraId: hembra.id, fecha: fechaDia(v.fecha), tipo: v.tipo, ...vigente } })) {
     throw new ReproduccionError(`Ya hay un servicio ${v.tipo === "natural" ? "natural" : v.tipo.toUpperCase()} de ${etiqueta(hembra)} ese día`, 409)
   }
+  const pajuela = v.productoSemenId ? await pajuelaDelCampo(ctx, hembra.establecimientoId, v.productoSemenId, v.loteProductoId) : null
   const resultado = await prisma.$transaction(async (tx) => {
+    // La pajuela sale del stock en la misma transacción (1 por servicio)
+    const id = crypto.randomUUID()
+    const loteProductoId = pajuela
+      ? await descontarPajuela(tx, ctx, { establecimientoId: hembra.establecimientoId, productoId: pajuela.producto.id, loteProductoId: pajuela.lote?.id ?? null, fecha: v.fecha, servicioId: id, motivo: `Servicio ${v.tipo.toUpperCase()} · ${etiqueta(hembra)}` })
+      : null
+    const partida = pajuela ? (pajuela.lote ?? (loteProductoId ? await tx.loteProducto.findUnique({ where: { id: loteProductoId }, select: { nroLote: true } }) : null)) : null
     const servicio = await tx.evtServicio.create({
       data: {
-        fecha: fechaDia(v.fecha), tipo: v.tipo, hembraId: hembra.id, establecimientoId: hembra.establecimientoId, machoId: v.machoId, toradaId: v.toradaId,
-        toroNombre: v.toroNombre, loteSemen: v.loteSemen, inseminador: v.inseminador, observ: v.observ,
+        id, fecha: fechaDia(v.fecha), tipo: v.tipo, hembraId: hembra.id, establecimientoId: hembra.establecimientoId, machoId: v.machoId, toradaId: v.toradaId,
+        toroNombre: v.toroNombre ?? pajuela?.producto.nombre ?? null, loteSemen: v.loteSemen ?? partida?.nroLote ?? null, inseminador: v.inseminador, observ: v.observ,
+        productoSemenId: pajuela?.producto.id ?? null, loteProductoId,
       },
     })
     await auditar(tx, ctx, hembra.establecimientoId, "evt_servicio", servicio.id, { hembraId: hembra.id, fecha: v.fecha, tipo: v.tipo, machoId: v.machoId, toradaId: v.toradaId })
@@ -398,7 +429,12 @@ export async function anularEvento(ctx: AuthContext, tipo: TipoEvento, id: strin
       const r = await revertirAplicaciones(tx, ids, v.motivo, "senalada")
       if (r.revertido) { deshecho = { stockDevuelto: r.revertido }; avisos.push("La vacuna descontada volvió al stock.") }
     }
-    if (tipo === "servicio") await tx.evtServicio.updateMany({ where: { id: { in: ids } }, data: anulacion })
+    if (tipo === "servicio") {
+      await tx.evtServicio.updateMany({ where: { id: { in: ids } }, data: anulacion })
+      // La pajuela descontada vuelve al stock
+      const r = await revertirAplicaciones(tx, ids, v.motivo, "servicio")
+      if (r.revertido) avisos.push("La pajuela volvió al stock.")
+    }
     // El tacto anulado libera su servicio (se puede volver a tactar)
     if (tipo === "tacto") await tx.evtTacto.updateMany({ where: { id: { in: ids } }, data: { ...anulacion, servicioId: null } })
     if (tipo === "paricion") await tx.evtParicion.updateMany({ where: { id: { in: ids } }, data: anulacion })

@@ -708,6 +708,7 @@ async function main() {
     await prisma.evtServicio.create({
       data: {
         hembraId: vaca.id,
+        establecimientoId: establecimiento.id,
         machoId: toro.id,
         toradaId: torada.id,
         fecha: new Date('2024-04-15'),
@@ -728,6 +729,7 @@ async function main() {
     await prisma.evtTacto.create({
       data: {
         hembraId: vacas[i].id,
+        establecimientoId: establecimiento.id,
         fecha: new Date('2024-07-01'),
         resultado: preñada ? 'preñada' : 'vacia',
         mesesGest: preñada ? 2.5 : null,

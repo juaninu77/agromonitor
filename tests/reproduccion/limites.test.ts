@@ -42,7 +42,7 @@ const desde = new Date("2026-05-01T15:00:00Z")
 
 beforeEach(() => {
   vi.resetAllMocks()
-  m.destete.mockResolvedValue({ id: DES, fecha: d("2026-05-01"), anuladoAt: null, animal: { establecimientoId: EST } })
+  m.destete.mockResolvedValue({ id: DES, fecha: d("2026-05-01"), anuladoAt: null, establecimientoId: EST })
   m.desteteTx.mockResolvedValue({ animalId: "A1", fecha: d("2026-05-01"), pesoKg: 180, loteDesteteId: LOTE, pesadaId: "P1" })
   m.pesada.mockResolvedValue({ id: "P1", fecha: d("2026-05-01"), pesoKg: 180 })
   m.tramo.mockResolvedValue({ id: "H2", desde, hasta: null })
@@ -52,6 +52,8 @@ beforeEach(() => {
 describe("anular un destete deshace lo que hizo", () => {
   it("quita su pesada y vuelve el animal al grupo anterior", async () => {
     const r = await anularEvento(encargado, "destete", DES, { motivo: "ternero equivocado" })
+    // El evento se busca en el campo donde ocurrió, no en el del animal hoy
+    expect(m.destete.mock.calls[0][0].where).toEqual({ id: DES, establecimientoId: { in: [EST] } })
     expect(m.pesadaBorrar).toHaveBeenCalledWith({ where: { id: "P1" } })
     expect(m.histBorrar).toHaveBeenCalledWith({ where: { id: "H2" } })
     expect(m.histReabrir).toHaveBeenCalledWith({ where: { id: { in: ["H1"] } }, data: { hasta: null } })

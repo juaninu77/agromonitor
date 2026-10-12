@@ -84,6 +84,7 @@ export const POST = withAuth(async (request, ctx) => {
               mesesGest: prenada ? item.mesesGestacion ?? null : null,
               fechaProbableParto: parto?.fecha ? new Date(`${parto.fecha}T00:00:00Z`) : null,
               hembraId: item.animalId,
+              establecimientoId: sesion.establecimientoId,
             },
           })
           totalTactos++

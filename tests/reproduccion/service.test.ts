@@ -116,7 +116,7 @@ describe("tacto", () => {
   it("solo admin, encargado o vet", async () => {
     await expect(registrarTacto(operario, base())).rejects.toMatchObject({ status: 403 })
     await expect(registrarTacto(vet, base({ mesesGest: "2,5", fechaProbableParto: "2026-12-01" }))).resolves.toBeTruthy()
-    expect(m.crear.mock.calls[0][1].data).toMatchObject({ mesesGest: 2.5, fechaProbableParto: new Date("2026-12-01T00:00:00Z"), metodo: "palpacion" })
+    expect(m.crear.mock.calls[0][1].data).toMatchObject({ mesesGest: 2.5, fechaProbableParto: new Date("2026-12-01T00:00:00Z"), metodo: "palpacion", establecimientoId: EST })
   })
   it("calcula la fecha probable de parto del servicio o de los meses (spec 03 §3.7)", async () => {
     m.servicio.mockResolvedValue({ hembraId: VACA, fecha: new Date("2026-03-01"), anuladoAt: null, tacto: null })
@@ -162,7 +162,7 @@ describe("parición", () => {
     expect(m.histCrear.mock.calls[0][0].data).toMatchObject({ animalId: alta.id, loteId: LOTE, motivo: "nacimiento" })
     expect(m.crear.mock.calls.find((c) => c[0] === "ubicacion")![1].data).toMatchObject({ sectorId: "S1" })
     expect(m.crear.mock.calls.find((c) => c[0] === "pesada")![1].data).toMatchObject({ animalId: alta.id, pesoKg: 32 })
-    expect(m.crear.mock.calls.find((c) => c[0] === "paricion")![1].data).toMatchObject({ resultado: "vivo", nacidoAnimalId: alta.id, partoId: r.partoId, sexoCria: "M" })
+    expect(m.crear.mock.calls.find((c) => c[0] === "paricion")![1].data).toMatchObject({ resultado: "vivo", nacidoAnimalId: alta.id, partoId: r.partoId, sexoCria: "M", establecimientoId: EST })
   })
   it("mellizos comparten el parto; una muerta no se da de alta; el aborto no lleva crías", async () => {
     await registrarParicion(operario, base({ crias: [{ resultado: "vivo", sexo: "F" }, { resultado: "muerto" }] }))
@@ -228,18 +228,18 @@ describe("torada", () => {
 
 describe("anular y torada", () => {
   it("solo admin/encargado; un servicio con tacto vigente no se anula; el tacto libera su servicio", async () => {
-    m.eventoServicio.mockResolvedValue({ id: SERV, fecha: new Date("2026-03-01"), anuladoAt: null, hembra: { establecimientoId: EST }, tacto: { fecha: new Date("2026-05-01"), anuladoAt: null } })
+    m.eventoServicio.mockResolvedValue({ id: SERV, fecha: new Date("2026-03-01"), anuladoAt: null, establecimientoId: EST, tacto: { fecha: new Date("2026-05-01"), anuladoAt: null } })
     await expect(anularEvento(vet, "servicio", SERV, { motivo: "error" })).rejects.toMatchObject({ status: 403 })
     await expect(anularEvento(encargado, "servicio", SERV, { motivo: "error" })).rejects.toThrow(/anulá primero el tacto/)
     await expect(anularEvento(encargado, "servicio", SERV, { motivo: "x" })).rejects.toThrow(/por qué/)
-    m.eventoTacto.mockResolvedValue({ id: "T1", fecha: new Date("2026-05-01"), anuladoAt: null, servicioId: SERV, hembra: { establecimientoId: EST } })
+    m.eventoTacto.mockResolvedValue({ id: "T1", fecha: new Date("2026-05-01"), anuladoAt: null, servicioId: SERV, establecimientoId: EST })
     await anularEvento(encargado, "tacto", "T1", { motivo: "vaca equivocada" })
     expect(m.anular).toHaveBeenCalledWith("tacto", { where: { id: { in: ["T1"] } }, data: expect.objectContaining({ servicioId: null, motivoAnulacion: "vaca equivocada", anuladoPorId: "u1" }) })
-    m.eventoTacto.mockResolvedValue({ id: "T1", fecha: new Date("2026-05-01"), anuladoAt: new Date(), servicioId: null, hembra: { establecimientoId: EST } })
+    m.eventoTacto.mockResolvedValue({ id: "T1", fecha: new Date("2026-05-01"), anuladoAt: new Date(), servicioId: null, establecimientoId: EST })
     await expect(anularEvento(encargado, "tacto", "T1", { motivo: "otra vez" })).rejects.toMatchObject({ status: 409 })
   })
   it("un parto se anula entero y, con crías dadas de alta, pide confirmar", async () => {
-    m.eventoParto.mockResolvedValue({ id: "P1", fecha: new Date("2026-09-01"), anuladoAt: null, partoId: "PX", madre: { establecimientoId: EST } })
+    m.eventoParto.mockResolvedValue({ id: "P1", fecha: new Date("2026-09-01"), anuladoAt: null, partoId: "PX", establecimientoId: EST })
     m.partosDe.mockResolvedValue([{ id: "P1", nacido: { caravanaVisual: "C-1", cuig: null } }, { id: "P2", nacido: null }])
     await expect(anularEvento(encargado, "paricion", "P1", { motivo: "error de carga" })).rejects.toMatchObject({ status: 409, codigo: "paricion_con_cria" })
     await expect(anularEvento(encargado, "paricion", "P1", { motivo: "error de carga", aceptarCria: true })).resolves.toMatchObject({ anulados: 2 })
@@ -265,7 +265,7 @@ describe("listados y errores", () => {
     await expect(listarServicios(operario, { establecimientoId: EST, limit: "500" })).rejects.toThrow()
     m.listar.mockResolvedValue([])
     const r = await listarServicios(operario, { establecimientoId: EST, sinTacto: "true", q: "V-1" })
-    expect(m.listar.mock.calls[0][0].where).toMatchObject({ hembra: { establecimientoId: EST }, tacto: { is: null } })
+    expect(m.listar.mock.calls[0][0].where).toMatchObject({ establecimientoId: EST, tacto: { is: null } })
     expect(r.pagination).toEqual({ page: 1, limit: 20, total: 0, totalPages: 1 })
   })
   it("un duplicado de la base es 409, no 500", () => {

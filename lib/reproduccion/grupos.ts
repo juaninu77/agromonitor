@@ -112,7 +112,7 @@ export async function servicioMasivo(ctx: AuthContext, raw: unknown) {
   const resultado = await prisma.$transaction(async (tx) => {
     await tx.evtServicio.createMany({
       data: aServir.map((h) => ({
-        fecha: fechaDia(v.fecha), tipo: v.tipo, hembraId: h.id, machoId: v.machoId, toradaId: torada.id, operacionId: v.clave,
+        fecha: fechaDia(v.fecha), tipo: v.tipo, hembraId: h.id, establecimientoId: est, machoId: v.machoId, toradaId: torada.id, operacionId: v.clave,
         toroNombre: v.toroNombre, loteSemen: v.loteSemen, inseminador: v.inseminador, observ: v.observ,
       })),
     })
@@ -158,7 +158,7 @@ export async function tactoMasivo(ctx: AuthContext, raw: unknown) {
     if (f.resultado === "preñada" && v.metodo === "ecografia" && f.mesesGest == null && !s) throw new ReproduccionError(`Por ecografía, indicá los meses de gestación de ${etiqueta(h)}`, 400)
     const parto = f.resultado === "preñada" ? calcularParto(h.especie.nombre, v.fecha, { servicioFecha: s ? diaDe(s.fecha) : null, mesesGest: f.mesesGest }) : null
     return {
-      fecha: fechaDia(v.fecha), resultado: f.resultado, metodo: v.metodo, veterinario: v.veterinario, hembraId: f.hembraId, servicioId: s?.id ?? null, operacionId: v.clave,
+      fecha: fechaDia(v.fecha), resultado: f.resultado, metodo: v.metodo, veterinario: v.veterinario, hembraId: f.hembraId, establecimientoId: est, servicioId: s?.id ?? null, operacionId: v.clave,
       mesesGest: parto?.mesesGest ?? null, fechaProbableParto: parto?.fecha ? fechaDia(parto.fecha) : null,
     }
   })
@@ -232,7 +232,7 @@ export async function desteteMasivo(ctx: AuthContext, raw: unknown) {
       const pesada = f.pesoKg ? await tx.evtPesada.create({ data: { animalId: a.id, fecha: fechaDia(v.fecha), pesoKg: f.pesoKg, observ: "Destete" } }) : null
       await tx.evtDestete.create({
         data: {
-          fecha: fechaDia(v.fecha), animalId: a.id, pesoKg: f.pesoKg, metodo: v.metodo, loteDesteteId: v.loteDesteteId, observ: v.observ, operacionId: v.clave,
+          fecha: fechaDia(v.fecha), animalId: a.id, establecimientoId: est, pesoKg: f.pesoKg, metodo: v.metodo, loteDesteteId: v.loteDesteteId, observ: v.observ, operacionId: v.clave,
           edadDias: a.fechaNacimiento ? diasEntre(diaDe(a.fechaNacimiento), v.fecha) : null, pesadaId: pesada?.id ?? null,
         },
       })

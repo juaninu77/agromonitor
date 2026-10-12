@@ -58,6 +58,7 @@ interface Tarea {
   sector: { id: string; nombre: string; tipo: string } | null
   /** Tarea generada por un calendario del plan sanitario: se registra en Sanidad. */
   calendarioSanitarioId?: string | null
+  itemProtocoloId?: string | null
   /** Tarea generada por la agenda reproductiva */
   claveReproduccion?: string | null
   /** Paso de un protocolo IATF */
@@ -98,6 +99,9 @@ const TIPO_CONFIG: Record<string, string> = {
   general: "General",
   reproduccion: "Reproducción",
 }
+
+/** Generada por el plan sanitario, la agenda reproductiva o un protocolo IATF: se cancela, no se borra. */
+const esGenerada = (t: Tarea) => !!(t.calendarioSanitarioId || t.itemProtocoloId || t.claveReproduccion || t.protocoloIatfId)
 
 // ============================================
 // COMPONENTE PRINCIPAL
@@ -268,9 +272,9 @@ export default function TareasPage() {
 
   const handleDelete = async (tarea: Tarea) => {
     // Las del plan sanitario o la agenda reproductiva se cancelan; las demás se borran (no se puede deshacer)
-    const generada = !!(tarea.calendarioSanitarioId || tarea.claveReproduccion || tarea.protocoloIatfId)
+    const generada = esGenerada(tarea)
     const pregunta = generada
-      ? `«${tarea.titulo}» la generó ${tarea.calendarioSanitarioId ? "el plan sanitario" : tarea.protocoloIatfId ? "un protocolo IATF" : "la agenda reproductiva"}: se cancela (queda en «Canceladas» y no se vuelve a crear). ¿Cancelarla?`
+      ? `«${tarea.titulo}» la generó ${tarea.calendarioSanitarioId || tarea.itemProtocoloId ? "el plan sanitario" : tarea.protocoloIatfId ? "un protocolo IATF" : "la agenda reproductiva"}: se cancela (queda en «Canceladas» y no se vuelve a crear). ¿Cancelarla?`
       : `¿Eliminar «${tarea.titulo}»? Se borra definitivamente.`
     if (!window.confirm(pregunta)) return
     try {
@@ -420,8 +424,8 @@ export default function TareasPage() {
                 e.stopPropagation()
                 handleDelete(row)
               }}
-              title={row.calendarioSanitarioId || row.claveReproduccion || row.protocoloIatfId ? "Cancelar tarea" : "Eliminar tarea"}
-              aria-label={row.calendarioSanitarioId || row.claveReproduccion || row.protocoloIatfId ? "Cancelar tarea" : "Eliminar tarea"}
+              title={esGenerada(row) ? "Cancelar tarea" : "Eliminar tarea"}
+              aria-label={esGenerada(row) ? "Cancelar tarea" : "Eliminar tarea"}
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -436,6 +440,8 @@ export default function TareasPage() {
   // ============================================
 
   const contarPorEstado = (estado: string) => conteos[estado] ?? 0
+  // Total con los mismos filtros que las demás tarjetas (no depende de la pestaña elegida)
+  const totalTareas = Object.values(conteos).reduce((a, n) => a + n, 0)
 
   // ============================================
   // RENDER
@@ -607,7 +613,7 @@ export default function TareasPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{pagination.total}</div>
+              <div className="text-2xl font-bold">{totalTareas}</div>
             </CardContent>
           </Card>
           <Card>

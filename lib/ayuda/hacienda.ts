@@ -148,6 +148,7 @@ export const GANADO: SeccionAyuda = {
         "La baja no borra el animal: deja de contar en el rodeo y se cierran su lote y su ubicación.",
         "Para una venta con cliente, precio y cobro usá «Registrar venta» en Ventas y Compras.",
         "Un animal bajo carencia no se puede dar de baja por faena, y una venta pide confirmación.",
+        "La fecha propuesta es el día de hoy en Argentina y no puede ser futura.",
       ],
     },
   ],

@@ -298,7 +298,7 @@ export default function AnimalDetailPage() {
 
   // Form state: baja
   const [bajaMotivo, setBajaMotivo] = useState<(typeof MOTIVOS_BAJA)[number]>("otro")
-  const [bajaFecha, setBajaFecha] = useState(() => new Date().toISOString().slice(0, 10))
+  const [bajaFecha, setBajaFecha] = useState(() => hoyArgentina())
   const [bajaObserv, setBajaObserv] = useState("")
   const [bajaSubmitting, setBajaSubmitting] = useState(false)
 
@@ -1183,7 +1183,7 @@ export default function AnimalDetailPage() {
               <Input
                 id="bajaFecha"
                 type="date"
-                max={new Date().toISOString().slice(0, 10)}
+                max={hoyArgentina()}
                 value={bajaFecha}
                 onChange={(e) => setBajaFecha(e.target.value)}
               />

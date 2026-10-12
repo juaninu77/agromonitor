@@ -122,6 +122,7 @@ export function QuickHealthForm({ onSubmit, isSubmitting }: QuickHealthFormProps
             <Input
               id="fecha"
               type="date"
+              max={hoyArgentina()}
               {...register("fecha")}
               className={errors.fecha ? "border-red-500" : ""}
             />

@@ -173,10 +173,10 @@ export const TAREAS: SeccionAyuda = {
       id: "seguir",
       titulo: "Seguir y completar tareas",
       notas: [
-        "Pestañas «Todas», «Pendientes», «En Progreso» y «Completadas», con filtros por prioridad y tipo. Las fechas vencidas se ven en rojo.",
+        "Pestañas «Todas», «Pendientes», «En Progreso», «Completadas» y «Canceladas», con filtros por prioridad y tipo. Los contadores de arriba cuentan todas las tareas con esos filtros. Las fechas vencidas se ven en rojo.",
         "El tilde «Marcar como completada» la cierra.",
         "Las tareas del plan sanitario tienen «Registrar en Sanidad», y las de reproducción, «Registrar en Reproducción». Se completan solas al registrar el evento.",
-        "La papelera elimina la tarea definitivamente (administrador o encargado): usala solo para tareas cargadas por error.",
+        "La papelera (administrador o encargado) pide confirmación. Una tarea cargada a mano se elimina definitivamente. Una del plan sanitario o de la agenda reproductiva no se borra: se cancela y pasa a «Canceladas» (no se vuelve a crear).",
       ],
     },
   ],

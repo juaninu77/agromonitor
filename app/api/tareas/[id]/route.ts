@@ -165,18 +165,25 @@ export const DELETE = withAuth(
         )
       }
 
-      await prisma.tarea.delete({ where: { id } })
+      // Las tareas generadas por el plan sanitario o la agenda reproductiva no se borran: se cancelan
+      // (quedan vinculadas a su plan y una cancelada de la agenda no se vuelve a crear)
+      const generada = !!(existingTarea.calendarioSanitarioId || existingTarea.itemProtocoloId || existingTarea.claveReproduccion)
+      if (generada) {
+        await prisma.tarea.update({ where: { id }, data: { estado: "cancelada" } })
+      } else {
+        await prisma.tarea.delete({ where: { id } })
+      }
 
       await logAudit({
         userId: ctx.userId,
         tabla: "tareas",
         rowPk: id,
-        accion: "DELETE",
-        detalle: { titulo: existingTarea.titulo },
+        accion: generada ? "UPDATE" : "DELETE",
+        detalle: { titulo: existingTarea.titulo, ...(generada ? { cancelada: true } : {}) },
         organizacionId: ctx.organizacionDeEstablecimiento[existingTarea.establecimientoId] ?? null,
       })
 
-      return NextResponse.json({ success: true, message: "Tarea eliminada" })
+      return NextResponse.json({ success: true, cancelada: generada, message: generada ? "Tarea cancelada" : "Tarea eliminada" })
     } catch (error) {
       console.error("Error al eliminar tarea:", error)
       return NextResponse.json(

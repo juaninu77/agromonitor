@@ -81,6 +81,10 @@ export const GET = withAuth(async (request, ctx) => {
     const orderByClause = validOrderFields[orderByField] || validOrderFields.createdAt
 
     const total = await prisma.tarea.count({ where: where as any })
+    // Conteo por estado con los mismos filtros (salvo el estado): las tarjetas de arriba no dependen de la página
+    const { estado: _estado, ...sinEstado } = where
+    const porEstado = await prisma.tarea.groupBy({ by: ["estado"], where: sinEstado as any, _count: { _all: true } })
+    const conteos = Object.fromEntries(porEstado.map((g) => [g.estado, g._count._all]))
 
     const tareas = await prisma.tarea.findMany({
       where: where as any,
@@ -103,6 +107,7 @@ export const GET = withAuth(async (request, ctx) => {
     return NextResponse.json({
       success: true,
       data: tareas,
+      conteos,
       pagination: {
         page,
         limit,

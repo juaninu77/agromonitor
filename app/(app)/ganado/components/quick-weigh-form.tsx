@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Loader2, Scale } from "lucide-react"
 import { AnimalPicker } from "@/components/ganado/animal-picker"
+import { hoyArgentina } from "@/lib/inventario/fechas"
 
 // Schema para registro rápido de pesada
 const quickWeighSchema = z.object({
@@ -38,7 +39,7 @@ export function QuickWeighForm({ onSubmit, isSubmitting }: QuickWeighFormProps) 
   } = useForm<QuickWeighData>({
     resolver: zodResolver(quickWeighSchema),
     defaultValues: {
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: hoyArgentina(),
     },
   })
 
@@ -50,7 +51,7 @@ export function QuickWeighForm({ onSubmit, isSubmitting }: QuickWeighFormProps) 
       animalId: "",
       peso: undefined,
       notas: "",
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: hoyArgentina(),
     })
 
   }
@@ -87,6 +88,7 @@ export function QuickWeighForm({ onSubmit, isSubmitting }: QuickWeighFormProps) 
             <Input
               id="fecha"
               type="date"
+              max={hoyArgentina()}
               {...register("fecha")}
               className={errors.fecha ? "border-red-500" : ""}
             />

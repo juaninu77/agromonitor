@@ -36,6 +36,7 @@ import {
   Loader2,
 } from "lucide-react"
 import { toast } from "sonner"
+import { usePermissions } from "@/lib/hooks/use-permissions"
 
 // ============================================
 // TIPOS
@@ -57,6 +58,8 @@ interface Tarea {
   sector: { id: string; nombre: string; tipo: string } | null
   /** Tarea generada por un calendario del plan sanitario: se registra en Sanidad. */
   calendarioSanitarioId?: string | null
+  /** Tarea generada por la agenda reproductiva */
+  claveReproduccion?: string | null
 }
 
 interface Pagination {
@@ -103,6 +106,10 @@ export default function TareasPage() {
 
   const [tareas, setTareas] = useState<Tarea[]>([])
   const [pagination, setPagination] = useState<Pagination | null>(null)
+  // Eliminar/cancelar: administrador o encargado (el servidor lo vuelve a verificar por campo)
+  const { canDeleteData } = usePermissions()
+  // Cantidad por estado con los filtros actuales (de todas las páginas)
+  const [conteos, setConteos] = useState<Record<string, number>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [tabEstado, setTabEstado] = useState("todas")
   const [filtroPrioridad, setFiltroPrioridad] = useState("todas")
@@ -167,6 +174,7 @@ export default function TareasPage() {
       if (result.success) {
         setTareas(result.data)
         setPagination(result.pagination)
+        setConteos(result.conteos ?? {})
       } else {
         toast.error("Error al cargar tareas")
       }
@@ -256,16 +264,22 @@ export default function TareasPage() {
   // ELIMINAR TAREA
   // ============================================
 
-  const handleDelete = async (tareaId: string) => {
+  const handleDelete = async (tarea: Tarea) => {
+    // Las del plan sanitario o la agenda reproductiva se cancelan; las demás se borran (no se puede deshacer)
+    const generada = !!(tarea.calendarioSanitarioId || tarea.claveReproduccion)
+    const pregunta = generada
+      ? `«${tarea.titulo}» la generó ${tarea.calendarioSanitarioId ? "el plan sanitario" : "la agenda reproductiva"}: se cancela (queda en «Canceladas» y no se vuelve a crear). ¿Cancelarla?`
+      : `¿Eliminar «${tarea.titulo}»? Se borra definitivamente.`
+    if (!window.confirm(pregunta)) return
     try {
-      const response = await fetch(`/api/tareas/${tareaId}`, {
+      const response = await fetch(`/api/tareas/${tarea.id}`, {
         method: "DELETE",
       })
 
       const result = await response.json()
 
       if (result.success) {
-        toast.success("Tarea eliminada")
+        toast.success(result.cancelada ? "Tarea cancelada" : "Tarea eliminada")
         fetchTareas()
       } else {
         toast.error(result.error || "Error al eliminar tarea")
@@ -395,18 +409,21 @@ export default function TareasPage() {
               <CheckCircle className="h-4 w-4" />
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-            onClick={(e) => {
-              e.stopPropagation()
-              handleDelete(row.id)
-            }}
-            title="Eliminar tarea"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {canDeleteData && row.estado !== "cancelada" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+              onClick={(e) => {
+                e.stopPropagation()
+                handleDelete(row)
+              }}
+              title={row.calendarioSanitarioId || row.claveReproduccion ? "Cancelar tarea" : "Eliminar tarea"}
+              aria-label={row.calendarioSanitarioId || row.claveReproduccion ? "Cancelar tarea" : "Eliminar tarea"}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       ),
     },
@@ -416,8 +433,7 @@ export default function TareasPage() {
   // CONTADORES PARA TABS
   // ============================================
 
-  const contarPorEstado = (estado: string) =>
-    tareas.filter((t) => t.estado === estado).length
+  const contarPorEstado = (estado: string) => conteos[estado] ?? 0
 
   // ============================================
   // RENDER
@@ -638,6 +654,7 @@ export default function TareasPage() {
                 <TabsTrigger value="pendiente">Pendientes</TabsTrigger>
                 <TabsTrigger value="en_progreso">En Progreso</TabsTrigger>
                 <TabsTrigger value="completada">Completadas</TabsTrigger>
+                <TabsTrigger value="cancelada">Canceladas</TabsTrigger>
               </TabsList>
 
               <div className="flex items-center gap-2">

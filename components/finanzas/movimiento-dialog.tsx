@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
-import { CATEGORIAS, etiquetaFinanzas, MEDIOS_PAGO, SUBCATEGORIAS_IMPUESTO } from "@/lib/finanzas/constantes"
+import { CATEGORIAS, etiquetaFinanzas, etiquetaMedioPago, MEDIOS_PAGO, SUBCATEGORIAS_IMPUESTO } from "@/lib/finanzas/constantes"
 import { movimientoUpdateSchema } from "@/lib/finanzas/validation"
 import { api, claves, hoyLocal, type Cuenta, type Movimiento } from "./api"
 
@@ -210,7 +210,7 @@ export function MovimientoDialog({ open, onOpenChange, campo, cuentas, tipoInici
                 <option value="">Sin especificar</option>
                 {MEDIOS_PAGO.map((m) => (
                   <option key={m} value={m}>
-                    {etiquetaFinanzas(m)}
+                    {etiquetaMedioPago(m)}
                   </option>
                 ))}
               </select>

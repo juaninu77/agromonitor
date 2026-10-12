@@ -15,6 +15,7 @@ import {
   Database,
   Keyboard,
   Cable,
+  Syringe,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -38,6 +39,8 @@ import { finalizeSession } from "@/lib/hardware/finalize-session"
 import { traerTodosLosAnimales } from "@/lib/ganado/listado-completo"
 import { formatoDia } from "@/lib/inventario/fechas"
 import { ETIQUETA_RESULTADO_TACTO, LETRA_RESULTADO_TACTO, type ResultadoTacto } from "@/lib/reproduccion/validation"
+import { ETIQUETA_TIPO_SESION, textoTratamiento } from "@/lib/hardware/manga-config"
+import { ETIQUETA_VIA, type VIAS_SANIDAD } from "@/lib/sanidad/validation"
 
 interface MangaWorkspaceProps {
   session: any
@@ -107,16 +110,6 @@ function feedbackInvalid() {
   }
 }
 
-const TIPO_LABELS: Record<string, string> = {
-  pesada_rodeo: "Pesada de rodeo",
-  vacunacion: "Vacunación",
-  tacto: "Tacto",
-  destete: "Destete",
-  señalada: "Señalada",
-  recepcion: "Recepción",
-  general: "Trabajo general",
-}
-
 export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspaceProps) {
   const [eidInput, setEidInput] = useState("")
   const [currentEid, setCurrentEid] = useState("")
@@ -126,6 +119,8 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
     if (currentAnimal?.bajoRetiroHasta) toast.warning(`${currentAnimal.caravanaVisual ?? "Animal"} bajo retiro hasta el ${formatoDia(currentAnimal.bajoRetiroHasta)}`)
   }, [currentAnimal])
   const [isAnimalNew, setIsAnimalNew] = useState(false)
+  // «Registrar» desde la tarjeta amarilla: abre el alta aunque la sesión no tenga «Registro nuevo»
+  const [registroForzado, setRegistroForzado] = useState(false)
   const [searching, setSearching] = useState(false)
   const [confirmingFinalize, setConfirmingFinalize] = useState(false)
   const [herdCacheCount, setHerdCacheCount] = useState<number>(0)
@@ -202,6 +197,7 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
     setSearching(true)
     setCurrentAnimal(null)
     setIsAnimalNew(false)
+    setRegistroForzado(false)
     setCurrentEid(eid.trim())
 
     const isOffline = typeof navigator !== "undefined" && !navigator.onLine
@@ -299,6 +295,7 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
     setCurrentEid("")
     setCurrentAnimal(null)
     setIsAnimalNew(false)
+    setRegistroForzado(false)
     onRefresh()
     focusEid()
   }
@@ -313,6 +310,7 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
       const r = await finalizeSession(session.id)
       toast.success("Sesión finalizada", r.stock?.descontado ? { description: `Se descontaron ${r.stock.descontado.toLocaleString("es-AR")} ${r.stock.unidad} del inventario.` } : undefined)
       if (r.avisoStock) toast.warning("Inventario", { description: r.avisoStock, duration: 10000 })
+      if (r.sanidadOmitidos) toast.warning("Sanidad", { description: `${r.sanidadOmitidos} ${r.sanidadOmitidos === 1 ? "animal marcado ya no está activo" : "animales marcados ya no están activos"} en el campo: no se les registró el tratamiento.`, duration: 10000 })
       onFinalize()
     } catch (err: any) {
       toast.error("Error", { description: err.message })
@@ -333,11 +331,21 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
                 <h2 className="font-bold text-lg truncate">{session.nombre}</h2>
                 <div className="flex items-center gap-2 flex-wrap">
                   <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-xs">
-                    {TIPO_LABELS[session.tipo] || session.tipo}
+                    {ETIQUETA_TIPO_SESION[session.tipo] || session.tipo}
                   </Badge>
                   <span className="text-sm text-muted-foreground">
                     {items.length} animales
                   </span>
+                  {session.productoSanidadId && (
+                    <Badge variant="outline" className="border-purple-300 bg-purple-50 text-purple-800 text-xs gap-1" title="Tratamiento de la sesión">
+                      <Syringe className="h-3 w-3" aria-hidden />
+                      {textoTratamiento(
+                        { producto: session.productoSanidad?.nombre, dosis: session.dosisSanidad, unidad: session.unidadSanidad, via: session.viaSanidad },
+                        (v) => ETIQUETA_VIA[v as (typeof VIAS_SANIDAD)[number]] ?? v,
+                      )}
+                      {session.carenciaSanidad ? ` · carencia ${session.carenciaSanidad} d` : ""}
+                    </Badge>
+                  )}
                 </div>
               </div>
             </div>
@@ -466,7 +474,11 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
               animal={currentAnimal}
               eid={currentEid}
               isNew={isAnimalNew}
-              onRegister={accionesHabilitadas.includes("registro") ? () => document.getElementById("manga-registro")?.scrollIntoView({ behavior: "smooth", block: "start" }) : undefined}
+              onRegister={() => {
+                setRegistroForzado(true)
+                // Después de que el panel muestre el alta
+                setTimeout(() => document.getElementById("manga-registro")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50)
+              }}
             />
           )}
 
@@ -534,7 +546,11 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
             tipoSesion={session.tipo}
             productoSanidadNombre={session.productoSanidad?.nombre ?? null}
             dosisSanidad={session.dosisSanidad ?? null}
+            unidadSanidad={session.unidadSanidad ?? null}
+            viaSanidad={session.viaSanidad ?? null}
             especieLoteOrigen={session.loteOrigen?.especieId ?? null}
+            especieCampo={session.especieCampo ?? null}
+            registroForzado={registroForzado}
           />
           <CsvUpload sessionId={session.id} onImportComplete={onRefresh} />
         </div>

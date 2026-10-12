@@ -62,6 +62,9 @@ export const GET = withAuth(async (request, ctx) => {
         operador: {
           select: { id: true, nombre: true, apellido: true },
         },
+        productoSanidad: {
+          select: { id: true, nombre: true },
+        },
         _count: {
           select: { items: true },
         },

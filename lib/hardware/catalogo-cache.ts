@@ -1,6 +1,8 @@
 // Catálogo de especies, razas y categorías para dar de alta EIDs nuevos en la manga, también sin
 // señal: se baja con conexión y se guarda en el dispositivo (localStorage, por campo).
 
+import { especieParaAlta } from "./manga-config"
+
 export interface CatalogoManga {
   especies: { id: string; nombre: string }[]
   razas: { id: string; nombre: string; especieId: string }[]
@@ -48,9 +50,10 @@ export async function cargarCatalogoManga(establecimientoId: string): Promise<Ca
   }
 }
 
-/** Especie por defecto del alta: la del lote de origen, si no «bovino», si no la única. */
-export function especiePorDefecto(catalogo: CatalogoManga, especieDelLote?: string | null): string {
-  if (especieDelLote && catalogo.especies.some((e) => e.id === especieDelLote)) return especieDelLote
+/** Especie por defecto del alta: la del lote de origen, si no la del campo, si no «bovino», si no la única. */
+export function especiePorDefecto(catalogo: CatalogoManga, especieDelLote?: string | null, especieDelCampo?: string | null): string {
+  const elegida = especieParaAlta({ lote: especieDelLote, campo: especieDelCampo, disponibles: catalogo.especies.map((e) => e.id) })
+  if (elegida) return elegida
   return catalogo.especies.find((e) => e.nombre.toLowerCase() === "bovino")?.id ?? (catalogo.especies.length === 1 ? catalogo.especies[0].id : "")
 }
 

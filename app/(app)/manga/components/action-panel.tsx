@@ -28,6 +28,8 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { cargarCatalogoManga, categoriasPara, especiePorDefecto, type CatalogoManga } from "@/lib/hardware/catalogo-cache"
+import { ESCALA_CC, faltaParaAlta, textoTratamiento } from "@/lib/hardware/manga-config"
+import { ETIQUETA_VIA, type VIAS_SANIDAD } from "@/lib/sanidad/validation"
 
 interface ActionPanelProps {
   sessionId: string
@@ -41,11 +43,14 @@ interface ActionPanelProps {
   tipoSesion?: string
   productoSanidadNombre?: string | null
   dosisSanidad?: number | null
+  unidadSanidad?: string | null
+  viaSanidad?: string | null
   especieLoteOrigen?: string | null
+  /** Especie de la mayoría de los animales del campo (alta sin lote de origen) */
+  especieCampo?: string | null
+  /** «Registrar» desde la tarjeta del EID: muestra el alta aunque la sesión no tenga «Registro nuevo» */
+  registroForzado?: boolean
 }
-
-// Misma escala que en Ganado (1 a 9)
-const CC_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
 const TACTO_RESULTADOS = [
   { value: "preñada", label: "Preñada" },
@@ -74,7 +79,11 @@ export function ActionPanel({
   tipoSesion,
   productoSanidadNombre,
   dosisSanidad,
+  unidadSanidad,
+  viaSanidad,
   especieLoteOrigen,
+  especieCampo,
+  registroForzado = false,
 }: ActionPanelProps) {
   // En una sesión de vacunación con producto, el tratamiento viene marcado para cada animal
   const sanidadPorDefecto = tipoSesion === "vacunacion" && !!productoSanidadId
@@ -94,18 +103,21 @@ export function ActionPanel({
   const [saving, setSaving] = useState(false)
 
   const isAnimalNew = !currentAnimal
-  const showRegistro = accionesHabilitadas.includes("registro") && isAnimalNew
+  const altaDisponible = accionesHabilitadas.includes("registro") || registroForzado
+  const showRegistro = altaDisponible && isAnimalNew
 
   // Catálogo para las altas (queda guardado en el dispositivo para usarlo sin señal)
   useEffect(() => {
-    if (!accionesHabilitadas.includes("registro") || !establecimientoId) return
+    if (!altaDisponible || !establecimientoId) return
     cargarCatalogoManga(establecimientoId).then((c) => {
       setCatalogo(c)
-      setRegEspecie((e) => e || especiePorDefecto(c, especieLoteOrigen))
+      // Especie del lote de origen, si no la del campo (no «bovino» a ciegas)
+      setRegEspecie((e) => e || especiePorDefecto(c, especieLoteOrigen, especieCampo))
     })
-  }, [accionesHabilitadas, establecimientoId, especieLoteOrigen])
+  }, [altaDisponible, establecimientoId, especieLoteOrigen, especieCampo])
   const razas = catalogo?.razas.filter((r) => r.especieId === regEspecie) ?? []
   const categorias = catalogo ? categoriasPara(catalogo, regEspecie, regSexo) : []
+  const especieElegida = catalogo?.especies.find((e) => e.id === regEspecie)?.nombre ?? null
 
   const resetForm = useCallback(() => {
     setPeso("")
@@ -126,12 +138,14 @@ export function ActionPanel({
       toast.error("No hay animal seleccionado")
       return
     }
-    if (showRegistro && (!regSexo || !regRaza || !regCategoria)) {
-      toast.error("Para registrar el animal nuevo elegí el sexo, la raza y la categoría")
+    const falta = showRegistro ? faltaParaAlta({ sexo: regSexo, razaId: regRaza, categoriaId: regCategoria }) : null
+    if (falta) {
+      toast.error(falta)
+      document.getElementById("manga-registro")?.scrollIntoView({ behavior: "smooth", block: "start" })
       return
     }
     if (isAnimalNew && !showRegistro && (peso || tactoResultado || sanidadAplicar)) {
-      toast.warning("Este EID no está en el rodeo", { description: "Lo cargado queda en la sesión pero no se registra en el animal. Habilitá «Registro nuevo» en la sesión para darlo de alta." })
+      toast.warning("Este EID no está en el rodeo", { description: "Lo cargado queda en la sesión pero no se registra en ningún animal. Tocá «Registrar» en la tarjeta amarilla para darlo de alta." })
     }
 
     setSaving(true)
@@ -274,7 +288,7 @@ export function ActionPanel({
               Condición Corporal
             </Label>
             <div className="flex flex-wrap gap-1.5">
-              {CC_OPTIONS.map((val) => (
+              {ESCALA_CC.map((val) => (
                 <Button
                   key={val}
                   type="button"
@@ -307,7 +321,7 @@ export function ActionPanel({
                   Aplicar tratamiento
                   {productoSanidadId && (
                     <span className="text-muted-foreground ml-1">
-                      ({productoSanidadNombre ?? "producto de la sesión"}{dosisSanidad ? ` · ${dosisSanidad.toLocaleString("es-AR")} ml` : ""})
+                      ({textoTratamiento({ producto: productoSanidadNombre, dosis: dosisSanidad, unidad: unidadSanidad, via: viaSanidad }, (v) => ETIQUETA_VIA[v as (typeof VIAS_SANIDAD)[number]] ?? v)})
                     </span>
                   )}
                 </span>
@@ -447,7 +461,9 @@ export function ActionPanel({
                     <SelectContent>{categorias.map((c) => <SelectItem key={c.id} value={c.id}>{c.nombre}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <p className="text-xs text-muted-foreground">Se da de alta en Ganado con este EID{especieLoteOrigen ? " y entra al lote de origen de la sesión" : ""}.</p>
+                <p className="text-xs text-muted-foreground">
+                  Se da de alta en Ganado{especieElegida ? ` como ${especieElegida.toLowerCase()}` : ""} con este EID, la categoría elegida{especieLoteOrigen && especieLoteOrigen === regEspecie ? " y entra al lote de origen de la sesión" : ""}.
+                </p>
               </div>
             </div>
           </>

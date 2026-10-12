@@ -16,6 +16,9 @@ import {
   FileDown,
 } from "lucide-react"
 import { toast } from "sonner"
+import { formatoDia } from "@/lib/inventario/fechas"
+import { ETIQUETA_TIPO_SESION, textoTratamiento } from "@/lib/hardware/manga-config"
+import { ETIQUETA_VIA, type VIAS_SANIDAD } from "@/lib/sanidad/validation"
 
 interface SessionSummaryProps {
   session: any
@@ -23,6 +26,13 @@ interface SessionSummaryProps {
 
 export function SessionSummary({ session }: SessionSummaryProps) {
   const items: any[] = session.items || []
+  // Tratamiento de la sesión (producto, dosis, vía), si la sesión tenía Sanidad
+  const tratamiento = session.productoSanidadId
+    ? textoTratamiento(
+        { producto: session.productoSanidad?.nombre, dosis: session.dosisSanidad, unidad: session.unidadSanidad, via: session.viaSanidad },
+        (v) => ETIQUETA_VIA[v as (typeof VIAS_SANIDAD)[number]] ?? v,
+      )
+    : null
 
   const stats = useMemo(() => {
     const totalAnimales = items.length
@@ -66,8 +76,8 @@ export function SessionSummary({ session }: SessionSummaryProps) {
       doc.setFontSize(11)
       doc.setTextColor(100)
       doc.text(`Sesión: ${session.nombre}`, 14, 32)
-      doc.text(`Fecha: ${new Date(session.fecha).toLocaleDateString("es-AR")}`, 14, 38)
-      doc.text(`Tipo: ${session.tipo}`, 14, 44)
+      doc.text(`Fecha: ${formatoDia(session.fecha)}`, 14, 38)
+      doc.text(`Tipo: ${ETIQUETA_TIPO_SESION[session.tipo] ?? session.tipo}`, 14, 44)
       doc.text(`Total animales: ${stats.totalAnimales}`, 14, 50)
 
       let yPos = 58
@@ -79,7 +89,7 @@ export function SessionSummary({ session }: SessionSummaryProps) {
         yPos += 6
       }
       if (stats.conSanidad > 0) {
-        doc.text(`Sanidad aplicada: ${stats.conSanidad}`, 14, yPos)
+        doc.text(`Sanidad aplicada: ${stats.conSanidad}${tratamiento ? ` (${tratamiento})` : ""}`, 14, yPos)
         yPos += 6
       }
       if (stats.totalTactos > 0) {
@@ -107,14 +117,14 @@ export function SessionSummary({ session }: SessionSummaryProps) {
         headStyles: { fillColor: [22, 163, 74] },
       })
 
-      const fileName = `manga_${session.nombre.replace(/\s+/g, "_")}_${new Date(session.fecha).toISOString().split("T")[0]}.pdf`
+      const fileName = `manga_${session.nombre.replace(/\s+/g, "_")}_${String(session.fecha).slice(0, 10)}.pdf`
       doc.save(fileName)
       toast.success("PDF exportado")
     } catch (err) {
       toast.error("Error al generar PDF")
       console.error(err)
     }
-  }, [session, items, stats])
+  }, [session, items, stats, tratamiento])
 
   return (
     <div className="space-y-6">
@@ -124,8 +134,14 @@ export function SessionSummary({ session }: SessionSummaryProps) {
         </div>
         <h2 className="text-2xl font-bold">Sesión Finalizada</h2>
         <p className="text-muted-foreground">
-          {session.nombre} — {new Date(session.fecha).toLocaleDateString("es-AR")}
+          {session.nombre} — {formatoDia(session.fecha)}
         </p>
+        {tratamiento && (
+          <p className="mt-1 inline-flex items-center gap-1 text-sm text-purple-700">
+            <Syringe className="h-3.5 w-3.5" aria-hidden />
+            Tratamiento: {tratamiento}
+          </p>
+        )}
       </div>
 
       <div className="flex justify-center">

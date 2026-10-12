@@ -5,15 +5,16 @@ const mocks = vi.hoisted(() => ({
   animal: vi.fn(), animals: vi.fn(), createAnimal: vi.fn(), especie: vi.fn(), aggregate: vi.fn(),
   item: vi.fn(), createMany: vi.fn(), lastItem: vi.fn(), pesada: vi.fn(), sanidad: vi.fn(), tacto: vi.fn(),
   producto: vi.fn(), descontar: vi.fn(), preparar: vi.fn(), insertar: vi.fn(), lote: vi.fn(), categoria: vi.fn(),
+  especieCampo: vi.fn(), audit: vi.fn(), lotesProducto: vi.fn(),
 }))
-vi.mock("@/lib/ganado/alta", () => ({ prepararAltas: mocks.preparar, insertarAltas: mocks.insertar }))
+vi.mock("@/lib/ganado/alta", () => ({ prepararAltas: mocks.preparar, insertarAltas: mocks.insertar, especieDelCampo: mocks.especieCampo }))
 vi.mock("@/lib/api/with-auth", () => ({ withAuth: (handler: Function) => (request: unknown) => handler(request, {
   params: { id: "00000000-0000-4000-8000-000000000001" }, establecimientoIds: ["est1", "est2"],
   organizacionDeEstablecimiento: { est1: "org1" },
 }) }))
 vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: mocks.transaction } }))
 vi.mock("@/lib/api/audit-log", () => ({ logAudit: vi.fn() }))
-vi.mock("@/lib/inventario/aplicaciones", async () => ({ consumoSugerido: (await import("@/lib/inventario/consumo")).consumoSugerido, descontarAplicacion: mocks.descontar }))
+vi.mock("@/lib/inventario/aplicaciones", async () => ({ consumoSugerido: (await import("@/lib/inventario/consumo")).consumoSugerido, descontarAplicacion: mocks.descontar, revertirAplicaciones: vi.fn() }))
 import { POST as addItemRoute } from "@/app/api/manga/[id]/items/route"
 import { POST as finalizeRoute } from "@/app/api/manga/[id]/finalizar/route"
 import { POST as importCSVRoute } from "@/app/api/manga/importar-csv/route"
@@ -29,9 +30,12 @@ const tx = {
   sesionManga: { updateMany: mocks.lock, findFirst: mocks.session, update: mocks.update },
   animal: { findFirst: mocks.animal, findMany: mocks.animals, create: mocks.createAnimal }, especie: { findFirst: mocks.especie },
   sesionMangaItem: { aggregate: mocks.aggregate, create: mocks.item, createMany: mocks.createMany, findFirst: mocks.lastItem },
-  evtPesada: { create: mocks.pesada }, evtSanidad: { create: mocks.sanidad }, evtTacto: { create: mocks.tacto },
+  evtPesada: { create: mocks.pesada }, evtSanidad: { createMany: mocks.sanidad }, evtTacto: { create: mocks.tacto },
   producto: { findUnique: mocks.producto }, lote: { findFirst: mocks.lote }, categoria: { findUnique: mocks.categoria },
+  auditLog: { create: mocks.audit }, loteProducto: { findMany: mocks.lotesProducto },
 }
+/** Animales activos del campo (finalizar solo trata a estos) */
+const activos = (...ids: string[]) => mocks.animals.mockResolvedValue(ids.map((id) => ({ id })))
 function request(body: object = {}) {
   return new NextRequest("http://localhost/api/manga/test", { method: "POST", body: JSON.stringify(body) })
 }
@@ -48,6 +52,8 @@ beforeEach(() => {
   mocks.animals.mockResolvedValue([])
   mocks.preparar.mockResolvedValue({ resultados: [{ fila: 1, ok: true, errores: [] }], preparadas: [{ animal: { id: "new-animal" } }] })
   mocks.categoria.mockResolvedValue({ nombre: "Vaquillona" })
+  mocks.especieCampo.mockResolvedValue(null)
+  mocks.lotesProducto.mockResolvedValue([])
 })
 const RAZA = "00000000-0000-4000-8000-000000000011", CAT = "00000000-0000-4000-8000-000000000012", ESP = "00000000-0000-4000-8000-000000000013"
 const alta = { esNuevoRegistro: true, sexo: "F", razaId: RAZA, categoriaId: CAT }
@@ -99,8 +105,44 @@ describe("rutas de manga", () => {
     expect((await r.json()).error).toMatch(/ya está registrado/)
     expect(mocks.insertar).toHaveBeenCalledOnce()
   })
+  it("sin especie elegida, el alta toma la del lote de origen y, si no hay lote, la del campo", async () => {
+    mocks.session.mockResolvedValue({ id, estado: "activa", establecimientoId: "est1", fecha: new Date("2026-10-10"), tipo: "señalada", loteOrigenId: "L1", items: [] })
+    mocks.lote.mockResolvedValue({ id: "L1", especieId: "ovino" })
+    await addItem(request({ eidLeido: "982000123456789", ...alta }))
+    expect(mocks.preparar.mock.calls[0][0][0]).toMatchObject({ especieId: "ovino", loteId: "L1", origen: "cria_propia" })
+    expect(mocks.especieCampo).not.toHaveBeenCalled()
+
+    mocks.session.mockResolvedValue({ id, estado: "activa", establecimientoId: "est1", fecha: new Date("2026-10-10"), tipo: "general", loteOrigenId: null, items: [] })
+    mocks.especieCampo.mockResolvedValue("caprino")
+    await addItem(request({ eidLeido: "982000123456780", ...alta }))
+    expect(mocks.especieCampo).toHaveBeenCalledWith(tx, "est1")
+    expect(mocks.preparar.mock.calls[1][0][0]).toMatchObject({ especieId: "caprino", loteId: undefined })
+  })
+  it("con otra especie elegida, el animal nuevo no entra al lote de origen", async () => {
+    mocks.session.mockResolvedValue({ id, estado: "activa", establecimientoId: "est1", fecha: new Date("2026-10-10"), tipo: "general", loteOrigenId: "L1", items: [] })
+    mocks.lote.mockResolvedValue({ id: "L1", especieId: "ovino" })
+    await addItem(request({ eidLeido: "982000123456789", ...alta, especieId: ESP }))
+    expect(mocks.preparar.mock.calls[0][0][0]).toMatchObject({ especieId: ESP, loteId: undefined })
+  })
+  it("sin sexo el alta falla con un mensaje claro y no guarda nada", async () => {
+    const r = await addItem(request({ eidLeido: "123", esNuevoRegistro: true }))
+    expect(r.status).toBe(400)
+    expect((await r.json()).error).toBe("Para registrar el animal nuevo elegí el sexo, la raza y la categoría")
+    expect(mocks.preparar).not.toHaveBeenCalled()
+  })
+  it("una lectura sin alta no exige sexo ni catálogo", async () => {
+    expect((await addItem(request({ eidLeido: "982000123456789", pesoKg: 300, cc: 7 }))).status).toBe(201)
+    expect(mocks.preparar).not.toHaveBeenCalled()
+    expect(mocks.item).toHaveBeenCalledWith({ data: expect.objectContaining({ animalId: null, cc: 7, esNuevoRegistro: false }) })
+  })
+  it("la condición corporal usa la escala 1 a 9 de Ganado", async () => {
+    expect((await addItem(request({ eidLeido: "123", cc: 10 }))).status).toBe(400)
+    expect((await addItem(request({ eidLeido: "123", cc: 0 }))).status).toBe(400)
+    expect(mocks.transaction).not.toHaveBeenCalled()
+  })
   it("genera eventos al finalizar", async () => {
-    mocks.session.mockResolvedValue({ id, estado: "activa", fecha: new Date(), productoSanidadId: "producto", items: [
+    activos("animal")
+    mocks.session.mockResolvedValue({ id, estado: "activa", establecimientoId: "est1", fecha: new Date(), productoSanidadId: "producto", items: [
       { animalId: "animal", pesoKg: 320, accionSanidad: true, resultadoTacto: "preñada" },
     ] })
     const response = await finalize(request())
@@ -114,26 +156,70 @@ describe("rutas de manga", () => {
     mocks.session.mockResolvedValue({ id, nombre: "Vacunación terneros", estado: "activa", establecimientoId: "est1", fecha: new Date(), productoSanidadId: "producto", dosisSanidad: 2, unidadSanidad: "ml", viaSanidad: "subcutanea", motivoSanidad: "preventivo", carenciaSanidad: 21, items: [
       { animalId: "a1", accionSanidad: true }, { animalId: "a2", accionSanidad: false },
     ] })
+    activos("a1")
     mocks.producto.mockResolvedValue({ unidad: "ml", activo: true, nombre: "Clostridial", organizacionId: "org1" })
-    mocks.descontar.mockResolvedValue({ descontado: 2, faltante: 0, unidad: "ml", ubicacion: null })
+    mocks.descontar.mockResolvedValue({ descontado: 2, faltante: 0, unidad: "ml", ubicacion: null, lotes: [] })
     await finalize(request())
     expect(mocks.sanidad).toHaveBeenCalledOnce()
-    expect(mocks.sanidad.mock.calls[0][0].data).toMatchObject({ animalId: "a1", productoId: "producto", dosis: 2, unidad: "ml", via: "subcutanea", motivo: "preventivo", carenciaDias: 21, operacionId: id })
+    const eventos = mocks.sanidad.mock.calls[0][0].data
+    expect(eventos).toHaveLength(1)
+    expect(eventos[0]).toMatchObject({ animalId: "a1", productoId: "producto", dosis: 2, unidad: "ml", via: "subcutanea", motivo: "preventivo", carenciaDias: 21, operacionId: id, observ: "Manga: Vacunación terneros" })
     expect(mocks.descontar.mock.calls[0][1]).toMatchObject({ cantidad: 2, origenTipo: "manga", origenId: id })
+    // Auditoría en la misma transacción
+    expect(mocks.audit).toHaveBeenCalledWith({ data: expect.objectContaining({ tabla: "evt_sanidad", rowPk: id, organizacionId: "org1" }) })
+  })
+  it("un animal leído dos veces recibe un tratamiento; uno dado de baja no recibe ninguno", async () => {
+    mocks.session.mockResolvedValue({ id, nombre: "Antiparasitario", estado: "activa", establecimientoId: "est1", fecha: new Date(), productoSanidadId: "producto", dosisSanidad: 5, unidadSanidad: "ml", items: [
+      { animalId: "a1", accionSanidad: true }, { animalId: "a1", accionSanidad: true }, { animalId: "baja", accionSanidad: true },
+    ] })
+    activos("a1")
+    mocks.producto.mockResolvedValue({ unidad: "ml", activo: true, nombre: "Ivermectina", organizacionId: "org1" })
+    mocks.descontar.mockResolvedValue({ descontado: 5, faltante: 0, unidad: "ml", ubicacion: null, lotes: [] })
+    const response = await finalize(request())
+    expect(mocks.animals).toHaveBeenCalledWith({ where: { id: { in: ["a1", "baja"] }, establecimientoId: "est1", estadoVital: "activo" }, select: { id: true } })
+    expect(mocks.sanidad.mock.calls[0][0].data.map((e: { animalId: string }) => e.animalId)).toEqual(["a1"])
+    expect(mocks.descontar.mock.calls[0][1]).toMatchObject({ cantidad: 5 })
+    expect((await response.json()).data).toMatchObject({ totalSanidad: 1, sanidadOmitidos: 1 })
+  })
+  it("el costo de lo descontado se reparte entre los animales tratados", async () => {
+    mocks.session.mockResolvedValue({ id, nombre: "Vacunación", estado: "activa", establecimientoId: "est1", fecha: new Date(), productoSanidadId: "producto", dosisSanidad: 2, unidadSanidad: "ml", items: [
+      { animalId: "a1", accionSanidad: true }, { animalId: "a2", accionSanidad: true },
+    ] })
+    activos("a1", "a2")
+    mocks.producto.mockResolvedValue({ unidad: "ml", activo: true, nombre: "Aftosa", organizacionId: "org1", costoReferencia: null, monedaCosto: "ARS" })
+    mocks.descontar.mockResolvedValue({ descontado: 4, faltante: 0, unidad: "ml", ubicacion: null, lotes: [{ loteProductoId: "LP1", cantidad: 4 }] })
+    const { Prisma } = await import("@prisma/client")
+    mocks.lotesProducto.mockResolvedValue([{ id: "LP1", costo: new Prisma.Decimal(150), moneda: "ARS" }])
+    await finalize(request())
+    expect(mocks.sanidad.mock.calls[0][0].data).toEqual([
+      expect.objectContaining({ animalId: "a1", costo: 300, loteProductoId: "LP1" }),
+      expect.objectContaining({ animalId: "a2", costo: 300, loteProductoId: "LP1" }),
+    ])
+  })
+  it("sin animales marcados no registra sanidad ni toca el stock", async () => {
+    mocks.session.mockResolvedValue({ id, estado: "activa", establecimientoId: "est1", fecha: new Date(), productoSanidadId: "producto", dosisSanidad: 2, items: [{ animalId: "a1", accionSanidad: false, pesoKg: 200 }] })
+    const response = await finalize(request())
+    expect(mocks.sanidad).not.toHaveBeenCalled()
+    expect(mocks.descontar).not.toHaveBeenCalled()
+    expect((await response.json()).data).toMatchObject({ totalPesados: 1, totalSanidad: 0 })
   })
   it("descuenta del stock lo aplicado sin trabar el cierre si falta", async () => {
     mocks.session.mockResolvedValue({ id, estado: "activa", establecimientoId: "est1", fecha: new Date(), productoSanidadId: "producto", dosisSanidad: 5, items: [
       { animalId: "a1", accionSanidad: true }, { animalId: "a2", accionSanidad: true },
     ] })
+    activos("a1", "a2")
     mocks.producto.mockResolvedValue({ unidad: "ml", activo: true, nombre: "Ivermectina", organizacionId: "org1" })
-    mocks.descontar.mockResolvedValue({ descontado: 6, faltante: 4, unidad: "ml", ubicacion: null })
+    mocks.descontar.mockResolvedValue({ descontado: 6, faltante: 4, unidad: "ml", ubicacion: null, lotes: [{ loteProductoId: null, cantidad: 6 }] })
     const response = await finalize(request())
     expect(response.status).toBe(200)
     expect(mocks.descontar).toHaveBeenCalledWith(tx, expect.objectContaining({ productoId: "producto", cantidad: 10, origenTipo: "manga", origenId: id }), expect.objectContaining({ estricto: false, establecimientoId: "est1" }))
     expect((await response.json()).data).toMatchObject({ stock: { descontado: 6, faltante: 4 }, avisoStock: expect.stringContaining("Faltó stock") })
+    // Con faltante no se calcula el costo (quedaría subvaluado)
+    expect(mocks.sanidad.mock.calls[0][0].data[0].costo).toBeNull()
   })
   it("un producto del catálogo general no descuenta stock y avisa", async () => {
     mocks.session.mockResolvedValue({ id, estado: "activa", establecimientoId: "est1", fecha: new Date(), productoSanidadId: "producto", dosisSanidad: 5, items: [{ animalId: "a1", accionSanidad: true }] })
+    activos("a1")
     mocks.producto.mockResolvedValue({ unidad: "ml", activo: true, nombre: "Global", organizacionId: null })
     const response = await finalize(request())
     expect(mocks.descontar).not.toHaveBeenCalled()

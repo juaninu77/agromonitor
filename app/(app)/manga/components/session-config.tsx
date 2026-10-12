@@ -17,42 +17,16 @@ import { toast } from "sonner"
 import { hoyArgentina } from "@/lib/inventario/fechas"
 import { esSanitario } from "@/lib/inventario/validation"
 import { usePermissions } from "@/lib/hooks/use-permissions"
+import { useTenant } from "@/lib/context/tenant-context"
 import { ETIQUETA_MOTIVO, ETIQUETA_VIA, MOTIVOS_SANIDAD, VIAS_SANIDAD } from "@/lib/sanidad/validation"
+import {
+  ACCIONES_MANGA, ETIQUETA_UNIDAD_DOSIS, TIPOS_SESION_MANGA, UNIDADES_DOSIS, accionesIniciales, unidadDosisPorDefecto, type UnidadDosis,
+} from "@/lib/hardware/manga-config"
 
 interface SessionConfigProps {
   establecimientoId: string
   onSessionCreated: (session: any) => void
   onCancel: () => void
-}
-
-const TIPOS_SESION = [
-  { value: "pesada_rodeo", label: "Pesada de rodeo" },
-  { value: "vacunacion", label: "Vacunación / Antiparasitario" },
-  { value: "tacto", label: "Tacto" },
-  { value: "destete", label: "Destete" },
-  { value: "señalada", label: "Señalada" },
-  { value: "recepcion", label: "Recepción de hacienda" },
-  { value: "general", label: "Trabajo general" },
-]
-
-const ACCIONES_DISPONIBLES = [
-  { id: "peso", label: "Peso" },
-  { id: "sanidad", label: "Sanidad" },
-  { id: "tacto", label: "Tacto" },
-  { id: "cc", label: "Cond. Corporal" },
-  { id: "denticion", label: "Dentición" },
-  { id: "apartado", label: "Apartado" },
-  { id: "registro", label: "Registro nuevo" },
-]
-
-const PRESELECCION_POR_TIPO: Record<string, string[]> = {
-  pesada_rodeo: ["peso", "cc"],
-  vacunacion: ["sanidad"],
-  tacto: ["tacto", "apartado"],
-  destete: ["peso", "cc", "apartado"],
-  señalada: ["registro"],
-  recepcion: ["peso", "cc", "registro"],
-  general: ["peso", "sanidad", "tacto", "cc", "denticion", "apartado", "registro"],
 }
 
 export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }: SessionConfigProps) {
@@ -68,24 +42,35 @@ export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }:
 
   // Tratamiento de la sesión: lo define quien puede registrar sanidad; en la manga se marca por animal
   const { hasRole } = usePermissions()
+  const { organizacionActiva } = useTenant()
+  const organizacionId = organizacionActiva?.id
   const puedeSanidad = hasRole("admin", "encargado", "vet")
   const [productos, setProductos] = useState<{ id: string; nombre: string; unidad?: string; retiroDias?: number | null }[]>([])
   const [productoId, setProductoId] = useState("")
   const [dosis, setDosis] = useState("")
+  const [unidad, setUnidad] = useState<UnidadDosis>("ml")
   const [via, setVia] = useState("")
   const [motivo, setMotivo] = useState<string>("preventivo")
   const [carencia, setCarencia] = useState("")
   const conSanidad = accionesHabilitadas.includes("sanidad")
   const producto = productos.find((p) => p.id === productoId)
 
+  // Insumos sanitarios activos del Inventario de la organización del campo (como en Sanidad)
   useEffect(() => {
     if (!conSanidad || productos.length) return
     fetch("/api/inventario?limit=500")
       .then((res) => res.json())
-      .then((b) => setProductos(((b.data ?? []) as { id: string; nombre: string; tipo: string; activo?: boolean; unidad?: string; retiroDias?: number | null }[])
-        .filter((p) => p.activo !== false && esSanitario(p.tipo))))
+      .then((b) => setProductos(((b.data ?? []) as { id: string; nombre: string; tipo: string; activo?: boolean; organizacionId?: string | null; unidad?: string; retiroDias?: number | null }[])
+        .filter((p) => p.activo !== false && esSanitario(p.tipo) && (!organizacionId || p.organizacionId === organizacionId))))
       .catch(() => setProductos([]))
-  }, [conSanidad, productos.length])
+  }, [conSanidad, productos.length, organizacionId])
+
+  function elegirProducto(id: string) {
+    setProductoId(id)
+    const p = productos.find((x) => x.id === id)
+    setUnidad(unidadDosisPorDefecto(p?.unidad))
+    if (p?.retiroDias != null && carencia === "") setCarencia(String(p.retiroDias))
+  }
 
   useEffect(() => {
     if (!establecimientoId) return
@@ -101,10 +86,8 @@ export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }:
   }, [establecimientoId])
 
   useEffect(() => {
-    if (tipo && PRESELECCION_POR_TIPO[tipo]) {
-      // Sin permiso de sanidad no se preselecciona (la sesión no podría definir el producto)
-      setAccionesHabilitadas(PRESELECCION_POR_TIPO[tipo].filter((a) => a !== "sanidad" || puedeSanidad))
-    }
+    // Sin permiso de sanidad no se preselecciona (la sesión no podría definir el producto)
+    if (tipo) setAccionesHabilitadas(accionesIniciales(tipo, puedeSanidad))
   }, [tipo, puedeSanidad])
 
   function toggleAccion(accionId: string) {
@@ -132,6 +115,11 @@ export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }:
       toast.error("Elegí el producto del tratamiento", { description: "Sin producto, «Aplicar tratamiento» no registraría nada en Sanidad." })
       return
     }
+    const dosisNum = dosis ? Number(dosis.replace(",", ".")) : null
+    if (conSanidad && dosisNum != null && !(dosisNum > 0)) {
+      toast.error("La dosis debe ser mayor a 0")
+      return
+    }
 
     setSaving(true)
     try {
@@ -148,8 +136,8 @@ export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }:
           ...(conSanidad
             ? {
                 productoSanidadId: productoId,
-                dosisSanidad: dosis ? Number(dosis.replace(",", ".")) : null,
-                unidadSanidad: "ml",
+                dosisSanidad: dosisNum,
+                unidadSanidad: unidad,
                 viaSanidad: via || null,
                 motivoSanidad: motivo || null,
                 carenciaSanidad: carencia !== "" ? Number(carencia) : null,
@@ -194,7 +182,7 @@ export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }:
             <SelectValue placeholder="Seleccioná el tipo" />
           </SelectTrigger>
           <SelectContent>
-            {TIPOS_SESION.map((t) => (
+            {TIPOS_SESION_MANGA.map((t) => (
               <SelectItem key={t.value} value={t.value}>
                 {t.label}
               </SelectItem>
@@ -240,7 +228,7 @@ export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }:
       <div className="grid gap-3">
         <Label>Acciones habilitadas *</Label>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {ACCIONES_DISPONIBLES.map((accion) => (
+          {ACCIONES_MANGA.map((accion) => (
             <label
               key={accion.id}
               className="flex items-center gap-2.5 p-3 rounded-lg border-2 cursor-pointer transition-colors hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5"
@@ -263,18 +251,25 @@ export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }:
       {conSanidad && puedeSanidad && (
         <div className="grid gap-3 rounded-lg border p-3">
           <p className="text-sm font-semibold">Tratamiento de la sesión</p>
-          <p className="text-xs text-muted-foreground">Se aplica a cada animal que marques con «Aplicar tratamiento». Al finalizar queda registrado en Sanidad y se descuenta del stock.</p>
+          <p className="text-xs text-muted-foreground">Se aplica a cada animal que marques con «Aplicar tratamiento». Al finalizar queda registrado en Sanidad (un tratamiento por animal) y se descuenta del stock; si falta, se descuenta lo que hay y se avisa.</p>
           <div className="grid gap-2">
             <Label>Producto *</Label>
-            <Select value={productoId} onValueChange={(v) => { setProductoId(v); const p = productos.find((x) => x.id === v); if (p?.retiroDias != null && carencia === "") setCarencia(String(p.retiroDias)) }}>
-              <SelectTrigger className="h-11" aria-label="Producto del tratamiento"><SelectValue placeholder={productos.length ? "Elegí el producto" : "Sin productos sanitarios en Inventario"} /></SelectTrigger>
+            <Select value={productoId} onValueChange={elegirProducto}>
+              <SelectTrigger className="h-11" aria-label="Producto del tratamiento"><SelectValue placeholder={productos.length ? "Elegí el producto" : "Sin insumos sanitarios en Inventario"} /></SelectTrigger>
               <SelectContent>{productos.map((p) => <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <div className="grid gap-2">
-              <Label htmlFor="ses-dosis">Dosis por animal (ml)</Label>
+              <Label htmlFor="ses-dosis">Dosis por animal</Label>
               <Input id="ses-dosis" type="number" min="0" step="0.1" inputMode="decimal" value={dosis} onChange={(e) => setDosis(e.target.value)} className="h-11" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Unidad</Label>
+              <Select value={unidad} onValueChange={(v) => setUnidad(v as UnidadDosis)}>
+                <SelectTrigger className="h-11" aria-label="Unidad de la dosis"><SelectValue /></SelectTrigger>
+                <SelectContent>{UNIDADES_DOSIS.map((u) => <SelectItem key={u} value={u}>{ETIQUETA_UNIDAD_DOSIS[u]}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
             <div className="grid gap-2">
               <Label>Vía</Label>

@@ -5,6 +5,7 @@ import { scopeEstablecimiento } from "@/lib/api/tenant"
 import { logAudit } from "@/lib/api/audit-log"
 import { prisma } from "@/lib/prisma"
 import { MangaSessionError, withMangaSession } from "@/lib/api/manga-session"
+import { especieDelCampo } from "@/lib/ganado/alta"
 
 const actualizarSesionSchema = z.object({
   nombre: z.string().min(1).optional(),
@@ -41,7 +42,10 @@ export const GET = withAuth(async (request, ctx) => {
       )
     }
 
-    return NextResponse.json({ success: true, data: sesion })
+    // Especie por defecto del alta de EID nuevos cuando no hay lote de origen (queda en el dispositivo)
+    const especieCampo = sesion.estado === "finalizada" ? null : await especieDelCampo(prisma, sesion.establecimientoId)
+
+    return NextResponse.json({ success: true, data: { ...sesion, especieCampo } })
   } catch (error) {
     console.error("Error al obtener sesión de manga:", error)
     return NextResponse.json(

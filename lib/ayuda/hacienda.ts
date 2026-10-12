@@ -165,13 +165,14 @@ export const MANGA: SeccionAyuda = {
       titulo: "Empezar una sesión de manga",
       pasos: [
         "Tocá «Nueva Sesión».",
-        "Poné un nombre (por ejemplo «Pesada terneros lote 3») y elegí el «Tipo de trabajo»: Pesada de rodeo, Vacunación, Antiparasitario, Tacto, Destete, Señalada, Recepción de hacienda o Trabajo general.",
+        "Poné un nombre (por ejemplo «Pesada terneros lote 3») y elegí el «Tipo de trabajo»: Pesada de rodeo, Vacunación / Antiparasitario, Tacto, Destete, Señalada, Recepción de hacienda o Trabajo general.",
         "Revisá las «Acciones habilitadas» (Peso, Sanidad, Tacto, Cond. Corporal, Dentición, Apartado, Registro nuevo): se marcan solas según el tipo y las podés cambiar.",
-        "Si habilitás «Sanidad», completá el «Tratamiento de la sesión»: producto (de Inventario), dosis por animal, vía, motivo y carencia. Lo define un administrador, encargado o veterinario.",
-        "Opcional: elegí el «Lote de origen» (los animales nuevos que registres entran a ese lote).",
+        "Si habilitás «Sanidad», completá el «Tratamiento de la sesión»: «Producto» (los insumos sanitarios del Inventario de la organización), «Dosis por animal», «Unidad» (ml, cc o comprimidos), «Vía», «Motivo» y «Carencia (días)» (se completa sola con el retiro del producto). Lo define un administrador, encargado o veterinario; sin producto la sesión no se puede iniciar.",
+        "Opcional: elegí el «Lote de origen» (los animales nuevos que registres entran a ese lote si es de la misma especie).",
         "Tocá «Iniciar Sesión».",
       ],
       notas: [
+        "Acciones que se marcan según el tipo: Pesada de rodeo → Peso y Cond. Corporal; Vacunación → Sanidad; Tacto → Tacto y Apartado; Destete → Peso, Cond. Corporal y Apartado; Señalada → Registro nuevo; Recepción → Peso, Cond. Corporal y Registro nuevo; Trabajo general → todas.",
         "Hacé la sesión con señal: al abrirla, el rodeo del campo se guarda en el dispositivo («Caché: N») para poder buscar sin conexión.",
         "Si ya hay una sesión abierta en el campo, la pantalla entra directo a esa sesión.",
       ],
@@ -193,7 +194,7 @@ export const MANGA: SeccionAyuda = {
       id: "pasar-animales",
       titulo: "Pasar los animales",
       pasos: [
-        "Leé la caravana con el bastón (o escribí el EID y tocá «Buscar»).",
+        "Leé la caravana con el bastón (o escribí el EID y tocá «Buscar»). Si la sesión tiene tratamiento, la barra superior muestra el producto, la dosis y la vía.",
         "Revisá la tarjeta del animal: caravana, categoría, raza, edad y último peso. Si aparece el recuadro rojo de retiro, no lo apartes para faena.",
         "Completá lo que corresponda: «Peso (kg)», «Condición Corporal» (1 a 9), «Aplicar tratamiento», «Resultado del tacto» (y «Meses de gestación» si está preñada), «Dentición» o «Apartado».",
         "Tocá «Confirmar y Siguiente». La lista «Animales procesados» muestra lo cargado.",
@@ -202,8 +203,23 @@ export const MANGA: SeccionAyuda = {
         "Un pitido agudo confirma una lectura válida; un pitido grave y vibración indican un EID inválido.",
         "Si el mismo EID se lee dos veces en 3 segundos, la segunda lectura se ignora.",
         "Solo se puede tactar a una hembra.",
-        "En una sesión de vacunación, «Aplicar tratamiento» viene marcado para cada animal.",
-        "Un EID que no está en el rodeo aparece como «No registrado». Con «Registro nuevo» habilitado, tocá «Registrar», elegí sexo, raza y categoría (y la caravana visual): se da de alta en Ganado con ese EID. Sin «Registro nuevo», la lectura queda en la sesión pero no se registra en ningún animal.",
+        "En una sesión de vacunación, «Aplicar tratamiento» viene marcado para cada animal; desmarcalo en el que no lo recibe.",
+        "La condición corporal va de 1 a 9, la misma escala que en Ganado.",
+      ],
+    },
+    {
+      id: "registrar-eid",
+      titulo: "Dar de alta un EID nuevo en la manga",
+      pasos: [
+        "Si el EID no está en el rodeo aparece la tarjeta amarilla «No registrado». Tocá «Registrar» (aunque la sesión no tenga «Registro nuevo»).",
+        "En «Registro de animal nuevo» elegí «Sexo», «Raza» y «Categoría» (las categorías se filtran por sexo) y, si querés, la «Caravana visual». La especie se toma del lote de origen de la sesión o, si no hay, de la de los animales del campo; si el catálogo tiene varias especies aparece «Especie» para cambiarla.",
+        "Completá el resto (peso, tratamiento…) y tocá «Confirmar y Siguiente».",
+      ],
+      notas: [
+        "El animal se da de alta en Ganado con ese EID, la raza y la categoría elegidas, y entra al lote de origen si es de la misma especie. En una Recepción queda con origen «compra».",
+        "Si falta el sexo, la raza o la categoría, la app te dice cuál falta y no guarda nada.",
+        "Si no tocás «Registrar», la lectura queda en la sesión pero no se registra en ningún animal.",
+        "Sin señal también funciona: el catálogo queda guardado en el dispositivo y el alta se envía al volver la conexión.",
       ],
     },
     {
@@ -220,12 +236,14 @@ export const MANGA: SeccionAyuda = {
       titulo: "Finalizar la sesión",
       pasos: [
         "Tocá «Finalizar» y después «Confirmar».",
-        "La app crea, para cada animal identificado, la pesada (con su condición corporal), el tacto (con la fecha probable de parto si está preñada y cargaste los meses) y el tratamiento en Sanidad si lo marcaste, y descuenta el producto del stock (si falta, descuenta lo que hay y avisa).",
+        "La app crea, para cada animal identificado, la pesada (con su condición corporal), el tacto (con la fecha probable de parto si está preñada y cargaste los meses) y, si marcaste «Aplicar tratamiento», un tratamiento en Sanidad con el producto, la dosis, la vía y la carencia de la sesión. Un animal leído dos veces recibe un solo tratamiento.",
+        "El producto se descuenta del stock por el total aplicado (si falta, descuenta lo que hay y avisa el faltante; si la unidad de la dosis no coincide con la del producto, avisa para registrar la salida en Inventario).",
         "Se abre el «Resumen de Sesión» con los totales y el detalle. Tocá «Exportar PDF» para guardarlo.",
       ],
       notas: [
         "Las sesiones anteriores quedan en la pestaña «Historial».",
-        "Los tratamientos de la sesión aparecen en Sanidad como una aplicación masiva: si se anula uno, se anulan todos los de la sesión y el producto vuelve al stock.",
+        "Los tratamientos de la sesión aparecen en Sanidad como una aplicación masiva, con su costo si el stock tenía costo: si se anula uno, se anulan todos los de la sesión y el producto vuelve al stock.",
+        "A un animal marcado que se dio de baja antes de finalizar no se le registra el tratamiento (la app avisa cuántos quedaron afuera).",
       ],
     },
     {

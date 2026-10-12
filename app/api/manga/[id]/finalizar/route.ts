@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { withAuth } from "@/lib/api/with-auth"
 import { scopeEstablecimiento } from "@/lib/api/tenant"
 import { MangaSessionError, withMangaSession } from "@/lib/api/manga-session"
-import { consumoSugerido, descontarAplicacion } from "@/lib/inventario/aplicaciones"
+import { registrarSanidadManga } from "@/lib/sanidad/service"
 import { RESULTADOS_TACTO, calcularParto } from "@/lib/reproduccion/validation"
 
 export const POST = withAuth(async (request, ctx) => {
@@ -31,7 +31,6 @@ export const POST = withAuth(async (request, ctx) => {
 
       const ahora = new Date()
       let totalPesados = 0
-      let totalSanidad = 0
       let totalTactos = 0
       let totalNuevos = 0
 
@@ -57,26 +56,6 @@ export const POST = withAuth(async (request, ctx) => {
           totalPesados++
         }
 
-        if (item.accionSanidad && sesion.productoSanidadId) {
-          // Un tratamiento por animal; comparten operacionId (= la sesión) como una aplicación masiva:
-          // anular uno desde Sanidad anula los de toda la sesión y devuelve el stock descontado
-          await tx.evtSanidad.create({
-            data: {
-              fecha: sesion.fecha,
-              dosis: sesion.dosisSanidad ?? null,
-              unidad: sesion.unidadSanidad ?? null,
-              via: sesion.viaSanidad ?? null,
-              motivo: sesion.motivoSanidad ?? null,
-              carenciaDias: sesion.carenciaSanidad ?? null,
-              observ: `Manga: ${sesion.nombre}`.slice(0, 1000),
-              animalId: item.animalId,
-              productoId: sesion.productoSanidadId,
-              operacionId: sesion.id,
-            },
-          })
-          totalSanidad++
-        }
-
         // Solo resultados válidos (un valor viejo inválido no debe deshacer toda la sesión)
         if (item.resultadoTacto && (RESULTADOS_TACTO as readonly string[]).includes(item.resultadoTacto)) {
           const prenada = item.resultadoTacto === "preñada"
@@ -99,25 +78,16 @@ export const POST = withAuth(async (request, ctx) => {
         }
       }
 
-      // Lo aplicado sale del inventario. La sesión no se traba por stock: si no alcanza se
-      // descuenta lo que hay y se informa el faltante; si la unidad no permite calcularlo, se avisa.
-      let stock: { descontado: number; faltante: number; unidad: string; ubicacion: string | null } | null = null
-      let avisoStock: string | null = null
-      if (totalSanidad > 0 && sesion.productoSanidadId) {
-        const producto = await tx.producto.findUnique({ where: { id: sesion.productoSanidadId }, select: { unidad: true, activo: true, nombre: true, organizacionId: true } })
-        // Los productos del catálogo general no tienen stock
-        const consumo = producto?.activo && producto.organizacionId ? consumoSugerido(producto.unidad, sesion.dosisSanidad, sesion.unidadSanidad, totalSanidad) : null
-        if (consumo == null) {
-          avisoStock = `No se descontó stock de ${producto?.nombre ?? "el producto"}: registrá la salida en Inventario.`
-        } else {
-          stock = await descontarAplicacion(tx, {
-            productoId: sesion.productoSanidadId, cantidad: consumo, fecha: ahora,
-            motivo: `Manga ${sesion.fecha.toISOString().slice(0, 10)} · ${totalSanidad} animales`,
-            origenTipo: "manga", origenId: sesion.id,
-          }, { establecimientoIds: ctx.establecimientoIds, establecimientoId: sesion.establecimientoId, estricto: false })
-          if (stock.faltante > 0) avisoStock = `Faltó stock: se descontaron ${stock.descontado.toLocaleString("es-AR")} de ${consumo.toLocaleString("es-AR")} ${stock.unidad}. Registrá la entrada o un ajuste en Inventario.`
-        }
-      }
+      // Tratamiento de la sesión: por el camino de Sanidad (un evento por animal marcado y activo,
+      // agrupados por la sesión; el stock se descuenta sin trabar el cierre y se informa el faltante)
+      const marcados = sesion.items.filter((i) => i.accionSanidad && i.animalId).map((i) => i.animalId as string)
+      const sanidad = sesion.productoSanidadId && marcados.length
+        ? await registrarSanidadManga(tx, ctx, { ...sesion, productoSanidadId: sesion.productoSanidadId }, marcados)
+        : null
+      const totalSanidad = sanidad?.cantidad ?? 0
+      const stock = sanidad?.stock ?? null
+      const avisoStock = sanidad?.avisoStock ?? null
+      const sanidadOmitidos = sanidad?.omitidos ?? 0
 
       const resultado = {
         totalProcesados: sesion.items.length,
@@ -125,6 +95,7 @@ export const POST = withAuth(async (request, ctx) => {
         totalSanidad,
         totalTactos,
         totalNuevos,
+        sanidadOmitidos,
         stock,
         avisoStock,
       }

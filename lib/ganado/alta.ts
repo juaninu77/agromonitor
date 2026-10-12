@@ -301,6 +301,21 @@ export async function prepararAltas(
   return { resultados, preparadas }
 }
 
+/**
+ * Especie del campo: la de la mayoría de sus animales activos (null si no tiene). La usa
+ * la manga para dar de alta un EID nuevo cuando la sesión no tiene lote de origen.
+ */
+export async function especieDelCampo(db: Prisma.TransactionClient | typeof prisma, establecimientoId: string): Promise<string | null> {
+  const [mayoria] = await db.animal.groupBy({
+    by: ["especieId"],
+    where: { establecimientoId, estadoVital: "activo" },
+    _count: { _all: true },
+    orderBy: { _count: { especieId: "desc" } },
+    take: 1,
+  })
+  return mayoria?.especieId ?? null
+}
+
 // ============================================================
 // Ejecución (todo o nada)
 // ============================================================

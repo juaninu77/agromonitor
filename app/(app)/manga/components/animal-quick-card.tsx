@@ -31,9 +31,9 @@ export function AnimalQuickCard({ animal, eid, isNew, onRegister }: AnimalQuickC
     return (
       <Card className="border-2 border-yellow-300 bg-yellow-50">
         <CardContent className="p-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="h-12 w-12 rounded-full bg-yellow-200 flex items-center justify-center">
+              <div className="h-12 w-12 shrink-0 rounded-full bg-yellow-200 flex items-center justify-center">
                 <AlertTriangle className="h-6 w-6 text-yellow-700" />
               </div>
               <div>
@@ -44,7 +44,7 @@ export function AnimalQuickCard({ animal, eid, isNew, onRegister }: AnimalQuickC
                   </Badge>
                 </div>
                 <p className="text-sm text-yellow-700">
-                  Este EID no se encontró en la base de datos
+                  Este EID no está en el rodeo del campo.{onRegister ? " Tocá «Registrar» para darlo de alta en Ganado." : ""}
                 </p>
               </div>
             </div>

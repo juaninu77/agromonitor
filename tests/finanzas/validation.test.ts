@@ -72,3 +72,12 @@ describe("campos vacíos", () => {
     expect(cuentaSchema.parse({ establecimientoId: est, nombre: "Caja", tipo: "caja", saldoInicial: "" }).saldoInicial).toBe("0")
   })
 })
+
+describe("etiquetas de medio de pago", () => {
+  it("son propias de los medios de pago, no las de tipos de cuenta o de movimiento", async () => {
+    const { ETIQUETA_MEDIO_PAGO, MEDIOS_PAGO, etiquetaMedioPago } = await import("@/lib/finanzas/constantes")
+    expect(MEDIOS_PAGO.map(etiquetaMedioPago)).toEqual(["Efectivo", "Transferencia", "Cheque", "eCheq", "Tarjeta", "Débito automático", "Otro"])
+    expect(Object.keys(ETIQUETA_MEDIO_PAGO).sort()).toEqual([...MEDIOS_PAGO].sort())
+    expect(etiquetaMedioPago(null)).toBe("")
+  })
+})

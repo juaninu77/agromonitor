@@ -14,6 +14,10 @@ import {
 } from "@/components/ui/select"
 import { Loader2, Play } from "lucide-react"
 import { toast } from "sonner"
+import { hoyArgentina } from "@/lib/inventario/fechas"
+import { esSanitario } from "@/lib/inventario/validation"
+import { usePermissions } from "@/lib/hooks/use-permissions"
+import { ETIQUETA_MOTIVO, ETIQUETA_VIA, MOTIVOS_SANIDAD, VIAS_SANIDAD } from "@/lib/sanidad/validation"
 
 interface SessionConfigProps {
   establecimientoId: string
@@ -45,22 +49,43 @@ const PRESELECCION_POR_TIPO: Record<string, string[]> = {
   pesada_rodeo: ["peso", "cc"],
   vacunacion: ["sanidad"],
   tacto: ["tacto", "apartado"],
-  destete: ["peso", "registro"],
+  destete: ["peso", "cc", "apartado"],
   señalada: ["registro"],
-  recepcion: ["peso", "registro", "sanidad"],
+  recepcion: ["peso", "cc", "registro"],
   general: ["peso", "sanidad", "tacto", "cc", "denticion", "apartado", "registro"],
 }
 
 export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }: SessionConfigProps) {
   const [nombre, setNombre] = useState("")
   const [tipo, setTipo] = useState("")
-  const [fecha, setFecha] = useState(new Date().toISOString().split("T")[0])
+  const [fecha, setFecha] = useState(hoyArgentina())
   const [loteOrigenId, setLoteOrigenId] = useState("")
   const [accionesHabilitadas, setAccionesHabilitadas] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
 
   const [lotes, setLotes] = useState<{ id: string; nombre: string; tipo?: string }[]>([])
   const [loadingLotes, setLoadingLotes] = useState(false)
+
+  // Tratamiento de la sesión: lo define quien puede registrar sanidad; en la manga se marca por animal
+  const { hasRole } = usePermissions()
+  const puedeSanidad = hasRole("admin", "encargado", "vet")
+  const [productos, setProductos] = useState<{ id: string; nombre: string; unidad?: string; retiroDias?: number | null }[]>([])
+  const [productoId, setProductoId] = useState("")
+  const [dosis, setDosis] = useState("")
+  const [via, setVia] = useState("")
+  const [motivo, setMotivo] = useState<string>("preventivo")
+  const [carencia, setCarencia] = useState("")
+  const conSanidad = accionesHabilitadas.includes("sanidad")
+  const producto = productos.find((p) => p.id === productoId)
+
+  useEffect(() => {
+    if (!conSanidad || productos.length) return
+    fetch("/api/inventario?limit=500")
+      .then((res) => res.json())
+      .then((b) => setProductos(((b.data ?? []) as { id: string; nombre: string; tipo: string; activo?: boolean; unidad?: string; retiroDias?: number | null }[])
+        .filter((p) => p.activo !== false && esSanitario(p.tipo))))
+      .catch(() => setProductos([]))
+  }, [conSanidad, productos.length])
 
   useEffect(() => {
     if (!establecimientoId) return
@@ -77,9 +102,10 @@ export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }:
 
   useEffect(() => {
     if (tipo && PRESELECCION_POR_TIPO[tipo]) {
-      setAccionesHabilitadas(PRESELECCION_POR_TIPO[tipo])
+      // Sin permiso de sanidad no se preselecciona (la sesión no podría definir el producto)
+      setAccionesHabilitadas(PRESELECCION_POR_TIPO[tipo].filter((a) => a !== "sanidad" || puedeSanidad))
     }
-  }, [tipo])
+  }, [tipo, puedeSanidad])
 
   function toggleAccion(accionId: string) {
     setAccionesHabilitadas((prev) =>
@@ -102,6 +128,10 @@ export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }:
       toast.error("Seleccioná al menos una acción")
       return
     }
+    if (conSanidad && !productoId) {
+      toast.error("Elegí el producto del tratamiento", { description: "Sin producto, «Aplicar tratamiento» no registraría nada en Sanidad." })
+      return
+    }
 
     setSaving(true)
     try {
@@ -115,6 +145,16 @@ export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }:
           establecimientoId,
           loteOrigenId: loteOrigenId || null,
           accionesHabilitadas,
+          ...(conSanidad
+            ? {
+                productoSanidadId: productoId,
+                dosisSanidad: dosis ? Number(dosis.replace(",", ".")) : null,
+                unidadSanidad: "ml",
+                viaSanidad: via || null,
+                motivoSanidad: motivo || null,
+                carenciaSanidad: carencia !== "" ? Number(carencia) : null,
+              }
+            : {}),
         }),
       })
 
@@ -169,6 +209,7 @@ export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }:
           <Input
             id="ses-fecha"
             type="date"
+            max={hoyArgentina()}
             value={fecha}
             onChange={(e) => setFecha(e.target.value)}
             className="h-11"
@@ -206,6 +247,7 @@ export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }:
             >
               <Checkbox
                 checked={accionesHabilitadas.includes(accion.id)}
+                disabled={accion.id === "sanidad" && !puedeSanidad}
                 onCheckedChange={() => toggleAccion(accion.id)}
               />
               <span className="text-sm font-medium select-none">{accion.label}</span>
@@ -213,6 +255,48 @@ export function SessionConfig({ establecimientoId, onSessionCreated, onCancel }:
           ))}
         </div>
       </div>
+
+      {!puedeSanidad && (
+        <p className="text-xs text-muted-foreground">La sanidad la configura un administrador, encargado o veterinario (define el producto y la dosis de la sesión).</p>
+      )}
+
+      {conSanidad && puedeSanidad && (
+        <div className="grid gap-3 rounded-lg border p-3">
+          <p className="text-sm font-semibold">Tratamiento de la sesión</p>
+          <p className="text-xs text-muted-foreground">Se aplica a cada animal que marques con «Aplicar tratamiento». Al finalizar queda registrado en Sanidad y se descuenta del stock.</p>
+          <div className="grid gap-2">
+            <Label>Producto *</Label>
+            <Select value={productoId} onValueChange={(v) => { setProductoId(v); const p = productos.find((x) => x.id === v); if (p?.retiroDias != null && carencia === "") setCarencia(String(p.retiroDias)) }}>
+              <SelectTrigger className="h-11" aria-label="Producto del tratamiento"><SelectValue placeholder={productos.length ? "Elegí el producto" : "Sin productos sanitarios en Inventario"} /></SelectTrigger>
+              <SelectContent>{productos.map((p) => <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid gap-2">
+              <Label htmlFor="ses-dosis">Dosis por animal (ml)</Label>
+              <Input id="ses-dosis" type="number" min="0" step="0.1" inputMode="decimal" value={dosis} onChange={(e) => setDosis(e.target.value)} className="h-11" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Vía</Label>
+              <Select value={via} onValueChange={setVia}>
+                <SelectTrigger className="h-11" aria-label="Vía"><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>{VIAS_SANIDAD.map((v) => <SelectItem key={v} value={v}>{ETIQUETA_VIA[v]}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Motivo</Label>
+              <Select value={motivo} onValueChange={setMotivo}>
+                <SelectTrigger className="h-11" aria-label="Motivo"><SelectValue /></SelectTrigger>
+                <SelectContent>{MOTIVOS_SANIDAD.map((m) => <SelectItem key={m} value={m}>{ETIQUETA_MOTIVO[m]}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="ses-carencia">Carencia (días)</Label>
+              <Input id="ses-carencia" type="number" min="0" value={carencia} onChange={(e) => setCarencia(e.target.value)} className="h-11" placeholder={producto?.retiroDias != null ? String(producto.retiroDias) : ""} />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex justify-end gap-3 pt-2">
         <Button variant="outline" onClick={onCancel} className="h-11">

@@ -77,6 +77,18 @@ export const POST = withAuth(async (request, ctx) => {
       )
     }
 
+    // Fechas: el vencimiento es obligatorio y no puede ser anterior a la emisión
+    const esDia = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v))
+    if (!esDia(body.fechaVencimiento)) {
+      return NextResponse.json({ error: "Indicá la fecha de vencimiento del documento" }, { status: 400 })
+    }
+    if (body.fechaEmision && !esDia(body.fechaEmision)) {
+      return NextResponse.json({ error: "La fecha de emisión no es válida" }, { status: 400 })
+    }
+    if (body.fechaEmision && body.fechaVencimiento < body.fechaEmision) {
+      return NextResponse.json({ error: "El vencimiento no puede ser anterior a la emisión" }, { status: 400 })
+    }
+
     const motivosValidos = ["venta", "faena", "invernada", "cambio_campo"]
     if (body.motivo && !motivosValidos.includes(body.motivo)) {
       return NextResponse.json(

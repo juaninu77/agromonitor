@@ -3,6 +3,9 @@ import { z } from "zod"
 import { withAuth } from "@/lib/api/with-auth"
 import { loteDelTenant } from "@/lib/api/tenant"
 import { prisma } from "@/lib/prisma"
+import { esSanitario } from "@/lib/inventario/validation"
+import { MOTIVOS_SANIDAD, VIAS_SANIDAD } from "@/lib/sanidad/validation"
+import { hoyArgentina } from "@/lib/inventario/fechas"
 
 const crearSesionSchema = z.object({
   nombre: z.string().min(1, "El nombre es requerido"),
@@ -15,9 +18,16 @@ const crearSesionSchema = z.object({
   establecimientoId: z.string().uuid("ID de establecimiento inválido"),
   loteOrigenId: z.string().uuid("ID de lote inválido").optional().nullable(),
   productoSanidadId: z.string().uuid("ID de producto inválido").optional().nullable(),
-  dosisSanidad: z.number().positive("La dosis debe ser mayor a 0").optional().nullable(),
+  dosisSanidad: z.number().positive("La dosis debe ser mayor a 0").max(100_000).optional().nullable(),
+  unidadSanidad: z.enum(["ml", "cc", "comprimido"]).optional().nullable(),
+  viaSanidad: z.enum(VIAS_SANIDAD, { errorMap: () => ({ message: "Vía inválida" }) }).optional().nullable(),
+  motivoSanidad: z.enum(MOTIVOS_SANIDAD, { errorMap: () => ({ message: "Motivo inválido" }) }).optional().nullable(),
+  carenciaSanidad: z.number().int().min(0, "La carencia no puede ser negativa").max(3650).optional().nullable(),
   observaciones: z.string().optional().nullable(),
 })
+  .refine((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d.fecha) || d.fecha <= hoyArgentina(), { message: "La fecha no puede ser futura", path: ["fecha"] })
+  // La sanidad de la sesión necesita el producto: sin él, «Aplicar tratamiento» no registraría nada
+  .refine((d) => !d.accionesHabilitadas.includes("sanidad") || !!d.productoSanidadId, { message: "Elegí el producto del tratamiento", path: ["productoSanidadId"] })
 
 export const GET = withAuth(async (request, ctx) => {
   try {
@@ -78,7 +88,7 @@ export const POST = withAuth(async (request, ctx) => {
       return NextResponse.json(
         {
           success: false,
-          error: "Datos inválidos",
+          error: parsed.error.issues[0]?.message ?? "Datos inválidos",
           details: parsed.error.flatten().fieldErrors,
         },
         { status: 400 }
@@ -94,6 +104,10 @@ export const POST = withAuth(async (request, ctx) => {
       loteOrigenId,
       productoSanidadId,
       dosisSanidad,
+      unidadSanidad,
+      viaSanidad,
+      motivoSanidad,
+      carenciaSanidad,
       observaciones,
     } = parsed.data
 
@@ -115,13 +129,22 @@ export const POST = withAuth(async (request, ctx) => {
     }
 
     if (productoSanidadId) {
+      // El tratamiento lo define quien puede registrar sanidad en ese campo (lo aplica cualquiera en la manga)
+      if (!ctx.establecimientoIdsConRol(["admin", "encargado", "vet"]).includes(establecimientoId)) {
+        return NextResponse.json(
+          { error: "Solo un administrador, encargado o veterinario del campo puede definir el tratamiento de la sesión" },
+          { status: 403 }
+        )
+      }
       const organizacionSesion = ctx.organizacionDeEstablecimiento[establecimientoId]
+      // Producto de la organización o del catálogo general (este no descuenta stock)
       const producto = organizacionSesion
         ? await prisma.producto.findFirst({
-            where: { id: productoSanidadId, organizacionId: organizacionSesion },
+            where: { id: productoSanidadId, activo: true, OR: [{ organizacionId: organizacionSesion }, { organizacionId: null }] },
+            select: { tipo: true },
           })
         : null
-      if (!producto) {
+      if (!producto || !esSanitario(producto.tipo)) {
         return NextResponse.json(
           { error: "Producto sanitario no encontrado" },
           { status: 404 }
@@ -139,7 +162,11 @@ export const POST = withAuth(async (request, ctx) => {
         operadorId: ctx.userId,
         loteOrigenId: loteOrigenId ?? null,
         productoSanidadId: productoSanidadId ?? null,
-        dosisSanidad: dosisSanidad ?? null,
+        dosisSanidad: productoSanidadId ? dosisSanidad ?? null : null,
+        unidadSanidad: productoSanidadId ? unidadSanidad ?? "ml" : null,
+        viaSanidad: productoSanidadId ? viaSanidad ?? null : null,
+        motivoSanidad: productoSanidadId ? motivoSanidad ?? "preventivo" : null,
+        carenciaSanidad: productoSanidadId ? carenciaSanidad ?? null : null,
         observaciones: observaciones ?? null,
       },
       include: {

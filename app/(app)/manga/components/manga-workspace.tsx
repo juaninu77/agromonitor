@@ -466,6 +466,7 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
               animal={currentAnimal}
               eid={currentEid}
               isNew={isAnimalNew}
+              onRegister={accionesHabilitadas.includes("registro") ? () => document.getElementById("manga-registro")?.scrollIntoView({ behavior: "smooth", block: "start" }) : undefined}
             />
           )}
 
@@ -529,6 +530,11 @@ export function MangaWorkspace({ session, onFinalize, onRefresh }: MangaWorkspac
             currentAnimal={currentAnimal}
             onItemSaved={handleItemSaved}
             productoSanidadId={session.productoSanidadId}
+            establecimientoId={establecimientoId}
+            tipoSesion={session.tipo}
+            productoSanidadNombre={session.productoSanidad?.nombre ?? null}
+            dosisSanidad={session.dosisSanidad ?? null}
+            especieLoteOrigen={session.loteOrigen?.especieId ?? null}
           />
           <CsvUpload sessionId={session.id} onImportComplete={onRefresh} />
         </div>

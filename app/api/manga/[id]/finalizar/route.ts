@@ -58,12 +58,20 @@ export const POST = withAuth(async (request, ctx) => {
         }
 
         if (item.accionSanidad && sesion.productoSanidadId) {
+          // Un tratamiento por animal; comparten operacionId (= la sesión) como una aplicación masiva:
+          // anular uno desde Sanidad anula los de toda la sesión y devuelve el stock descontado
           await tx.evtSanidad.create({
             data: {
               fecha: sesion.fecha,
               dosis: sesion.dosisSanidad ?? null,
+              unidad: sesion.unidadSanidad ?? null,
+              via: sesion.viaSanidad ?? null,
+              motivo: sesion.motivoSanidad ?? null,
+              carenciaDias: sesion.carenciaSanidad ?? null,
+              observ: `Manga: ${sesion.nombre}`.slice(0, 1000),
               animalId: item.animalId,
               productoId: sesion.productoSanidadId,
+              operacionId: sesion.id,
             },
           })
           totalSanidad++
@@ -98,7 +106,7 @@ export const POST = withAuth(async (request, ctx) => {
       if (totalSanidad > 0 && sesion.productoSanidadId) {
         const producto = await tx.producto.findUnique({ where: { id: sesion.productoSanidadId }, select: { unidad: true, activo: true, nombre: true, organizacionId: true } })
         // Los productos del catálogo general no tienen stock
-        const consumo = producto?.activo && producto.organizacionId ? consumoSugerido(producto.unidad, sesion.dosisSanidad, null, totalSanidad) : null
+        const consumo = producto?.activo && producto.organizacionId ? consumoSugerido(producto.unidad, sesion.dosisSanidad, sesion.unidadSanidad, totalSanidad) : null
         if (consumo == null) {
           avisoStock = `No se descontó stock de ${producto?.nombre ?? "el producto"}: registrá la salida en Inventario.`
         } else {

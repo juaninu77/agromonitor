@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { etiquetaFinanzas, MEDIOS_PAGO } from "@/lib/finanzas/constantes"
+import { etiquetaMedioPago, MEDIOS_PAGO } from "@/lib/finanzas/constantes"
 import { hoyArgentina } from "@/lib/inventario/fechas"
 
 interface Producto { id: string; nombre: string; unidad: string; organizacionId: string | null; monedaCosto: string }
@@ -137,7 +137,7 @@ export function CompraDialog({ open, onOpenChange, productos, ubicaciones, produ
                   <Label htmlFor="co-medio">Medio de pago</Label>
                   <select id="co-medio" className={selectClass} value={form.medioPago} onChange={set("medioPago")}>
                     <option value="">Sin especificar</option>
-                    {MEDIOS_PAGO.map((m) => <option key={m} value={m}>{etiquetaFinanzas(m)}</option>)}
+                    {MEDIOS_PAGO.map((m) => <option key={m} value={m}>{etiquetaMedioPago(m)}</option>)}
                   </select>
                 </div>
               </div>

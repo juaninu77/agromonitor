@@ -19,6 +19,10 @@ export interface PendingItem {
   caravanaVisual?: string | null
   sexo?: string | null
   categoria?: string | null
+  /** Alta de un EID nuevo: ids del catálogo */
+  especieId?: string | null
+  razaId?: string | null
+  categoriaId?: string | null
   createdAt: string
 }
 
@@ -130,6 +134,9 @@ async function syncSessionItems(sessionId: string): Promise<{ synced: number; fa
           caravanaVisual: item.caravanaVisual,
           sexo: item.sexo,
           categoria: item.categoria,
+          especieId: item.especieId,
+          razaId: item.razaId,
+          categoriaId: item.categoriaId,
         }),
       })
 

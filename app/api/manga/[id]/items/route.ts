@@ -6,6 +6,7 @@ import { MangaSessionError, withMangaSession } from "@/lib/api/manga-session"
 import { normalizeEID } from "@/lib/hardware/eid"
 import { prisma } from "@/lib/prisma"
 import { RESULTADOS_TACTO } from "@/lib/reproduccion/validation"
+import { insertarAltas, prepararAltas } from "@/lib/ganado/alta"
 
 const crearItemSchema = z.object({
   eidLeido: z.string().min(1, "El EID es requerido"),
@@ -22,9 +23,14 @@ const crearItemSchema = z.object({
   caravanaVisual: z.string().optional().nullable(),
   sexo: z.enum(["M", "F"]).optional().nullable(),
   categoria: z.string().optional().nullable(),
-}).refine((data) => !data.esNuevoRegistro || (!!data.sexo && !data.animalId), {
-  message: "Un alta nueva requiere sexo y no puede referenciar un animal existente",
+  // Alta de un EID nuevo: catálogo de la organización (o general)
+  especieId: z.string().uuid().optional().nullable(),
+  razaId: z.string().uuid().optional().nullable(),
+  categoriaId: z.string().uuid().optional().nullable(),
 })
+  .refine((data) => !data.esNuevoRegistro || !data.animalId, { message: "Un alta nueva no puede referenciar un animal existente" })
+  .refine((data) => !data.esNuevoRegistro || !!data.sexo, { message: "Para registrar el animal nuevo elegí el sexo" })
+  .refine((data) => !data.esNuevoRegistro || (!!data.razaId && !!data.categoriaId), { message: "Para registrar el animal nuevo elegí la raza y la categoría" })
 
 export const GET = withAuth(async (request, ctx) => {
   try {
@@ -66,7 +72,7 @@ export const POST = withAuth(async (request, ctx) => {
       return NextResponse.json(
         {
           success: false,
-          error: "Datos inválidos",
+          error: parsed.error.issues[0]?.message ?? "Datos inválidos",
           details: parsed.error.flatten().fieldErrors,
         },
         { status: 400 }
@@ -122,35 +128,34 @@ export const POST = withAuth(async (request, ctx) => {
 
       const nuevoOrden = (maxOrden._max.orden ?? 0) + 1
 
-      // Si es un registro nuevo y trae datos del animal, crear el Animal
-      if (parsed.data.esNuevoRegistro && parsed.data.sexo) {
-        // La especie bovina debe pertenecer a la organización de la sesión
-        const organizacionSesion =
-          ctx.organizacionDeEstablecimiento[sesion.establecimientoId]
-
-        const especieBovina = organizacionSesion
-          ? await tx.especie.findFirst({
-              where: { nombre: "bovino", organizacionId: organizacionSesion },
-            })
+      // EID nuevo: alta por el mismo camino que Ganado (catálogo, duplicados de RFID y caravana)
+      let categoriaNombre = parsed.data.categoria ?? null
+      if (parsed.data.esNuevoRegistro) {
+        const organizacionSesion = ctx.organizacionDeEstablecimiento[sesion.establecimientoId]
+        // Entra al lote de origen de la sesión si es de la misma especie
+        const loteOrigen = sesion.loteOrigenId
+          ? await tx.lote.findFirst({ where: { id: sesion.loteOrigenId, establecimientoId: sesion.establecimientoId, activo: true }, select: { id: true, especieId: true } })
           : null
-
-        if (!especieBovina) {
-          return NextResponse.json(
-            { error: "No existe la especie bovino para esta organización" },
-            { status: 400 }
-          )
+        const { resultados, preparadas } = await prepararAltas([{
+          fila: 1,
+          sexo: parsed.data.sexo,
+          caravanaVisual: parsed.data.caravanaVisual || undefined,
+          caravanaRfid: eidNormalizado,
+          especieId: parsed.data.especieId ?? undefined,
+          razaId: parsed.data.razaId,
+          categoriaId: parsed.data.categoriaId,
+          loteId: loteOrigen && (!parsed.data.especieId || loteOrigen.especieId === parsed.data.especieId) ? loteOrigen.id : undefined,
+          origen: sesion.tipo === "recepcion" ? "compra" : "cria_propia",
+          fechaIngreso: sesion.fecha,
+        }], { establecimientoId: sesion.establecimientoId, organizacionIds: organizacionSesion ? [organizacionSesion] : [] })
+        if (!preparadas.length) {
+          return NextResponse.json({ error: resultados[0]?.errores.join(". ") || "No se pudo registrar el animal" }, { status: 400 })
         }
-
-        const nuevoAnimal = await tx.animal.create({
-          data: {
-            especieId: especieBovina.id,
-            sexo: parsed.data.sexo,
-            caravanaVisual: parsed.data.caravanaVisual ?? null,
-            caravanaRfid: eidNormalizado,
-            establecimientoId: sesion.establecimientoId,
-          },
-        })
-        animalId = nuevoAnimal.id
+        await insertarAltas(tx, preparadas)
+        animalId = preparadas[0].animal.id as string
+        if (!categoriaNombre && parsed.data.categoriaId) {
+          categoriaNombre = (await tx.categoria.findUnique({ where: { id: parsed.data.categoriaId }, select: { nombre: true } }))?.nombre ?? null
+        }
       }
 
       const item = await tx.sesionMangaItem.create({
@@ -170,7 +175,7 @@ export const POST = withAuth(async (request, ctx) => {
           esNuevoRegistro: parsed.data.esNuevoRegistro ?? false,
           caravanaVisual: parsed.data.caravanaVisual ?? null,
           sexo: parsed.data.sexo ?? null,
-          categoria: parsed.data.categoria ?? null,
+          categoria: categoriaNombre,
         },
       })
       await tx.sesionManga.update({

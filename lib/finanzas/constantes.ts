@@ -70,6 +70,19 @@ export const MEDIOS_PAGO = [
   "otro",
 ] as const
 
+/** Medios de pago: etiquetas propias («transferencia» y «tarjeta» significan otra cosa en ETIQUETAS_FINANZAS). */
+export const ETIQUETA_MEDIO_PAGO: Record<(typeof MEDIOS_PAGO)[number], string> = {
+  efectivo: "Efectivo",
+  transferencia: "Transferencia",
+  cheque: "Cheque",
+  echeq: "eCheq",
+  tarjeta: "Tarjeta",
+  debito_automatico: "Débito automático",
+  otro: "Otro",
+}
+export const etiquetaMedioPago = (valor: string | null | undefined) =>
+  valor ? ETIQUETA_MEDIO_PAGO[valor as keyof typeof ETIQUETA_MEDIO_PAGO] ?? valor : ""
+
 export const ETIQUETAS_FINANZAS: Record<string, string> = {
   // tipos de cuenta
   caja: "Caja (efectivo)",

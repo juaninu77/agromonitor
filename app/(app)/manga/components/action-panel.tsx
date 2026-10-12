@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -27,6 +27,7 @@ import {
   Star,
 } from "lucide-react"
 import { toast } from "sonner"
+import { cargarCatalogoManga, categoriasPara, especiePorDefecto, type CatalogoManga } from "@/lib/hardware/catalogo-cache"
 
 interface ActionPanelProps {
   sessionId: string
@@ -35,9 +36,16 @@ interface ActionPanelProps {
   currentAnimal: any | null
   onItemSaved: () => void
   productoSanidadId?: string
+  /** Datos de la sesión para la sanidad y el alta de animales nuevos */
+  establecimientoId?: string
+  tipoSesion?: string
+  productoSanidadNombre?: string | null
+  dosisSanidad?: number | null
+  especieLoteOrigen?: string | null
 }
 
-const CC_OPTIONS = ["1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5"]
+// Misma escala que en Ganado (1 a 9)
+const CC_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
 const TACTO_RESULTADOS = [
   { value: "preñada", label: "Preñada" },
@@ -62,10 +70,17 @@ export function ActionPanel({
   currentAnimal,
   onItemSaved,
   productoSanidadId,
+  establecimientoId,
+  tipoSesion,
+  productoSanidadNombre,
+  dosisSanidad,
+  especieLoteOrigen,
 }: ActionPanelProps) {
+  // En una sesión de vacunación con producto, el tratamiento viene marcado para cada animal
+  const sanidadPorDefecto = tipoSesion === "vacunacion" && !!productoSanidadId
   const [peso, setPeso] = useState("")
   const [cc, setCc] = useState("")
-  const [sanidadAplicar, setSanidadAplicar] = useState(false)
+  const [sanidadAplicar, setSanidadAplicar] = useState(sanidadPorDefecto)
   const [tactoResultado, setTactoResultado] = useState("")
   const [tactoMesesGest, setTactoMesesGest] = useState("")
   const [denticion, setDenticion] = useState("")
@@ -73,15 +88,29 @@ export function ActionPanel({
   const [regCaravanaVisual, setRegCaravanaVisual] = useState("")
   const [regSexo, setRegSexo] = useState("")
   const [regCategoria, setRegCategoria] = useState("")
+  const [regEspecie, setRegEspecie] = useState("")
+  const [regRaza, setRegRaza] = useState("")
+  const [catalogo, setCatalogo] = useState<CatalogoManga | null>(null)
   const [saving, setSaving] = useState(false)
 
   const isAnimalNew = !currentAnimal
   const showRegistro = accionesHabilitadas.includes("registro") && isAnimalNew
 
+  // Catálogo para las altas (queda guardado en el dispositivo para usarlo sin señal)
+  useEffect(() => {
+    if (!accionesHabilitadas.includes("registro") || !establecimientoId) return
+    cargarCatalogoManga(establecimientoId).then((c) => {
+      setCatalogo(c)
+      setRegEspecie((e) => e || especiePorDefecto(c, especieLoteOrigen))
+    })
+  }, [accionesHabilitadas, establecimientoId, especieLoteOrigen])
+  const razas = catalogo?.razas.filter((r) => r.especieId === regEspecie) ?? []
+  const categorias = catalogo ? categoriasPara(catalogo, regEspecie, regSexo) : []
+
   const resetForm = useCallback(() => {
     setPeso("")
     setCc("")
-    setSanidadAplicar(false)
+    setSanidadAplicar(sanidadPorDefecto)
     setTactoResultado("")
     setTactoMesesGest("")
     setDenticion("")
@@ -89,12 +118,20 @@ export function ActionPanel({
     setRegCaravanaVisual("")
     setRegSexo("")
     setRegCategoria("")
-  }, [])
+    setRegRaza("")
+  }, [sanidadPorDefecto])
 
   async function handleConfirmar() {
     if (!currentEid) {
       toast.error("No hay animal seleccionado")
       return
+    }
+    if (showRegistro && (!regSexo || !regRaza || !regCategoria)) {
+      toast.error("Para registrar el animal nuevo elegí el sexo, la raza y la categoría")
+      return
+    }
+    if (isAnimalNew && !showRegistro && (peso || tactoResultado || sanidadAplicar)) {
+      toast.warning("Este EID no está en el rodeo", { description: "Lo cargado queda en la sesión pero no se registra en el animal. Habilitá «Registro nuevo» en la sesión para darlo de alta." })
     }
 
     setSaving(true)
@@ -127,8 +164,14 @@ export function ActionPanel({
 
       if (showRegistro) {
         if (regCaravanaVisual) payload.caravanaVisual = regCaravanaVisual
-        if (regSexo) payload.sexo = regSexo
-        if (regCategoria) payload.categoria = regCategoria
+        payload.sexo = regSexo
+        payload.especieId = regEspecie || null
+        payload.razaId = regRaza
+        payload.categoriaId = regCategoria
+        payload.categoria = categorias.find((c) => c.id === regCategoria)?.nombre ?? null
+      } else {
+        // Un EID desconocido sin alta queda como lectura de la sesión
+        payload.esNuevoRegistro = false
       }
 
       if (typeof navigator !== "undefined" && !navigator.onLine) {
@@ -148,6 +191,9 @@ export function ActionPanel({
           caravanaVisual: payload.caravanaVisual,
           sexo: payload.sexo,
           categoria: payload.categoria,
+          especieId: payload.especieId,
+          razaId: payload.razaId,
+          categoriaId: payload.categoriaId,
           createdAt: new Date().toISOString(),
         })
         toast.info("Sin conexión — guardado localmente", {
@@ -260,10 +306,15 @@ export function ActionPanel({
                 <span className="text-sm font-medium select-none">
                   Aplicar tratamiento
                   {productoSanidadId && (
-                    <span className="text-muted-foreground ml-1">(producto de sesión)</span>
+                    <span className="text-muted-foreground ml-1">
+                      ({productoSanidadNombre ?? "producto de la sesión"}{dosisSanidad ? ` · ${dosisSanidad.toLocaleString("es-AR")} ml` : ""})
+                    </span>
                   )}
                 </span>
               </label>
+              {!productoSanidadId && (
+                <p className="text-xs text-amber-700">Esta sesión no tiene producto: el tratamiento no se registrará en Sanidad.</p>
+              )}
             </div>
           </>
         )}
@@ -354,7 +405,7 @@ export function ActionPanel({
         {showRegistro && (
           <>
             <Separator />
-            <div className="space-y-3">
+            <div className="space-y-3 scroll-mt-24" id="manga-registro">
               <Label className="flex items-center gap-2 text-sm font-semibold">
                 <UserPlus className="h-4 w-4 text-yellow-600" />
                 Registro de animal nuevo
@@ -362,34 +413,41 @@ export function ActionPanel({
               <div className="grid gap-3">
                 <Input
                   placeholder="Caravana visual"
+                  aria-label="Caravana visual"
                   value={regCaravanaVisual}
                   onChange={(e) => setRegCaravanaVisual(e.target.value)}
                   className="h-11"
                 />
                 <div className="grid grid-cols-2 gap-3">
-                  <Select value={regSexo} onValueChange={setRegSexo}>
-                    <SelectTrigger className="h-11">
-                      <SelectValue placeholder="Sexo" />
+                  <Select value={regSexo} onValueChange={(v) => { setRegSexo(v); setRegCategoria("") }}>
+                    <SelectTrigger className="h-11" aria-label="Sexo">
+                      <SelectValue placeholder="Sexo *" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="M">Macho</SelectItem>
                       <SelectItem value="F">Hembra</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Select value={regCategoria} onValueChange={setRegCategoria}>
-                    <SelectTrigger className="h-11">
-                      <SelectValue placeholder="Categoría" />
+                  {(catalogo?.especies.length ?? 0) > 1 ? (
+                    <Select value={regEspecie} onValueChange={(v) => { setRegEspecie(v); setRegRaza(""); setRegCategoria("") }}>
+                      <SelectTrigger className="h-11" aria-label="Especie"><SelectValue placeholder="Especie" /></SelectTrigger>
+                      <SelectContent>{catalogo!.especies.map((e) => <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>)}</SelectContent>
+                    </Select>
+                  ) : <div />}
+                  <Select value={regRaza} onValueChange={setRegRaza}>
+                    <SelectTrigger className="h-11" aria-label="Raza">
+                      <SelectValue placeholder={catalogo ? (razas.length ? "Raza *" : "Sin razas en el catálogo") : "Cargando…"} />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ternero">Ternero/a</SelectItem>
-                      <SelectItem value="novillito">Novillito</SelectItem>
-                      <SelectItem value="novillo">Novillo</SelectItem>
-                      <SelectItem value="vaquillona">Vaquillona</SelectItem>
-                      <SelectItem value="vaca">Vaca</SelectItem>
-                      <SelectItem value="toro">Toro</SelectItem>
-                    </SelectContent>
+                    <SelectContent>{razas.map((r) => <SelectItem key={r.id} value={r.id}>{r.nombre}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Select value={regCategoria} onValueChange={setRegCategoria}>
+                    <SelectTrigger className="h-11" aria-label="Categoría">
+                      <SelectValue placeholder={regSexo ? "Categoría *" : "Elegí el sexo primero"} />
+                    </SelectTrigger>
+                    <SelectContent>{categorias.map((c) => <SelectItem key={c.id} value={c.id}>{c.nombre}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
+                <p className="text-xs text-muted-foreground">Se da de alta en Ganado con este EID{especieLoteOrigen ? " y entra al lote de origen de la sesión" : ""}.</p>
               </div>
             </div>
           </>

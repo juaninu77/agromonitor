@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { CATEGORIAS, etiquetaFinanzas, formatearImporte } from "@/lib/finanzas/constantes"
+import { CATEGORIAS, etiquetaFinanzas, etiquetaMedioPago, formatearImporte } from "@/lib/finanzas/constantes"
 import { api, claves, formatearFecha, rangoDePeriodo, type Cuenta, type ListadoMovimientos, type Movimiento } from "./api"
 import { MovimientoDialog, selectClass } from "./movimiento-dialog"
 
@@ -74,7 +74,7 @@ export function MovimientosFinanzas({ campo, cuentas }: { campo: string; cuentas
           subcategoria: etiquetaFinanzas(m.subcategoria),
           cuenta: m.cuenta.nombre,
           importeConSigno: m.tipo === "ingreso" ? m.importe : -m.importe,
-          medioPago: etiquetaFinanzas(m.medioPago),
+          medioPago: etiquetaMedioPago(m.medioPago),
         })),
         columns: [
           { key: "fecha", header: "Fecha", width: 12 },

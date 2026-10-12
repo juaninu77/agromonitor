@@ -52,6 +52,7 @@ import {
 import { toast } from "sonner"
 import { postConRetiro } from "@/components/sanidad/retiro-cliente"
 import { useTenant } from "@/lib/context/tenant-context"
+import { hoyArgentina } from "@/lib/inventario/fechas"
 
 // ─── Tipos ───────────────────────────────────────────────
 
@@ -243,7 +244,7 @@ const EMPTY_PROVEEDOR_FORM = {
 const EMPTY_DOCUMENTO_FORM = {
   numeroDta: "",
   tipo: "DTe",
-  fechaEmision: new Date().toISOString().split("T")[0],
+  fechaEmision: hoyArgentina(),
   fechaVencimiento: "",
   renspaOrigen: "",
   nombreOrigen: "",
@@ -522,6 +523,14 @@ export default function VentasPage() {
   function handleSubmitDocumento() {
     if (!documentoForm.numeroDta || !documentoForm.renspaOrigen || !documentoForm.renspaDestino) {
       toast.error("Número DTA, RENSPA origen y destino son requeridos")
+      return
+    }
+    if (!documentoForm.fechaVencimiento) {
+      toast.error("Indicá la fecha de vencimiento del documento")
+      return
+    }
+    if (documentoForm.fechaEmision && documentoForm.fechaVencimiento < documentoForm.fechaEmision) {
+      toast.error("El vencimiento no puede ser anterior a la emisión")
       return
     }
     documentoMutation.mutate(documentoForm)

@@ -1444,6 +1444,11 @@ model SesionManga {
   productoSanidadId String?   @map("producto_sanidad_id") @db.Uuid
   productoSanidad   Producto? @relation(fields: [productoSanidadId], references: [id])
   dosisSanidad      Float?    @map("dosis_sanidad")
+  /// Datos del tratamiento de la sesión (se registran en Sanidad al finalizar)
+  unidadSanidad     String?   @map("unidad_sanidad")
+  viaSanidad        String?   @map("via_sanidad")
+  motivoSanidad     String?   @map("motivo_sanidad")
+  carenciaSanidad   Int?      @map("carencia_sanidad")
 
   totalAnimales Int       @default(0) @map("total_animales")
   observaciones String?

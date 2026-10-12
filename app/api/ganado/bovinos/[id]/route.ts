@@ -64,6 +64,12 @@ export const GET = withAuth(async (request, ctx) => {
           orderBy: { fecha: 'desc' },
           ...(fullHistory ? {} : { take: 5 }),
         },
+        celos: {
+          where: { anuladoAt: null },
+          orderBy: [{ fecha: 'desc' }, { momento: 'desc' }],
+          select: { id: true, fecha: true, momento: true, metodo: true },
+          ...(fullHistory ? {} : { take: 5 }),
+        },
         eventosMovimiento: {
           orderBy: { fecha: 'desc' },
           ...(fullHistory ? {} : { take: 5 }),

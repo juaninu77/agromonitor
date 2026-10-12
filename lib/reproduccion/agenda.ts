@@ -2,12 +2,14 @@
 // - tacto: hembras servidas sin tacto ni parto posterior (por torada, o por hembra si no tiene);
 // - parto previsto: preñadas sin parto, por grupo y mes de la fecha probable;
 // - señalada (ovinos): grupos con corderos nacidos después de su última señalada;
-// - destete: crías propias sin destete, por grupo y mes de nacimiento.
+// - destete: crías propias sin destete, por grupo y mes de nacimiento;
+// - inseminar: hembras con celo reciente y sin servicio posterior (regla AM/PM; no van a Tareas).
 // Cada pendiente tiene una clave estable. sincronizarTareasReproductivas() la materializa como
 // Tarea tipo 'reproduccion' (cuando vence en 30 días o menos) y completa las que ya no están.
 
 import { prisma } from "@/lib/prisma"
 import { formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
+import { ETIQUETA_MOMENTO_CELO, sugerenciaInseminacion, type MomentoCelo } from "./validation"
 
 export const DIAS_TACTO: Record<string, number> = { bovino: 60, ovino: 45, caprino: 45 }
 export const DIAS_SENALADA = 30
@@ -15,7 +17,7 @@ export const DIAS_DESTETE: Record<string, number> = { bovino: 180, ovino: 90, ca
 const HORIZONTE_AGENDA = 60
 const HORIZONTE_TAREAS = 30
 
-export type TipoPendiente = "tacto" | "parto" | "senalada" | "destete"
+export type TipoPendiente = "tacto" | "parto" | "senalada" | "destete" | "celo"
 export interface Pendiente {
   clave: string
   tipo: TipoPendiente
@@ -28,6 +30,8 @@ export interface Pendiente {
   loteId?: string | null
   animalId?: string | null
 }
+
+export interface CeloAInseminar { id: string; hembraId: string; caravana: string | null; fecha: string; momento: MomentoCelo; metodo: string; sugerencia: ReturnType<typeof sugerenciaInseminacion> }
 
 const DIA = 86_400_000
 const sumar = (dia: string, n: number) => new Date(Date.parse(`${dia}T00:00:00Z`) + n * DIA).toISOString().slice(0, 10)
@@ -121,8 +125,35 @@ export async function agendaReproductiva(establecimientoId: string, hoy = hoyArg
     })
   }
 
+  // Inseminar: celo reciente sin servicio posterior (la ventana es de horas: solo hoy y ayer)
+  for (const c of await celosAInseminar(establecimientoId, hoy)) {
+    agregar({
+      clave: `ia:celo:${c.id}`, tipo: "celo", titulo: `Inseminar a ${c.caravana ?? "una hembra"}`,
+      detalle: `Celo visto el ${formatoDia(c.fecha)} a la ${ETIQUETA_MOMENTO_CELO[c.momento].toLowerCase()} · inseminar ${c.sugerencia.momento === "tarde" ? "a la tarde" : "a la mañana"}`,
+      fecha: c.sugerencia.fecha, cantidad: 1, animalId: c.hembraId,
+    })
+  }
+
   const limite = sumar(hoy, HORIZONTE_AGENDA)
   return items.filter((i) => i.fecha <= limite).sort((a, b) => a.fecha.localeCompare(b.fecha) || a.titulo.localeCompare(b.titulo))
+}
+
+/**
+ * Hembras activas del campo con un celo de los últimos días y sin servicio desde ese día
+ * (el último celo de cada una), con la inseminación sugerida de hoy o de ayer.
+ */
+export async function celosAInseminar(establecimientoId: string, hoy = hoyArgentina()): Promise<CeloAInseminar[]> {
+  const filas = await prisma.$queryRaw<{ id: string; hembra_id: string; caravana: string | null; fecha: Date; momento: MomentoCelo; metodo: string }[]>`
+    SELECT DISTINCT ON (c.hembra_id) c.id, c.hembra_id, COALESCE(a.caravana_visual, a.cuig) AS caravana, c.fecha, c.momento, c.metodo
+    FROM evt_celo c JOIN animales a ON a.id = c.hembra_id
+    WHERE c.establecimiento_id = ${establecimientoId}::uuid AND a.establecimiento_id = c.establecimiento_id AND a.estado_vital = 'activo'
+      AND c.anulado_at IS NULL AND c.fecha >= ${sumar(hoy, -2)}::date
+      AND NOT EXISTS (SELECT 1 FROM evt_servicio s WHERE s.hembra_id = c.hembra_id AND s.anulado_at IS NULL AND s.fecha >= c.fecha)
+    ORDER BY c.hembra_id, c.fecha DESC, (c.momento = 'tarde') DESC`
+  return filas
+    .map((f) => ({ id: f.id, hembraId: f.hembra_id, caravana: f.caravana, fecha: dia(f.fecha), momento: f.momento, metodo: f.metodo, sugerencia: sugerenciaInseminacion(dia(f.fecha), f.momento) }))
+    .filter((c) => c.sugerencia.fecha >= sumar(hoy, -1))
+    .sort((a, b) => a.sugerencia.fecha.localeCompare(b.sugerencia.fecha) || a.sugerencia.momento.localeCompare(b.sugerencia.momento))
 }
 
 /**
@@ -134,7 +165,8 @@ export async function sincronizarTareasReproductivas(establecimientoId: string, 
   try {
     const agenda = await agendaReproductiva(establecimientoId, hoy)
     const vigentes = new Set(agenda.map((a) => a.clave))
-    const aCrear = agenda.filter((a) => a.fecha <= sumar(hoy, HORIZONTE_TAREAS))
+    // Inseminar después de un celo es cuestión de horas: queda en la agenda, no en Tareas
+    const aCrear = agenda.filter((a) => a.tipo !== "celo" && a.fecha <= sumar(hoy, HORIZONTE_TAREAS))
     const [creadas, cumplidas] = await Promise.all([
       aCrear.length
         ? prisma.tarea.createMany({

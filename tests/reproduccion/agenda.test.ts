@@ -10,9 +10,9 @@ import type { AuthContext } from "@/lib/api/with-auth"
 
 const EST = "00000000-0000-4000-8000-000000000001"
 const d = (s: string) => new Date(`${s}T00:00:00Z`)
-/** Las cuatro consultas de la agenda, en orden: tactos, partos, señaladas, destetes. */
-const consultas = (tactos: object[] = [], partos: object[] = [], senaladas: object[] = [], destetes: object[] = []) =>
-  m.raw.mockResolvedValueOnce(tactos).mockResolvedValueOnce(partos).mockResolvedValueOnce(senaladas).mockResolvedValueOnce(destetes)
+/** Las consultas de la agenda, en orden: tactos, partos, señaladas, destetes y celos para inseminar. */
+const consultas = (tactos: object[] = [], partos: object[] = [], senaladas: object[] = [], destetes: object[] = [], celos: object[] = []) =>
+  m.raw.mockResolvedValueOnce(tactos).mockResolvedValueOnce(partos).mockResolvedValueOnce(senaladas).mockResolvedValueOnce(destetes).mockResolvedValueOnce(celos)
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -47,6 +47,26 @@ describe("agenda reproductiva", () => {
   })
 })
 
+describe("inseminar después de un celo", () => {
+  it("el celo reciente sin servicio queda en la agenda con la regla AM/PM; el de hace días ya no", async () => {
+    consultas([], [], [], [], [
+      { id: "C1", hembra_id: "H1", caravana: "V-1", fecha: d("2026-10-11"), momento: "manana", metodo: "observado" },
+      { id: "C2", hembra_id: "H2", caravana: "V-2", fecha: d("2026-10-10"), momento: "tarde", metodo: "pintura" },
+      { id: "C3", hembra_id: "H3", caravana: "V-3", fecha: d("2026-10-09"), momento: "manana", metodo: "observado" },
+    ])
+    const a = await agendaReproductiva(EST, "2026-10-11")
+    expect(a.map((p) => [p.clave, p.tipo, p.fecha, p.vencida, p.animalId])).toEqual([
+      ["ia:celo:C1", "celo", "2026-10-11", false, "H1"],
+      ["ia:celo:C2", "celo", "2026-10-11", false, "H2"],
+    ])
+  })
+  it("no se llevan a Tareas (la ventana es de horas)", async () => {
+    consultas([], [], [], [], [{ id: "C1", hembra_id: "H1", caravana: "V-1", fecha: d("2026-10-11"), momento: "manana", metodo: "observado" }])
+    await sincronizarTareasReproductivas(EST, "2026-10-11")
+    expect(m.crear).not.toHaveBeenCalled()
+  })
+})
+
 describe("tareas de la agenda", () => {
   it("crea las que vencen en 30 días sin duplicar y completa las que ya no están pendientes", async () => {
     consultas([{ torada_id: "T1", torada: "Otoño", hembra_id: "H1", caravana: "V-1", especie: "bovino", ultimo: d("2026-08-20") }],
@@ -72,7 +92,7 @@ describe("puesta al día al abrir Tareas", () => {
     const OTRO = "00000000-0000-4000-8000-000000000002"
     expect(await sincronizarSiHaceFalta([EST, OTRO], 1_000_000)).toBe(2)
     expect(await sincronizarSiHaceFalta([EST, OTRO], 1_000_000 + 60_000)).toBe(0)
-    expect(m.raw).toHaveBeenCalledTimes(8) // 4 consultas por campo
+    expect(m.raw).toHaveBeenCalledTimes(10) // 5 consultas por campo
     expect(await sincronizarSiHaceFalta([EST], 1_000_000 + 10 * 60_000)).toBe(1)
   })
 })

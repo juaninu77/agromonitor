@@ -19,8 +19,8 @@ async function getJson<T>(url: string): Promise<T> {
   return b.data as T
 }
 
-const ETIQUETA_PENDIENTE: Record<TipoPendiente, string> = { tacto: "Tacto", parto: "Partos", senalada: "Señalada", destete: "Destete" }
-const ACCION_PENDIENTE: Record<TipoPendiente, string> = { tacto: "Cargar tacto", parto: "Registrar parto", senalada: "Registrar señalada", destete: "Destetar" }
+const ETIQUETA_PENDIENTE: Record<TipoPendiente, string> = { tacto: "Tacto", parto: "Partos", senalada: "Señalada", destete: "Destete", celo: "Inseminar" }
+const ACCION_PENDIENTE: Record<TipoPendiente, string> = { tacto: "Cargar tacto", parto: "Registrar parto", senalada: "Registrar señalada", destete: "Destetar", celo: "Registrar servicio" }
 
 export function useAgenda(estId: string) {
   return useQuery({ queryKey: ["repro", "agenda", estId], queryFn: () => getJson<PendienteAgenda[]>(`/api/reproduccion/agenda?establecimientoId=${estId}`), enabled: !!estId, staleTime: 60_000 })
@@ -37,7 +37,7 @@ export function AgendaTab({ estId, puede, onAccion }: { estId: string; puede: (t
         <CardTitle className="flex items-center gap-2 text-base"><CalendarClock className="h-5 w-5" aria-hidden />Agenda reproductiva</CardTitle>
         <CardDescription>
           Tactos, partos previstos, señaladas y destetes que vienen (60 días) o están atrasados, según lo registrado. Los que vencen en 30 días también están en Tareas
-          y se completan solos al registrar el evento.
+          y se completan solos al registrar el evento. Las hembras en celo aparecen para inseminar (hoy y ayer).
         </CardDescription>
       </CardHeader>
       <CardContent>

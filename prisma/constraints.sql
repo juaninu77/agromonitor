@@ -130,6 +130,16 @@ BEGIN
     ALTER TABLE protocolos_iatf ADD CONSTRAINT protocolos_iatf_estado_chk CHECK (estado IN ('activo', 'cerrado', 'cancelado'));
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evt_celo_momento_chk') THEN
+    ALTER TABLE evt_celo ADD CONSTRAINT evt_celo_momento_chk CHECK (momento IN ('manana', 'tarde'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evt_celo_metodo_chk') THEN
+    ALTER TABLE evt_celo ADD CONSTRAINT evt_celo_metodo_chk CHECK (metodo IN ('observado', 'pintura', 'parche', 'collar'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evt_celo_anulacion_chk') THEN
+    ALTER TABLE evt_celo ADD CONSTRAINT evt_celo_anulacion_chk CHECK (anulado_at IS NULL OR motivo_anulacion IS NOT NULL);
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tareas_prioridad_chk') THEN
     ALTER TABLE tareas ADD CONSTRAINT tareas_prioridad_chk
       CHECK (prioridad IN ('baja', 'media', 'alta', 'urgente')) NOT VALID;
@@ -320,3 +330,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS invitaciones_pendiente_unica
 -- Un destete vigente por animal (los anulados no cuentan)
 CREATE UNIQUE INDEX IF NOT EXISTS evt_destete_animal_vigente_key
   ON evt_destete (animal_id) WHERE anulado_at IS NULL;
+
+-- Un celo vigente por hembra, día y turno
+CREATE UNIQUE INDEX IF NOT EXISTS evt_celo_hembra_turno_vigente_key
+  ON evt_celo (hembra_id, fecha, momento) WHERE anulado_at IS NULL;

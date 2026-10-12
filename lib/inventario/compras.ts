@@ -13,7 +13,7 @@ const ROLES_ESCRITURA = ["admin", "encargado"] as const
 /** Categoría del egreso en Finanzas según el tipo de insumo. */
 export function categoriaEgreso(tipo: string): string {
   if (["alimento", "mineral", "suplemento"].includes(tipo)) return "alimentacion"
-  if (["vacuna", "antiparasitario", "antibiotico", "antiinflamatorio", "vitaminico"].includes(tipo)) return "sanidad"
+  if (["vacuna", "antiparasitario", "antibiotico", "antiinflamatorio", "vitaminico", "hormona", "semen"].includes(tipo)) return "sanidad"
   if (["semilla", "fertilizante", "agroquimico"].includes(tipo)) return "semillas_agroquimicos"
   if (["combustible", "lubricante"].includes(tipo)) return "combustible"
   if (["repuesto", "herramienta"].includes(tipo)) return "mantenimiento"

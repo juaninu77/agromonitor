@@ -60,6 +60,8 @@ interface Tarea {
   calendarioSanitarioId?: string | null
   /** Tarea generada por la agenda reproductiva */
   claveReproduccion?: string | null
+  /** Paso de un protocolo IATF */
+  protocoloIatfId?: string | null
 }
 
 interface Pagination {
@@ -266,9 +268,9 @@ export default function TareasPage() {
 
   const handleDelete = async (tarea: Tarea) => {
     // Las del plan sanitario o la agenda reproductiva se cancelan; las demás se borran (no se puede deshacer)
-    const generada = !!(tarea.calendarioSanitarioId || tarea.claveReproduccion)
+    const generada = !!(tarea.calendarioSanitarioId || tarea.claveReproduccion || tarea.protocoloIatfId)
     const pregunta = generada
-      ? `«${tarea.titulo}» la generó ${tarea.calendarioSanitarioId ? "el plan sanitario" : "la agenda reproductiva"}: se cancela (queda en «Canceladas» y no se vuelve a crear). ¿Cancelarla?`
+      ? `«${tarea.titulo}» la generó ${tarea.calendarioSanitarioId ? "el plan sanitario" : tarea.protocoloIatfId ? "un protocolo IATF" : "la agenda reproductiva"}: se cancela (queda en «Canceladas» y no se vuelve a crear). ¿Cancelarla?`
       : `¿Eliminar «${tarea.titulo}»? Se borra definitivamente.`
     if (!window.confirm(pregunta)) return
     try {
@@ -320,8 +322,8 @@ export default function TareasPage() {
               {row.sector.nombre} · ver en el mapa
             </Link>
           )}
-          {row.tipo === "reproduccion" && (row.estado === "pendiente" || row.estado === "en_progreso") && (
-            <Link href="/reproduccion?tab=agenda" className="block text-xs font-medium text-primary underline">
+          {(row.tipo === "reproduccion" || row.protocoloIatfId) && (row.estado === "pendiente" || row.estado === "en_progreso") && (
+            <Link href={row.protocoloIatfId ? "/reproduccion?tab=iatf" : "/reproduccion?tab=agenda"} className="block text-xs font-medium text-primary underline">
               Registrar en Reproducción
             </Link>
           )}
@@ -418,8 +420,8 @@ export default function TareasPage() {
                 e.stopPropagation()
                 handleDelete(row)
               }}
-              title={row.calendarioSanitarioId || row.claveReproduccion ? "Cancelar tarea" : "Eliminar tarea"}
-              aria-label={row.calendarioSanitarioId || row.claveReproduccion ? "Cancelar tarea" : "Eliminar tarea"}
+              title={row.calendarioSanitarioId || row.claveReproduccion || row.protocoloIatfId ? "Cancelar tarea" : "Eliminar tarea"}
+              aria-label={row.calendarioSanitarioId || row.claveReproduccion || row.protocoloIatfId ? "Cancelar tarea" : "Eliminar tarea"}
             >
               <Trash2 className="h-4 w-4" />
             </Button>

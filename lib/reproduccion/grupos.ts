@@ -46,7 +46,7 @@ export async function hembrasDeTorada(ctx: AuthContext, toradaId: string, fechaP
       estadoVital: "activo", sexo: "F", especieId: torada.lote.especieId, establecimientoId: torada.lote.establecimientoId,
       OR: [{ loteHist: { some: enGrupoEl(torada.loteId, fecha) } }, { serviciosHembra: { some: { toradaId, ...vigente } } }],
     },
-    select: { id: true, caravanaVisual: true, cuig: true, caravanaRfid: true, categoria: { select: { nombre: true } } },
+    select: { id: true, caravanaVisual: true, cuig: true, caravanaRfid: true, fechaNacimiento: true, categoria: { select: { nombre: true } } },
     orderBy: [{ caravanaVisual: "asc" }, { id: "asc" }],
     take: 3000,
   })

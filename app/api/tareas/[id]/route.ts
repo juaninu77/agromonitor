@@ -167,7 +167,7 @@ export const DELETE = withAuth(
 
       // Las tareas generadas por el plan sanitario o la agenda reproductiva no se borran: se cancelan
       // (quedan vinculadas a su plan y una cancelada de la agenda no se vuelve a crear)
-      const generada = !!(existingTarea.calendarioSanitarioId || existingTarea.itemProtocoloId || existingTarea.claveReproduccion)
+      const generada = !!(existingTarea.calendarioSanitarioId || existingTarea.itemProtocoloId || existingTarea.claveReproduccion || existingTarea.protocoloIatfId)
       if (generada) {
         await prisma.tarea.update({ where: { id }, data: { estado: "cancelada" } })
       } else {

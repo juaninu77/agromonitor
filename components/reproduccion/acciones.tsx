@@ -31,7 +31,11 @@ export function AnularEventoDialog({ evento, onOpenChange, onAnulado }: { evento
   const [motivo, setMotivo] = useState("")
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState("")
-  useEffect(() => { if (evento) { setMotivo(""); setError("") } }, [evento])
+  // Destete: qué se deshace junto con él
+  const [quitarPesada, setQuitarPesada] = useState(true)
+  const [volverGrupo, setVolverGrupo] = useState(true)
+  useEffect(() => { if (evento) { setMotivo(""); setError(""); setQuitarPesada(true); setVolverGrupo(true) } }, [evento])
+  const esDestete = evento?.tipo === "destete"
   async function anular() {
     if (!evento) return
     if (motivo.trim().length < 3) return setError("Indicá por qué se anula")
@@ -39,9 +43,10 @@ export function AnularEventoDialog({ evento, onOpenChange, onAnulado }: { evento
     const url = `/api/reproduccion/eventos/${evento.tipo}/${evento.id}/anular`
     try {
       let r: { anulados: number; aviso: string | null }
-      try { r = await enviar(url, "POST", { motivo }) } catch (e) {
+      const body = esDestete ? { motivo, quitarPesada, volverGrupo } : { motivo }
+      try { r = await enviar(url, "POST", body) } catch (e) {
         if ((e as { codigo?: string }).codigo !== "paricion_con_cria" || !window.confirm((e as Error).message)) throw e
-        r = await enviar(url, "POST", { motivo, aceptarCria: true })
+        r = await enviar(url, "POST", { ...body, aceptarCria: true })
       }
       toast.success(r.anulados > 1 ? `Parto anulado (${r.anulados} crías)` : "Evento anulado")
       if (r.aviso) toast.info(r.aviso)
@@ -53,6 +58,13 @@ export function AnularEventoDialog({ evento, onOpenChange, onAnulado }: { evento
       <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>Anular {evento ? NOMBRE[evento.tipo] : ""}</DialogTitle><DialogDescription>{evento?.descripcion}. No se borra: queda anulado con el motivo y deja de contar en los indicadores.</DialogDescription></DialogHeader>
         <div className="space-y-1.5"><Label htmlFor="an-motivo">Motivo *</Label><Textarea id="an-motivo" rows={3} maxLength={500} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: se cargó en la vaca equivocada" /></div>
+        {esDestete && (
+          <div className="space-y-2 rounded-md border p-3 text-sm">
+            <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={quitarPesada} onChange={(e) => setQuitarPesada(e.target.checked)} />Quitar también la pesada del destete</label>
+            <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={volverGrupo} onChange={(e) => setVolverGrupo(e.target.checked)} />Volver el animal al grupo en el que estaba (si no se movió después)</label>
+          </div>
+        )}
+        {evento?.tipo === "senalada" && <p className="text-xs text-muted-foreground">Si se descontó la vacuna del stock, vuelve al inventario.</p>}
         {error && <p role="alert" className="rounded-md bg-destructive/10 p-2 text-sm text-destructive">{error}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={enviando}>Cancelar</Button>

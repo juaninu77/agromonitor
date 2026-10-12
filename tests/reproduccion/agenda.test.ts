@@ -4,7 +4,7 @@ const m = vi.hoisted(() => ({ raw: vi.fn(), crear: vi.fn(), completar: vi.fn() }
 vi.mock("@/lib/prisma", () => ({
   prisma: { $queryRaw: m.raw, tarea: { createMany: m.crear, updateMany: m.completar } },
 }))
-import { agendaReproductiva, sincronizarTareasReproductivas } from "@/lib/reproduccion/agenda"
+import { agendaReproductiva, sincronizarSiHaceFalta, sincronizarTareasReproductivas } from "@/lib/reproduccion/agenda"
 import { indicadoresReproductivos } from "@/lib/reproduccion/indicadores"
 import type { AuthContext } from "@/lib/api/with-auth"
 
@@ -63,6 +63,17 @@ describe("tareas de la agenda", () => {
     m.raw.mockRejectedValue(new Error("db"))
     vi.spyOn(console, "error").mockImplementation(() => {})
     await expect(sincronizarTareasReproductivas(EST)).resolves.toEqual({ creadas: 0, cumplidas: 0 })
+  })
+})
+
+describe("puesta al día al abrir Tareas", () => {
+  it("sincroniza cada campo como mucho una vez cada 10 minutos", async () => {
+    m.raw.mockResolvedValue([])
+    const OTRO = "00000000-0000-4000-8000-000000000002"
+    expect(await sincronizarSiHaceFalta([EST, OTRO], 1_000_000)).toBe(2)
+    expect(await sincronizarSiHaceFalta([EST, OTRO], 1_000_000 + 60_000)).toBe(0)
+    expect(m.raw).toHaveBeenCalledTimes(8) // 4 consultas por campo
+    expect(await sincronizarSiHaceFalta([EST], 1_000_000 + 10 * 60_000)).toBe(1)
   })
 })
 

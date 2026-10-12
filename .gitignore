@@ -57,6 +57,7 @@ next-env.d.ts
 !pnpm-lock.yaml
 !tsconfig.json
 !.eslintrc.json
+!vercel.json
 sample_data_analysis.json
 detailed_analysis.json
 

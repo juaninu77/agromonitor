@@ -37,7 +37,7 @@ export interface Descuento {
   sectorId?: string | null
   fecha: Date
   motivo: string
-  origenTipo: "sanidad" | "manga"
+  origenTipo: "sanidad" | "manga" | "senalada"
   origenId: string
 }
 
@@ -76,14 +76,14 @@ export async function descontarAplicacion(tx: Tx, d: Descuento, ctx: { estableci
 }
 
 /**
- * Devuelve al stock lo descontado por aplicaciones sanitarias anuladas (eventos individuales
- * u operaciones masivas, por su origenId): una entrada inversa por cada salida, enlazada con
+ * Devuelve al stock lo descontado por aplicaciones anuladas (eventos de Sanidad, operaciones
+ * masivas o señaladas, por su origenId): una entrada inversa por cada salida, enlazada con
  * anulaAId. No puede dejar stock negativo porque solo suma.
  */
-export async function revertirAplicaciones(tx: Tx, origenIds: string[], motivo: string) {
+export async function revertirAplicaciones(tx: Tx, origenIds: string[], motivo: string, origenTipo: "sanidad" | "senalada" = "sanidad") {
   if (!origenIds.length) return { revertido: 0, productoIds: [] as string[] }
   const filas = await tx.movimientoStock.findMany({
-    where: { origenTipo: "sanidad", origenId: { in: origenIds }, tipo: "salida", anulaAId: null, anuladoPor: null },
+    where: { origenTipo, origenId: { in: origenIds }, tipo: "salida", anulaAId: null, anuladoPor: null },
   })
   let revertido = new Prisma.Decimal(0)
   const operacionId = filas.length > 1 ? crypto.randomUUID() : null
@@ -91,7 +91,7 @@ export async function revertirAplicaciones(tx: Tx, origenIds: string[], motivo: 
     await tx.movimientoStock.create({
       data: {
         productoId: f.productoId, loteProductoId: f.loteProductoId, sectorId: f.sectorId, tipo: "entrada", cantidad: f.cantidad,
-        motivo: `Anulación: ${motivo}`.slice(0, 1000), anulaAId: f.id, operacionId, origenTipo: "sanidad", origenId: f.origenId,
+        motivo: `Anulación: ${motivo}`.slice(0, 1000), anulaAId: f.id, operacionId, origenTipo, origenId: f.origenId,
       },
     })
     revertido = revertido.plus(f.cantidad)

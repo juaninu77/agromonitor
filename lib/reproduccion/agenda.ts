@@ -156,3 +156,18 @@ export async function sincronizarTareasReproductivas(establecimientoId: string, 
     return { creadas: 0, cumplidas: 0 }
   }
 }
+
+/** Última sincronización por campo en esta instancia del servidor (evita repetirla en cada lectura). */
+const ultimaSincronizacion = new Map<string, number>()
+const CADA_MS = 10 * 60_000
+
+/**
+ * Sincroniza los campos que no se sincronizaron en los últimos 10 minutos (al abrir Tareas).
+ * Best effort, como sincronizarTareasReproductivas.
+ */
+export async function sincronizarSiHaceFalta(establecimientoIds: string[], ahora = Date.now()) {
+  const pendientes = establecimientoIds.filter((id) => ahora - (ultimaSincronizacion.get(id) ?? 0) >= CADA_MS)
+  for (const id of pendientes) ultimaSincronizacion.set(id, ahora)
+  await Promise.all(pendientes.map((id) => sincronizarTareasReproductivas(id)))
+  return pendientes.length
+}

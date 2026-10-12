@@ -11,6 +11,8 @@ import { estadosReproductivos } from "./estado"
 import { sincronizarTareasReproductivas } from "./agenda"
 import { normalizeEID } from "@/lib/hardware/eid"
 import { diasEntre, formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
+import { InventarioError } from "@/lib/inventario/service"
+import { revertirAplicaciones } from "@/lib/inventario/aplicaciones"
 import {
   ROLES_ANULAR, ROLES_REPRODUCCION, EDICION_POR_TIPO, anulacionSchema, busquedaAnimalesSchema, calcularParto, desteteSchema, edicionToradaSchema,
   filtrosReproduccionSchema, paricionSchema, servicioSchema, tactoSchema, toradaSchema,
@@ -251,11 +253,11 @@ export async function registrarDestete(ctx: AuthContext, raw: unknown) {
   const edadDias = animal.fechaNacimiento ? diasEntre(diaDe(animal.fechaNacimiento), v.fecha) : v.edadDias
   const aviso = avisoCaravana(animal) ? `${etiqueta(animal)} no tiene caravana electrónica: es obligatoria después del destete.` : null
   const destete = await prisma.$transaction(async (tx) => {
+    // Pesada del destete (spec 03 §3.9), vinculada para poder quitarla si se anula
+    const pesada = v.pesoKg ? await tx.evtPesada.create({ data: { animalId: animal.id, fecha: fechaDia(v.fecha), pesoKg: v.pesoKg, observ: "Destete" } }) : null
     const destete = await tx.evtDestete.create({
-      data: { fecha: fechaDia(v.fecha), animalId: animal.id, pesoKg: v.pesoKg, edadDias, metodo: v.metodo, loteDesteteId: v.loteDesteteId, observ: v.observ },
+      data: { fecha: fechaDia(v.fecha), animalId: animal.id, pesoKg: v.pesoKg, edadDias, metodo: v.metodo, loteDesteteId: v.loteDesteteId, observ: v.observ, pesadaId: pesada?.id ?? null },
     })
-    // Pesada del destete (spec 03 §3.9)
-    if (v.pesoKg) await tx.evtPesada.create({ data: { animalId: animal.id, fecha: fechaDia(v.fecha), pesoKg: v.pesoKg, observ: "Destete" } })
     // Pasa al grupo de destete: se cierra el grupo actual y se abre el nuevo
     const movido = v.loteDesteteId ? await moverAGrupo(tx, animal.id, v.loteDesteteId, v.fecha, "destete") : false
     await auditar(tx, ctx, animal.establecimientoId, "evt_destete", destete.id, { animalId: animal.id, fecha: v.fecha, pesoKg: v.pesoKg, loteDesteteId: v.loteDesteteId, movido })
@@ -307,6 +309,54 @@ async function eventoDelUsuario(ctx: AuthContext, tipo: TipoEvento, id: string):
 }
 
 /**
+ * Deshace lo que hizo un destete al anularlo (lo que el usuario elija):
+ * - quita su pesada (la vinculada; en destetes viejos, la del mismo día, peso y observación);
+ * - vuelve el animal al grupo anterior, solo si sigue en el grupo de destete desde ese día
+ *   (si después se movió, el historial queda como está y se avisa).
+ * Devuelve qué se deshizo, para la auditoría (incluye la pesada quitada).
+ */
+async function deshacerDestete(tx: Tx, id: string, v: { quitarPesada: boolean; volverGrupo: boolean }, avisos: string[]) {
+  const d = await tx.evtDestete.findUniqueOrThrow({ where: { id }, select: { animalId: true, fecha: true, pesoKg: true, loteDesteteId: true, pesadaId: true } })
+  const hecho: Record<string, unknown> = {}
+  if (v.quitarPesada) {
+    const pesada = d.pesadaId
+      ? await tx.evtPesada.findUnique({ where: { id: d.pesadaId } })
+      : d.pesoKg != null ? await tx.evtPesada.findFirst({ where: { animalId: d.animalId, fecha: d.fecha, pesoKg: d.pesoKg, observ: "Destete", destete: { is: null } }, orderBy: { createdAt: "desc" } }) : null
+    if (pesada) {
+      await tx.evtPesada.delete({ where: { id: pesada.id } })
+      hecho.pesadaQuitada = { id: pesada.id, fecha: diaDe(pesada.fecha), pesoKg: pesada.pesoKg }
+      avisos.push(`Se quitó la pesada del destete (${pesada.pesoKg} kg).`)
+    }
+  }
+  if (v.volverGrupo && d.loteDesteteId) {
+    // El tramo abierto en el grupo de destete que abrió este destete (desde ese día)
+    const tramo = await tx.animalLoteHist.findFirst({
+      where: { animalId: d.animalId, loteId: d.loteDesteteId, motivo: "destete", desde: { gte: instanteDe(diaDe(d.fecha)) } },
+      orderBy: { desde: "asc" }, select: { id: true, desde: true, hasta: true },
+    })
+    if (tramo && !tramo.hasta) {
+      // Los tramos que el destete cerró (moverAGrupo cierra todos los abiertos en ese instante)
+      const anteriores = await tx.animalLoteHist.findMany({
+        where: { animalId: d.animalId, hasta: tramo.desde, id: { not: tramo.id } },
+        select: { id: true, lote: { select: { nombre: true, activo: true } } },
+      })
+      const inactivo = anteriores.find((a) => !a.lote.activo)
+      if (inactivo) {
+        avisos.push(`El grupo anterior (${inactivo.lote.nombre}) está inactivo: el animal sigue en el grupo de destete.`)
+      } else {
+        await tx.animalLoteHist.delete({ where: { id: tramo.id } })
+        if (anteriores.length) await tx.animalLoteHist.updateMany({ where: { id: { in: anteriores.map((a) => a.id) } }, data: { hasta: null } })
+        hecho.grupo = { quitado: tramo.id, reabiertos: anteriores.map((a) => a.id) }
+        avisos.push(anteriores.length ? `Volvió al grupo ${anteriores.map((a) => a.lote.nombre).join(", ")}.` : "Salió del grupo de destete (no tenía grupo antes).")
+      }
+    } else if (tramo) {
+      avisos.push("El animal se movió de grupo después del destete: el historial de grupos queda como está.")
+    }
+  }
+  return hecho
+}
+
+/**
  * Anula un evento (no se borra): admin o encargado del campo, con motivo. Un servicio con
  * tacto vigente no se anula (primero el tacto); un tacto libera su servicio para un nuevo
  * tacto; un parto se anula entero (todas sus crías) y, si hay crías dadas de alta, se pide
@@ -336,9 +386,17 @@ export async function anularEvento(ctx: AuthContext, tipo: TipoEvento, id: strin
       throw new ReproduccionError(`${crias.length === 1 ? `La cría ${crias[0]} queda` : `Las crías ${crias.join(", ")} quedan`} en el rodeo con su genealogía. Si fue un error de carga, dalas de baja desde su ficha. ¿Anular el parto?`, 409, "paricion_con_cria")
     }
   }
-  if (tipo === "destete") aviso = "La pesada y el cambio de grupo del destete quedan registrados: corregilos desde la ficha del animal si hace falta."
+  const avisos: string[] = []
+  let deshecho: Record<string, unknown> | undefined
 
   await prisma.$transaction(async (tx) => {
+    if (tipo === "destete") {
+      deshecho = await deshacerDestete(tx, id, v, avisos)
+    }
+    if (tipo === "senalada") {
+      const r = await revertirAplicaciones(tx, ids, v.motivo, "senalada")
+      if (r.revertido) { deshecho = { stockDevuelto: r.revertido }; avisos.push("La vacuna descontada volvió al stock.") }
+    }
     if (tipo === "servicio") await tx.evtServicio.updateMany({ where: { id: { in: ids } }, data: anulacion })
     // El tacto anulado libera su servicio (se puede volver a tactar)
     if (tipo === "tacto") await tx.evtTacto.updateMany({ where: { id: { in: ids } }, data: { ...anulacion, servicioId: null } })
@@ -346,10 +404,11 @@ export async function anularEvento(ctx: AuthContext, tipo: TipoEvento, id: strin
     if (tipo === "destete") await tx.evtDestete.updateMany({ where: { id: { in: ids } }, data: anulacion })
     if (tipo === "senalada") await tx.evtSenalada.updateMany({ where: { id: { in: ids } }, data: anulacion })
     await tx.auditLog.create({
-      data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[est] ?? null, tabla: TABLA_DE_TIPO[tipo], rowPk: id, accion: "UPDATE", detalle: JSON.parse(JSON.stringify({ anulado: true, motivo: v.motivo, ids, servicioId: ev.servicioId ?? undefined })) },
+      data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[est] ?? null, tabla: TABLA_DE_TIPO[tipo], rowPk: id, accion: "UPDATE", detalle: JSON.parse(JSON.stringify({ anulado: true, motivo: v.motivo, ids, servicioId: ev.servicioId ?? undefined, deshecho })) },
     })
   })
   await sincronizarTareasReproductivas(est)
+  aviso = avisos.join(" ") || null
   return { anulados: ids.length, aviso }
 }
 
@@ -607,6 +666,8 @@ export async function resumenReproduccion(ctx: AuthContext, establecimientoId: s
 /** Respuesta de error para las rutas (null = error inesperado → 500). */
 export function errorReproduccion(error: unknown) {
   if (error instanceof ReproduccionError) return { body: { success: false, error: error.message, codigo: error.codigo }, status: error.status }
+  // Descuento de stock (vacuna de la señalada): 409 si no alcanza o el lote está vencido
+  if (error instanceof InventarioError) return { body: { success: false, error: error.message, codigo: error.codigo }, status: error.status }
   if (error instanceof z.ZodError) return { body: { success: false, error: error.issues[0]?.message ?? "Datos inválidos", errores: error.issues.map((i) => i.message) }, status: 400 }
   if (error instanceof SyntaxError) return { body: { success: false, error: "Datos inválidos" }, status: 400 }
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

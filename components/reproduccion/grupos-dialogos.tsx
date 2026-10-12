@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { AnimalCombobox, etiquetaAnimal, type AnimalOpcion } from "./animal-combobox"
 import { EstadoReproductivoBadge } from "./estado-badge"
+import { DescuentoStock, camposDescuento, descuentoInicial, postSanidad, textoStock, type EstadoDescuento, type ProductoConStock } from "@/components/sanidad/descuento-stock"
 import { formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import { esSanitario } from "@/lib/inventario/validation"
 import {
@@ -361,12 +362,16 @@ export function SenaladaDialog({ open, onOpenChange, estId, lotes, onSuccess, lo
   const ovinos = lotes.filter((l) => tipoGrupoDeEspecie(l.especie) === "encarnerada")
   const vacio = { loteId: "", toradaId: "", fecha: hoyArgentina(), corderosSenalados: "", corderosMuertos: "", machosMantenidos: "", machosCastrados: "", hembras: "", productoClostridialId: "", observ: "" }
   const [form, setForm] = useState(vacio)
-  useEffect(() => { if (open) setForm({ ...vacio, loteId: loteInicial ?? "" }) }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Vacuna: dosis por cordero y descuento del stock (como en Sanidad)
+  const [dosis, setDosis] = useState("")
+  const [descuento, setDescuento] = useState<EstadoDescuento>(descuentoInicial)
+  useEffect(() => { if (open) { setForm({ ...vacio, loteId: loteInicial ?? "" }); setDosis(""); setDescuento(descuentoInicial) } }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   const productos = useQuery({
     queryKey: ["repro", "productos-sanitarios"],
-    queryFn: async () => { const r = await fetch("/api/inventario?limit=500"); const b = await r.json(); return ((b.data ?? []) as { id: string; nombre: string; tipo: string; activo?: boolean }[]).filter((p) => p.activo !== false && esSanitario(p.tipo)) },
-    enabled: open, staleTime: 300_000,
+    queryFn: async () => { const r = await fetch("/api/inventario?limit=500"); const b = await r.json(); return ((b.data ?? []) as (ProductoConStock & { tipo: string; activo?: boolean })[]).filter((p) => p.activo !== false && esSanitario(p.tipo)) },
+    enabled: open, staleTime: 0,
   })
+  const vacuna = (productos.data ?? []).find((p) => p.id === form.productoClostridialId)
   const suma = ["machosMantenidos", "machosCastrados", "hembras"].reduce((n, k) => n + (Number(form[k as keyof typeof form]) || 0), 0)
   const total = Number(form.corderosSenalados) || 0
   const set = (p: Partial<typeof form>) => setForm((f) => ({ ...f, ...p }))
@@ -374,8 +379,12 @@ export function SenaladaDialog({ open, onOpenChange, estId, lotes, onSuccess, lo
     if (!form.loteId) return op.setError("Elegí el grupo")
     if (suma && suma !== total) return op.setError("Machos enteros + castrados + hembras tiene que sumar los corderos señalados")
     void op.ejecutar(async () => {
-      await enviar("/api/reproduccion/senaladas", { ...form, clave: op.clave, toradaId: form.toradaId || null, productoClostridialId: form.productoClostridialId || null })
-      toast.success(`Señalada registrada: ${total} corderos`)
+      if (vacuna && descuento.activo && !descuento.cantidad) throw new Error("Indicá cuánta vacuna se usó o desmarcá el descuento")
+      const r = await postSanidad({
+        ...form, clave: op.clave, toradaId: form.toradaId || null, productoClostridialId: form.productoClostridialId || null,
+        ...(vacuna ? camposDescuento(descuento) : {}),
+      }, "/api/reproduccion/senaladas")
+      toast.success(`Señalada registrada: ${total} corderos${textoStock(r.data?.stock)}`)
       onOpenChange(false); onSuccess()
     })
   }
@@ -396,7 +405,11 @@ export function SenaladaDialog({ open, onOpenChange, estId, lotes, onSuccess, lo
         <Campo id="se-hembras" label="Hembras"><Input id="se-hembras" type="number" min="0" value={form.hembras} onChange={(e) => set({ hembras: e.target.value })} /></Campo>
       </div>
       {suma > 0 && <p className={`text-xs ${suma === total ? "text-muted-foreground" : "text-destructive"}`} role="status">Desglose: {suma} de {total} señalados</p>}
-      <Campo id="se-vacuna" label="Vacuna clostridial"><select id="se-vacuna" className={selectClass} value={form.productoClostridialId} onChange={(e) => set({ productoClostridialId: e.target.value })}><option value="">—</option>{(productos.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select></Campo>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Campo id="se-vacuna" label="Vacuna clostridial" className="sm:col-span-2"><select id="se-vacuna" className={selectClass} value={form.productoClostridialId} onChange={(e) => { set({ productoClostridialId: e.target.value }); setDescuento(descuentoInicial) }}><option value="">—</option>{(productos.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select></Campo>
+        {vacuna && <Campo id="se-dosis" label="Dosis por cordero (ml)"><Input id="se-dosis" type="number" min="0" step="0.1" inputMode="decimal" value={dosis} onChange={(e) => setDosis(e.target.value)} /></Campo>}
+      </div>
+      {vacuna && <DescuentoStock producto={vacuna} dosis={dosis} unidadDosis="ml" animales={total} valor={descuento} onChange={setDescuento} />}
       <Campo id="se-obs" label="Observaciones"><Textarea id="se-obs" rows={2} maxLength={1000} value={form.observ} onChange={(e) => set({ observ: e.target.value })} /></Campo>
     </Marco>
   )

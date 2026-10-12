@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { withAuth } from "@/lib/api/with-auth"
 import { usuarioConAccesoACampo } from "@/lib/equipo/acceso"
 import { logAudit } from "@/lib/api/audit-log"
+import { sincronizarSiHaceFalta } from "@/lib/reproduccion/agenda"
 
 const tareaSchema = z.object({
   titulo: z.string().min(1),
@@ -49,6 +50,9 @@ export const GET = withAuth(async (request, ctx) => {
         pagination: { page, limit, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false },
       })
     }
+
+    // Las tareas de la agenda reproductiva se generan de los eventos: se ponen al día antes de listar
+    await sincronizarSiHaceFalta(establecimientoId && establecimientoIds.includes(establecimientoId) ? [establecimientoId] : establecimientoIds)
 
     // Construir filtros
     const where: Record<string, unknown> = {

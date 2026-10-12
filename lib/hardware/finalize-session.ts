@@ -2,6 +2,8 @@ import { getPendingItems, syncPendingItems } from "./offline-queue"
 
 export interface ResultadoFinalizacion {
   totalSanidad?: number
+  /** Animales marcados con tratamiento que ya no están activos en el campo (no se registran) */
+  sanidadOmitidos?: number
   stock?: { descontado: number; faltante: number; unidad: string; ubicacion: string | null } | null
   /** Aviso de inventario (faltó stock o no se pudo calcular el descuento) */
   avisoStock?: string | null

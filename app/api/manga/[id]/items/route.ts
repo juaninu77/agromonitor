@@ -6,7 +6,8 @@ import { MangaSessionError, withMangaSession } from "@/lib/api/manga-session"
 import { normalizeEID } from "@/lib/hardware/eid"
 import { prisma } from "@/lib/prisma"
 import { RESULTADOS_TACTO } from "@/lib/reproduccion/validation"
-import { insertarAltas, prepararAltas } from "@/lib/ganado/alta"
+import { especieDelCampo, insertarAltas, prepararAltas } from "@/lib/ganado/alta"
+import { especieParaAlta, faltaParaAlta } from "@/lib/hardware/manga-config"
 
 const crearItemSchema = z.object({
   eidLeido: z.string().min(1, "El EID es requerido"),
@@ -29,8 +30,11 @@ const crearItemSchema = z.object({
   categoriaId: z.string().uuid().optional().nullable(),
 })
   .refine((data) => !data.esNuevoRegistro || !data.animalId, { message: "Un alta nueva no puede referenciar un animal existente" })
-  .refine((data) => !data.esNuevoRegistro || !!data.sexo, { message: "Para registrar el animal nuevo elegí el sexo" })
-  .refine((data) => !data.esNuevoRegistro || (!!data.razaId && !!data.categoriaId), { message: "Para registrar el animal nuevo elegí la raza y la categoría" })
+  // Mismo mensaje que muestra la manga antes de enviar (también para lo cargado sin señal)
+  .superRefine((data, c) => {
+    const falta = data.esNuevoRegistro ? faltaParaAlta(data) : null
+    if (falta) c.addIssue({ code: z.ZodIssueCode.custom, message: falta, path: [!data.sexo ? "sexo" : !data.razaId ? "razaId" : "categoriaId"] })
+  })
 
 export const GET = withAuth(async (request, ctx) => {
   try {
@@ -136,15 +140,18 @@ export const POST = withAuth(async (request, ctx) => {
         const loteOrigen = sesion.loteOrigenId
           ? await tx.lote.findFirst({ where: { id: sesion.loteOrigenId, establecimientoId: sesion.establecimientoId, activo: true }, select: { id: true, especieId: true } })
           : null
+        // Especie: la elegida, si no la del lote de origen, si no la del campo (nunca «bovino» a ciegas)
+        const especieId = especieParaAlta({ elegida: parsed.data.especieId, lote: loteOrigen?.especieId })
+          ?? await especieDelCampo(tx, sesion.establecimientoId)
         const { resultados, preparadas } = await prepararAltas([{
           fila: 1,
           sexo: parsed.data.sexo,
           caravanaVisual: parsed.data.caravanaVisual || undefined,
           caravanaRfid: eidNormalizado,
-          especieId: parsed.data.especieId ?? undefined,
+          especieId: especieId ?? undefined,
           razaId: parsed.data.razaId,
           categoriaId: parsed.data.categoriaId,
-          loteId: loteOrigen && (!parsed.data.especieId || loteOrigen.especieId === parsed.data.especieId) ? loteOrigen.id : undefined,
+          loteId: loteOrigen && (!especieId || loteOrigen.especieId === especieId) ? loteOrigen.id : undefined,
           origen: sesion.tipo === "recepcion" ? "compra" : "cria_propia",
           fechaIngreso: sesion.fecha,
         }], { establecimientoId: sesion.establecimientoId, organizacionIds: organizacionSesion ? [organizacionSesion] : [] })

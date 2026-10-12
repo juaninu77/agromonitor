@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/tooltip"
 import { BookOpen, Loader2 } from "lucide-react"
 import { toast } from "sonner"
+import { ESCALA_CC, PRESELECCION_POR_TIPO, TIPOS_SESION_MANGA, etiquetasAcciones } from "@/lib/hardware/manga-config"
 
 export function DocsPdfGenerator() {
   const [generating, setGenerating] = useState(false)
@@ -87,8 +88,8 @@ export function DocsPdfGenerator() {
       doc.text("Módulo Sesión de Manga", margin, 48)
 
       doc.setFontSize(10)
-      doc.text("Integración Tru-test SRS2 / SRS2i", margin, 60)
-      doc.text(`Documentación v1.0 — ${new Date().toLocaleDateString("es-AR")}`, margin, 70)
+      doc.text("Integración Tru-Test XRS2i", margin, 60)
+      doc.text(`Documentación v1.1 — ${new Date().toLocaleDateString("es-AR")}`, margin, 70)
 
       y = 100
 
@@ -96,7 +97,7 @@ export function DocsPdfGenerator() {
       addTitle("¿Qué es el módulo de Manga?")
       addParagraph(
         "El módulo de Manga de AgroMonitor permite digitalizar el trabajo en la manga del establecimiento ganadero. " +
-        "Se conecta al bastón lector de caravanas electrónicas Tru-test SRS2 o SRS2i vía Bluetooth, " +
+        "Se conecta al bastón lector de caravanas electrónicas Tru-Test XRS2i por Bluetooth, " +
         "lee los EID de cada animal en tiempo real, y permite registrar peso, sanidad, tacto, condición corporal y más."
       )
       addParagraph(
@@ -109,16 +110,15 @@ export function DocsPdfGenerator() {
       checkPage(60)
       addTitle("Hardware compatible")
       addSubtitle("Bastón lector")
-      addBullet("Tru-test SRS2 / SRS2i (Bluetooth Classic SPP)")
-      addBullet("Cualquier lector RFID ISO 11784/11785 con salida serial Bluetooth")
-      addBullet("Formato de tag: decimal de 15-16 dígitos (estándar SENASA)")
+      addBullet("Tru-Test XRS2i (firmware con modo HID)")
+      addBullet("Cualquier lector RFID ISO 11784/11785 que funcione como teclado Bluetooth o puerto serie")
+      addBullet("Formato de tag recomendado: Decimal2 (15 dígitos sin espacios, estándar SENASA)")
 
-      addSubtitle("Requisitos del navegador")
-      addBullet("Google Chrome 117+ o Microsoft Edge (escritorio)")
-      addBullet("Web Serial API habilitada (viene activa por defecto)")
-      addBullet("Bluetooth del dispositivo activado y bastón emparejado")
+      addSubtitle("Dos formas de conectar")
+      addBullet("Teclado (HID): el bastón escribe el EID en el campo de la manga. Funciona en celular, tablet y PC; es la única opción en Android/iOS.")
+      addBullet("Avanzado (Serial): solo Google Chrome o Microsoft Edge de escritorio, con el bastón vinculado por Bluetooth.")
       addParagraph(
-        "Nota: Safari/iOS no soporta Web Serial API. En iPad o iPhone usar la importación por CSV."
+        "Nota: Safari/iOS no soporta el modo Serial. En iPad o iPhone usar el modo teclado o la importación por CSV."
       )
       y += 4
 
@@ -133,15 +133,19 @@ export function DocsPdfGenerator() {
       addBullet("Nombre descriptivo (ej: 'Pesada terneros lote 3')")
       addBullet("Tipo de trabajo: Pesada, Vacunación, Tacto, Destete, Señalada, Recepción o General")
       addBullet("Fecha del trabajo")
-      addBullet("Lote de origen (opcional)")
+      addBullet("Lote de origen (opcional; los animales nuevos entran a ese lote si es de la misma especie)")
       addBullet("Acciones habilitadas (se pre-seleccionan según el tipo)")
+      addBullet(
+        "Con 'Sanidad' habilitada, el tratamiento de la sesión: producto (insumo sanitario del Inventario de la organización), " +
+        "dosis por animal, unidad, vía, motivo y carencia. Lo define un administrador, encargado o veterinario."
+      )
 
       checkPage(50)
       addSubtitle("2. Conectar el bastón (opcional)")
       addParagraph(
-        "En la barra superior del workspace, presionar 'Conectar bastón'. " +
-        "El navegador mostrará un diálogo para seleccionar el dispositivo Bluetooth emparejado. " +
-        "Una vez conectado, cada lectura de caravana se carga automáticamente."
+        "En modo teclado (HID) no hace falta conectar nada en la app: el bastón escribe el EID en el campo. " +
+        "En modo Avanzado (Serial), presionar 'Conectar bastón' y elegir el dispositivo Bluetooth en el diálogo del navegador. " +
+        "Cada lectura de caravana se carga automáticamente."
       )
 
       checkPage(50)
@@ -150,8 +154,12 @@ export function DocsPdfGenerator() {
         "Con cada lectura de EID (manual o automática por Bluetooth):"
       )
       addBullet("Si el animal existe en el sistema: se muestra su ficha con datos actuales")
-      addBullet("Si es nuevo: aparece como 'No registrado' con opción de alta rápida")
-      addBullet("Registrar los datos según las acciones habilitadas")
+      addBullet(
+        "Si es nuevo: aparece como 'No registrado' con el botón 'Registrar' para darlo de alta en Ganado " +
+        "(sexo, raza y categoría del catálogo; la especie del lote de origen o del campo)"
+      )
+      addBullet(`Registrar los datos según las acciones habilitadas (condición corporal de ${ESCALA_CC[0]} a ${ESCALA_CC[ESCALA_CC.length - 1]}, como en Ganado)`)
+      addBullet("'Aplicar tratamiento' marca al animal para el tratamiento de la sesión")
       addBullet("Presionar 'Confirmar y Siguiente' para guardar y pasar al próximo")
 
       checkPage(50)
@@ -160,7 +168,10 @@ export function DocsPdfGenerator() {
         "Al terminar, presionar 'Finalizar'. El sistema genera automáticamente:"
       )
       addBullet("Eventos de pesada (EvtPesada) para animales con peso registrado")
-      addBullet("Eventos de sanidad (EvtSanidad) para animales con tratamiento aplicado")
+      addBullet(
+        "Eventos de sanidad (EvtSanidad), uno por animal marcado, con el producto y la dosis de la sesión; " +
+        "el producto se descuenta del stock (si falta, se descuenta lo que hay y se avisa)"
+      )
       addBullet("Eventos de tacto (EvtTacto) para animales con diagnóstico de preñez")
       addBullet("Resumen exportable a PDF con totales y detalle")
       y += 4
@@ -169,20 +180,12 @@ export function DocsPdfGenerator() {
       checkPage(80)
       addTitle("Tipos de sesión")
 
-      const tipos = [
-        { tipo: "Pesada de rodeo", desc: "Solo peso + CC. Para control periódico o previo a venta.", acciones: "peso, cc" },
-        { tipo: "Vacunación / Antiparasitario", desc: "Sanidad pre-configurada (mismo producto y dosis para todos).", acciones: "sanidad" },
-        { tipo: "Tacto", desc: "Diagnóstico de preñez + apartado (preñadas vs vacías).", acciones: "tacto, apartado" },
-        { tipo: "Destete", desc: "Separar terneros de madres + peso + cambio de lote.", acciones: "peso, cc, apartado" },
-        { tipo: "Señalada", desc: "Marcar + registrar nuevos animales (ovinos).", acciones: "registro" },
-        { tipo: "Recepción de hacienda", desc: "Registrar animales nuevos (compra) + peso de ingreso.", acciones: "peso, cc, registro" },
-        { tipo: "Trabajo general", desc: "Todas las acciones disponibles.", acciones: "todas" },
-      ]
-
-      for (const t of tipos) {
+      // Misma configuración que el diálogo «Nueva Sesión de Manga»
+      for (const t of TIPOS_SESION_MANGA) {
         checkPage(20)
-        addSubtitle(t.tipo)
-        addParagraph(`${t.desc} Acciones: ${t.acciones}.`)
+        addSubtitle(t.label)
+        const acciones = PRESELECCION_POR_TIPO[t.value]
+        addParagraph(`${t.descripcion} Acciones: ${t.value === "general" ? "todas" : etiquetasAcciones(acciones)}.`)
       }
 
       // === CSV ===

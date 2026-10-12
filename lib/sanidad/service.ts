@@ -8,7 +8,7 @@
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 import { randomUUID } from "node:crypto"
-import { descontarAplicacion, revertirAplicaciones } from "@/lib/inventario/aplicaciones"
+import { consumoSugerido, descontarAplicacion, revertirAplicaciones } from "@/lib/inventario/aplicaciones"
 import { hoyArgentina } from "@/lib/inventario/fechas"
 import { InventarioError } from "@/lib/inventario/service"
 import { retirosVigentes } from "./retiro"
@@ -368,6 +368,80 @@ export async function aplicarMasivo(ctx: AuthContext, raw: unknown) {
     })
     return { operacionId: v.clave, cantidad: n, stock, repetido: false }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 60_000 })
+}
+
+/** Tratamiento definido en una sesión de manga (lo validó POST /api/manga al crearla). */
+export interface TratamientoManga {
+  id: string
+  nombre: string
+  fecha: Date
+  establecimientoId: string
+  productoSanidadId: string
+  dosisSanidad: number | null
+  unidadSanidad: string | null
+  viaSanidad: string | null
+  motivoSanidad: string | null
+  carenciaSanidad: number | null
+}
+
+/**
+ * Sanidad de una sesión de manga al finalizarla (dentro de su transacción): un evento por
+ * animal marcado, una sola vez aunque se haya leído dos veces, y solo si sigue activo en el
+ * campo de la sesión. Comparten operacionId = la sesión (Sanidad la muestra como aplicación
+ * masiva; anular uno anula todos y devuelve el stock). A diferencia de Sanidad, el descuento
+ * no es estricto: la manga no se traba por stock, descuenta lo que hay e informa el faltante.
+ */
+export async function registrarSanidadManga(
+  tx: Tx,
+  ctx: Pick<AuthContext, "userId" | "establecimientoIds" | "organizacionDeEstablecimiento">,
+  s: TratamientoManga,
+  animalIdsMarcados: string[],
+) {
+  const unicos = [...new Set(animalIdsMarcados)]
+  const activos = unicos.length
+    ? await tx.animal.findMany({ where: { id: { in: unicos }, establecimientoId: s.establecimientoId, estadoVital: "activo" }, select: { id: true } })
+    : []
+  const animalIds = activos.map((a) => a.id)
+  const omitidos = unicos.length - animalIds.length
+  const n = animalIds.length
+  if (!n) return { cantidad: 0, omitidos, stock: null, avisoStock: null }
+
+  // Lo aplicado sale del inventario; si la unidad no permite calcularlo, se avisa
+  const producto = await tx.producto.findUnique({ where: { id: s.productoSanidadId }, select: { unidad: true, activo: true, nombre: true, organizacionId: true } })
+  let stock: Awaited<ReturnType<typeof descontarAplicacion>> | null = null
+  let avisoStock: string | null = null
+  // Los productos del catálogo general no tienen stock
+  const consumo = producto?.activo && producto.organizacionId ? consumoSugerido(producto.unidad, s.dosisSanidad, s.unidadSanidad, n) : null
+  if (consumo == null) {
+    avisoStock = `No se descontó stock de ${producto?.nombre ?? "el producto"}: registrá la salida en Inventario.`
+  } else {
+    stock = await descontarAplicacion(tx, {
+      productoId: s.productoSanidadId, cantidad: consumo, fecha: new Date(),
+      motivo: `Manga ${s.fecha.toISOString().slice(0, 10)} · ${n} animales`,
+      origenTipo: "manga", origenId: s.id,
+    }, { establecimientoIds: ctx.establecimientoIds, establecimientoId: s.establecimientoId, estricto: false })
+    if (stock.faltante > 0) avisoStock = `Faltó stock: se descontaron ${stock.descontado.toLocaleString("es-AR")} de ${consumo.toLocaleString("es-AR")} ${stock.unidad}. Registrá la entrada o un ajuste en Inventario.`
+  }
+  // Costo de lo que salió del stock, repartido por animal (como la aplicación masiva); con
+  // faltante no se calcula (quedaría subvaluado)
+  const costoTotal = stock?.lotes?.length && !stock.faltante ? await costoAplicacion(tx, s.productoSanidadId, stock.lotes) : null
+  const loteProductoId = stock?.lotes?.length === 1 ? stock.lotes[0].loteProductoId : null
+
+  await tx.evtSanidad.createMany({
+    data: animalIds.map((animalId) => ({
+      animalId, operacionId: s.id, fecha: s.fecha, productoId: s.productoSanidadId, loteProductoId,
+      dosis: s.dosisSanidad, unidad: s.unidadSanidad, via: s.viaSanidad, motivo: s.motivoSanidad, carenciaDias: s.carenciaSanidad,
+      costo: costoTotal == null ? null : Math.round((costoTotal / n) * 100) / 100,
+      observ: `Manga: ${s.nombre}`.slice(0, 1000),
+    })),
+  })
+  await tx.auditLog.create({
+    data: {
+      usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[s.establecimientoId], tabla: "evt_sanidad", rowPk: s.id, accion: "INSERT",
+      detalle: { manga: true, animales: n, omitidos, productoId: s.productoSanidadId, fecha: s.fecha.toISOString().slice(0, 10), descontado: stock?.descontado ?? null, faltante: stock?.faltante ?? null },
+    },
+  })
+  return { cantidad: n, omitidos, stock, avisoStock }
 }
 
 // ---------------------------------------------------------------------------

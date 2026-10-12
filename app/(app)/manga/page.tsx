@@ -21,6 +21,7 @@ import {
   ListChecks,
   Clock,
   AlertCircle,
+  Syringe,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -30,16 +31,8 @@ import { MangaWorkspace } from "./components/manga-workspace"
 import { SessionSummary } from "./components/session-summary"
 import { OnboardingTour } from "./components/onboarding-tour"
 import { DocsPdfGenerator } from "./components/docs-pdf-generator"
-
-const TIPO_LABELS: Record<string, string> = {
-  pesada_rodeo: "Pesada de rodeo",
-  vacunacion: "Vacunación",
-  tacto: "Tacto",
-  destete: "Destete",
-  señalada: "Señalada",
-  recepcion: "Recepción",
-  general: "Trabajo general",
-}
+import { ETIQUETA_TIPO_SESION } from "@/lib/hardware/manga-config"
+import { formatoDia } from "@/lib/inventario/fechas"
 
 const ESTADO_BADGE: Record<string, { label: string; className: string }> = {
   activa: {
@@ -289,13 +282,19 @@ export default function MangaPage() {
                             <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <CalendarDays className="h-3.5 w-3.5" />
-                                {new Date(ses.fecha || ses.iniciadaAt).toLocaleDateString("es-AR")}
+                                {formatoDia(ses.fecha || ses.iniciadaAt)}
                               </span>
-                              <span>{TIPO_LABELS[ses.tipo] || ses.tipo}</span>
+                              <span>{ETIQUETA_TIPO_SESION[ses.tipo] || ses.tipo}</span>
                               <span className="flex items-center gap-1">
                                 <ListChecks className="h-3.5 w-3.5" />
                                 {ses.items?.length ?? ses.totalAnimales ?? ses._count?.items ?? 0} animales
                               </span>
+                              {ses.productoSanidad?.nombre && (
+                                <span className="flex items-center gap-1 text-purple-700">
+                                  <Syringe className="h-3.5 w-3.5" aria-hidden />
+                                  {ses.productoSanidad.nombre}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>

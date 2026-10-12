@@ -45,16 +45,16 @@ const STEPS: OnboardingStep[] = [
   },
   {
     icon: <Bluetooth className="h-6 w-6" />,
-    title: "Bastón Tru-test SRS2",
+    title: "Bastón Tru-Test XRS2i",
     description:
-      "Conectá el bastón lector por Bluetooth desde Chrome. Al pasar la caravana electrónica, el EID se carga automáticamente y busca al animal en el sistema.",
+      "Vinculá el bastón por Bluetooth como teclado (HID) en el celular o la tablet, o usá el modo Avanzado (Serial) en Chrome o Edge de escritorio. Al pasar la caravana electrónica, el EID se carga solo y busca al animal en el rodeo.",
     color: "from-blue-500 to-indigo-600",
   },
   {
     icon: <Scale className="h-6 w-6" />,
     title: "Registrar datos en la manga",
     description:
-      "Registrá peso, condición corporal, sanidad, tacto, dentición y apartado para cada animal que pasa. Los campos se adaptan según el tipo de sesión.",
+      "Registrá peso, condición corporal (1 a 9), tacto, dentición y apartado de cada animal. Con Sanidad, el producto y la dosis se eligen al crear la sesión y marcás «Aplicar tratamiento» por animal. Un EID que no está en el rodeo se da de alta con «Registrar».",
     color: "from-amber-500 to-orange-600",
   },
   {
@@ -75,7 +75,7 @@ const STEPS: OnboardingStep[] = [
     icon: <FileDown className="h-6 w-6" />,
     title: "Resumen y PDF",
     description:
-      "Al finalizar la sesión se generan automáticamente los eventos (pesadas, sanidad, tactos) y podés exportar un resumen en PDF para el encargado.",
+      "Al finalizar la sesión se generan los eventos (pesadas, tratamientos en Sanidad con su descuento de stock, tactos) y podés exportar un resumen en PDF para el encargado.",
     color: "from-teal-500 to-cyan-600",
   },
 ]

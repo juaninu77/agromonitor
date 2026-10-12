@@ -79,6 +79,7 @@ import { usePermissions } from "@/lib/hooks/use-permissions"
 import { AnimalDialog } from "../components/animal-dialog"
 import { MOTIVOS_BAJA } from "@/lib/validations/eventos-schema"
 import { EstadoReproductivoBadge } from "@/components/reproduccion/estado-badge"
+import { ETIQUETA_METODO_CELO } from "@/lib/reproduccion/validation"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -119,6 +120,7 @@ interface AnimalDetail {
   retiro: { hasta: string; producto: string; fechaAplicacion: string } | null
   estadoReproductivo?: { estado: string; desde: string; fechaProbableParto: string | null } | null
   serviciosHembra: ServicioEvent[]
+  celos?: { id: string; fecha: string; momento: string; metodo: string }[]
   tactos: TactoEvent[]
   partosComoMadre: PartoEvent[]
   eventosMovimiento: MovimientoEvent[]
@@ -494,6 +496,9 @@ export default function AnimalDetailPage() {
     animal.partosComoMadre?.forEach((e) =>
       events.push({ fecha: e.fecha, tipo: "Parto", detalle: e.resultado })
     )
+    animal.celos?.forEach((e) =>
+      events.push({ fecha: e.fecha, tipo: "Celo", detalle: `${e.momento === "manana" ? "Mañana" : "Tarde"} · ${ETIQUETA_METODO_CELO[e.metodo as keyof typeof ETIQUETA_METODO_CELO] ?? e.metodo}` })
+    )
 
     return events.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
   }, [animal])
@@ -832,6 +837,7 @@ export default function AnimalDetailPage() {
               <Genealogia animal={animal} />
               {animal.sexo === "F" && animal.estadoVital === "activo" && (
                 <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" asChild><Link href={`/reproduccion?registrar=celo&animal=${animal.id}`}>Registrar celo</Link></Button>
                   <Button size="sm" variant="outline" asChild><Link href={`/reproduccion?registrar=servicio&animal=${animal.id}`}>Registrar servicio</Link></Button>
                   <Button size="sm" variant="outline" asChild><Link href={`/reproduccion?registrar=tacto&animal=${animal.id}`}>Registrar tacto</Link></Button>
                   <Button size="sm" variant="outline" asChild><Link href={`/reproduccion?registrar=parto&animal=${animal.id}`}>Registrar parto</Link></Button>

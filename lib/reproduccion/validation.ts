@@ -9,7 +9,11 @@ export const METODOS_TACTO = ["palpacion", "ecografia"] as const
 export const RESULTADOS_CRIA = ["vivo", "muerto"] as const
 /** Resultado guardado en cada fila de parto: una cría viva o muerta, o un aborto (sin cría). */
 export const RESULTADOS_PARTO = ["vivo", "muerto", "aborto"] as const
-export const TIPOS_EVENTO = ["servicio", "tacto", "paricion", "destete", "senalada"] as const
+/** Detección de celo: turno en que se vio y cómo se detectó. */
+export const MOMENTOS_CELO = ["manana", "tarde"] as const
+export type MomentoCelo = (typeof MOMENTOS_CELO)[number]
+export const METODOS_CELO = ["observado", "pintura", "parche", "collar"] as const
+export const TIPOS_EVENTO = ["servicio", "tacto", "paricion", "destete", "senalada", "celo"] as const
 export type TipoEvento = (typeof TIPOS_EVENTO)[number]
 /** Anular un evento: solo admin o encargado del campo (spec 10 §3). */
 export const ROLES_ANULAR = ["admin", "encargado"] as const
@@ -53,6 +57,8 @@ export const ROLES_REPRODUCCION = {
   senalada: ["admin", "encargado", "operario"],
   /** Protocolos IATF: armarlos y registrar sus pasos (hormonas e inseminación) */
   iatf: ["admin", "encargado", "vet"],
+  /** Detección de celo: la registra quien recorre el rodeo */
+  celo: ["admin", "encargado", "vet", "operario"],
 } as const
 export type AccionReproduccion = keyof typeof ROLES_REPRODUCCION
 
@@ -216,6 +222,7 @@ export const EDICION_POR_TIPO = {
   }).strict(),
   destete: z.object({ metodo: z.enum(METODOS_DESTETE).nullish(), observ: textoEdicion(1000) }).strict(),
   senalada: z.object({ observ: textoEdicion(1000) }).strict(),
+  celo: z.object({ metodo: z.enum(METODOS_CELO).nullish().transform((v) => v ?? undefined), observ: textoEdicion(1000) }).strict(),
 } as const
 
 export const anulacionSchema = z.object({
@@ -414,3 +421,64 @@ export const pasoIatfSchema = z.object({
   productoSemenId: idOpcional,
   loteProductoId: idOpcional,
 })
+
+// ─── Detección de celo (Fase E5) ───────────────────────────────────────────
+
+export const ETIQUETA_MOMENTO_CELO: Record<MomentoCelo, string> = { manana: "Mañana", tarde: "Tarde" }
+export const ETIQUETA_METODO_CELO: Record<(typeof METODOS_CELO)[number], string> = { observado: "Observado", pintura: "Pintura en la cola", parche: "Parche detector", collar: "Collar / podómetro" }
+
+export const celoSchema = z.object({
+  hembraId: z.string({ required_error: "Elegí la hembra" }).uuid("Elegí la hembra"),
+  fecha: diaEvento,
+  momento: z.enum(MOMENTOS_CELO, { errorMap: () => ({ message: "Indicá si fue a la mañana o a la tarde" }) }),
+  metodo: z.enum(METODOS_CELO, { errorMap: () => ({ message: "Método inválido" }) }).default("observado"),
+  observ: texto(1000),
+})
+export type CeloInput = z.input<typeof celoSchema>
+
+/** Carga rápida: caravanas, CUIG o EID (el bastón en modo teclado) de las hembras en celo. */
+export const cargaRapidaCeloSchema = z.object({
+  establecimientoId: z.string({ required_error: "Falta el campo" }).uuid("Campo inválido"),
+  fecha: diaEvento,
+  momento: z.enum(MOMENTOS_CELO, { errorMap: () => ({ message: "Indicá si fue a la mañana o a la tarde" }) }),
+  metodo: z.enum(METODOS_CELO, { errorMap: () => ({ message: "Método inválido" }) }).default("observado"),
+  identificadores: z.array(z.string().trim().min(1).max(40)).min(1, "Cargá al menos una caravana").max(300, "Hasta 300 caravanas por carga"),
+  /** Idempotencia: la misma carga reintentada no duplica (= operacionId de los celos). */
+  clave: z.string().uuid("Clave inválida"),
+})
+
+/**
+ * Cuándo inseminar después de un celo (regla AM/PM: unas 12 horas después): el celo visto a la
+ * mañana se insemina esa tarde; el de la tarde, a la mañana siguiente.
+ */
+export function sugerenciaInseminacion(fecha: string, momento: MomentoCelo): { fecha: string; momento: MomentoCelo; texto: string } {
+  if (momento === "manana") return { fecha, momento: "tarde", texto: "esta tarde (unas 12 h después)" }
+  return { fecha: sumarDias(fecha, 1), momento: "manana", texto: "mañana a la mañana (unas 12 h después)" }
+}
+
+/** Celos a menos de 3 días entre sí son el mismo celo (visto a la tarde y a la mañana siguiente). */
+export const DIAS_MISMO_CELO = 3
+export type CalificacionIntervalo = "regular" | "doble" | "corto" | "largo"
+/** Intervalo entre celos (bovinos 18–24 días; ovinos 14–19): regular, doble (se perdió uno), corto o largo. */
+export function calificarIntervalo(dias: number, especie?: string | null): CalificacionIntervalo {
+  const [min, max] = tipoGrupoDeEspecie(especie) === "encarnerada" ? [14, 19] : [18, 24]
+  if (dias >= min && dias <= max) return "regular"
+  if (dias >= min * 2 && dias <= max * 2) return "doble"
+  return dias < min ? "corto" : "largo"
+}
+export const ETIQUETA_INTERVALO: Record<CalificacionIntervalo, string> = { regular: "Regular", doble: "Celo no detectado", corto: "Corto", largo: "Irregular" }
+
+/**
+ * Celos distintos de una hembra (fechas en orden): agrupa los que están a menos de 3 días
+ * y devuelve, para cada fecha, los días desde el celo anterior (null si es el primero o el mismo celo).
+ */
+export function intervalosDeCelo(fechas: string[]): (number | null)[] {
+  let inicio: string | null = null
+  return fechas.map((f) => {
+    if (inicio === null) { inicio = f; return null }
+    const d = Math.round((Date.parse(`${f}T00:00:00Z`) - Date.parse(`${inicio}T00:00:00Z`)) / DIA_MS)
+    if (d < DIAS_MISMO_CELO) return null
+    inicio = f
+    return d
+  })
+}

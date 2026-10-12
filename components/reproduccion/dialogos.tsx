@@ -91,8 +91,9 @@ function useAnimalInicial(open: boolean, estId: string, id: string | null | unde
   }, [open, id]) // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-export function ServicioDialog({ open, onOpenChange, estId, onSuccess, hembraInicial }: PropsDialogo & { hembraInicial?: string | null }) {
-  const r = useRegistro(open, () => ({ fecha: hoyArgentina(), tipo: "natural", hembra: null as AnimalOpcion | null, macho: null as AnimalOpcion | null, toradaId: "", toroNombre: "", loteSemen: "", inseminador: "", observ: "", pajuela: { productoId: "", loteId: "" } }))
+export function ServicioDialog({ open, onOpenChange, estId, onSuccess, hembraInicial, tipoInicial }: PropsDialogo & { hembraInicial?: string | null; tipoInicial?: "ia" | null }) {
+  // Desde un celo, el servicio es una inseminación (IA)
+  const r = useRegistro(open, () => ({ fecha: hoyArgentina(), tipo: tipoInicial ?? "natural", hembra: null as AnimalOpcion | null, macho: null as AnimalOpcion | null, toradaId: "", toroNombre: "", loteSemen: "", inseminador: "", observ: "", pajuela: { productoId: "", loteId: "" } }))
   const { form, set } = r
   useAnimalInicial(open, estId, hembraInicial, (a) => set({ hembra: a }))
   const toradas = useQuery({

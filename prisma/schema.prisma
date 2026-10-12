@@ -293,6 +293,7 @@ model Establecimiento {
   tactos         EvtTacto[]
   pariciones     EvtParicion[]
   destetes       EvtDestete[]
+  celos          EvtCelo[]
   protocolosIatf ProtocoloIatf[]
 
   @@unique([organizacionId, nombre])
@@ -655,6 +656,7 @@ model Animal {
   serviciosHembra EvtServicio[] @relation("ServicioHembra")
   tactos          EvtTacto[]
   partosComoMadre EvtParicion[] @relation("ParicionMadre")
+  celos           EvtCelo[]
 
   // Reproductivos como macho
   serviciosMacho  EvtServicio[] @relation("ServicioMacho")
@@ -1120,6 +1122,39 @@ model EvtTacto {
   @@index([resultado])
   @@index([operacionId])
   @@map("evt_tacto")
+}
+
+// ============================================
+// EVENTO: CELO (detección de celo, para inseminar)
+// ============================================
+
+model EvtCelo {
+  id              String    @id @default(uuid()) @db.Uuid
+  fecha           DateTime  @db.Date
+  /// Turno en que se vio: 'manana' | 'tarde' (regla AM/PM para la inseminación)
+  momento         String
+  /// 'observado' | 'pintura' | 'parche' | 'collar'
+  metodo          String    @default("observado")
+  observ          String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  /// Carga rápida: los celos comparten operacionId (también es la clave de idempotencia)
+  operacionId     String?   @map("operacion_id") @db.Uuid
+  /// Anulación (no se borra): fecha, quién y por qué
+  anuladoAt       DateTime? @map("anulado_at")
+  anuladoPorId    String?   @map("anulado_por_id") @db.Uuid
+  motivoAnulacion String?   @map("motivo_anulacion")
+
+  hembraId String @map("hembra_id") @db.Uuid
+  hembra   Animal @relation(fields: [hembraId], references: [id])
+
+  /// Campo donde ocurrió (el del animal al registrarlo; no cambia si el animal se mueve)
+  establecimientoId String          @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id])
+
+  @@index([establecimientoId, fecha])
+  @@index([hembraId, fecha])
+  @@index([operacionId])
+  @@map("evt_celo")
 }
 
 // ============================================

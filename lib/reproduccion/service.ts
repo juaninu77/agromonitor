@@ -36,7 +36,7 @@ export const finDia = (d: string) => new Date(`${d}T23:59:59.999-03:00`)
 export const instanteDe = (d: string) => new Date(Math.min(Date.parse(`${d}T12:00:00-03:00`), Date.now()))
 export const vigente = { anuladoAt: null }
 
-const NOMBRE_ACCION: Record<AccionReproduccion, string> = { servicio: "servicios", tacto: "tactos", paricion: "partos", destete: "destetes", torada: "toradas", senalada: "señaladas", iatf: "protocolos IATF" }
+const NOMBRE_ACCION: Record<AccionReproduccion, string> = { servicio: "servicios", tacto: "tactos", paricion: "partos", destete: "destetes", torada: "toradas", senalada: "señaladas", iatf: "protocolos IATF", celo: "celos" }
 export const SEL_ANIMAL = {
   id: true, sexo: true, estadoVital: true, especieId: true, razaId: true, establecimientoId: true, fechaNacimiento: true, caravanaVisual: true, cuig: true, caravanaRfid: true,
   especie: { select: { nombre: true } },
@@ -51,7 +51,7 @@ export function exigirRol(ctx: AuthContext, establecimientoId: string, accion: A
 }
 
 /** Hembra (o animal) del usuario, activa, con permiso para la acción en su campo. */
-async function animalParaEvento(ctx: AuthContext, id: string, accion: AccionReproduccion, opts: { nombre: string; sexo?: "F" | "M" }) {
+export async function animalParaEvento(ctx: AuthContext, id: string, accion: AccionReproduccion, opts: { nombre: string; sexo?: "F" | "M" }) {
   const a = await prisma.animal.findFirst({ where: { id, establecimientoId: { in: ctx.establecimientoIds } }, select: SEL_ANIMAL })
   if (!a || !a.establecimientoId) throw new ReproduccionError(`${opts.nombre} no encontrado`, 404)
   exigirRol(ctx, a.establecimientoId, accion)
@@ -323,8 +323,8 @@ export async function crearTorada(ctx: AuthContext, raw: unknown) {
 // ─── Anular y editar ────────────────────────────────────────────────────────
 
 type EventoBase = { id: string; fecha: Date; anuladoAt: Date | null; establecimientoId: string | null }
-const ACCION_DE_TIPO: Record<TipoEvento, AccionReproduccion> = { servicio: "servicio", tacto: "tacto", paricion: "paricion", destete: "destete", senalada: "senalada" }
-const TABLA_DE_TIPO: Record<TipoEvento, string> = { servicio: "evt_servicio", tacto: "evt_tacto", paricion: "evt_paricion", destete: "evt_destete", senalada: "evt_senalada" }
+const ACCION_DE_TIPO: Record<TipoEvento, AccionReproduccion> = { servicio: "servicio", tacto: "tacto", paricion: "paricion", destete: "destete", senalada: "senalada", celo: "celo" }
+const TABLA_DE_TIPO: Record<TipoEvento, string> = { servicio: "evt_servicio", tacto: "evt_tacto", paricion: "evt_paricion", destete: "evt_destete", senalada: "evt_senalada", celo: "evt_celo" }
 
 /** Evento del usuario (por el campo donde ocurrió) con el que se va a operar. */
 async function eventoDelUsuario(ctx: AuthContext, tipo: TipoEvento, id: string): Promise<EventoBase & Record<string, unknown>> {
@@ -336,6 +336,7 @@ async function eventoDelUsuario(ctx: AuthContext, tipo: TipoEvento, id: string):
     : tipo === "tacto" ? await prisma.evtTacto.findFirst({ where: delCampo, select: { ...sel, servicioId: true } })
     : tipo === "paricion" ? await prisma.evtParicion.findFirst({ where: delCampo, select: { ...sel, partoId: true } })
     : tipo === "destete" ? await prisma.evtDestete.findFirst({ where: delCampo, select: sel })
+    : tipo === "celo" ? await prisma.evtCelo.findFirst({ where: delCampo, select: sel })
     : await prisma.evtSenalada.findFirst({ where: { id, lote: { establecimientoId: { in: ctx.establecimientoIds } } }, select: { id: true, fecha: true, anuladoAt: true, lote: { select: { establecimientoId: true } } } }).then((e) => e && { ...e, establecimientoId: e.lote.establecimientoId })
   if (!ev || !ev.establecimientoId) throw new ReproduccionError("Evento no encontrado", 404)
   return ev
@@ -441,6 +442,7 @@ export async function anularEvento(ctx: AuthContext, tipo: TipoEvento, id: strin
     if (tipo === "paricion") await tx.evtParicion.updateMany({ where: { id: { in: ids } }, data: anulacion })
     if (tipo === "destete") await tx.evtDestete.updateMany({ where: { id: { in: ids } }, data: anulacion })
     if (tipo === "senalada") await tx.evtSenalada.updateMany({ where: { id: { in: ids } }, data: anulacion })
+    if (tipo === "celo") await tx.evtCelo.updateMany({ where: { id: { in: ids } }, data: anulacion })
     await tx.auditLog.create({
       data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[est] ?? null, tabla: TABLA_DE_TIPO[tipo], rowPk: id, accion: "UPDATE", detalle: JSON.parse(JSON.stringify({ anulado: true, motivo: v.motivo, ids, servicioId: ev.servicioId ?? undefined, deshecho })) },
     })
@@ -464,6 +466,7 @@ export async function editarEvento(ctx: AuthContext, tipo: TipoEvento, id: strin
       : tipo === "tacto" ? await tx.evtTacto.update({ where: { id }, data: cambios })
       : tipo === "paricion" ? await tx.evtParicion.update({ where: { id }, data: cambios })
       : tipo === "destete" ? await tx.evtDestete.update({ where: { id }, data: cambios })
+      : tipo === "celo" ? await tx.evtCelo.update({ where: { id }, data: cambios })
       : await tx.evtSenalada.update({ where: { id }, data: cambios })
     await tx.auditLog.create({ data: { usuarioId: ctx.userId, organizacionId: ctx.organizacionDeEstablecimiento[ev.establecimientoId!] ?? null, tabla: TABLA_DE_TIPO[tipo], rowPk: id, accion: "UPDATE", detalle: JSON.parse(JSON.stringify(cambios)) } })
     return r
@@ -512,21 +515,21 @@ export async function editarTorada(ctx: AuthContext, id: string, raw: unknown) {
 
 // ─── Lecturas ───────────────────────────────────────────────────────────────
 
-function filtros(ctx: AuthContext, raw: unknown) {
+export function filtros(ctx: AuthContext, raw: unknown) {
   const f = filtrosReproduccionSchema.parse(raw)
   if (!ctx.establecimientoIds.includes(f.establecimientoId)) throw new ReproduccionError("Campo no encontrado", 404)
   return f
 }
-const rangoFechas = (f: FiltrosReproduccion) =>
+export const rangoFechas = (f: FiltrosReproduccion) =>
   f.desde || f.hasta ? { fecha: { ...(f.desde ? { gte: fechaDia(f.desde) } : {}), ...(f.hasta ? { lte: fechaDia(f.hasta) } : {}) } } : {}
-const buscarAnimal = (q?: string): Prisma.AnimalWhereInput =>
+export const buscarAnimal = (q?: string): Prisma.AnimalWhereInput =>
   q ? { OR: [{ caravanaVisual: { contains: q, mode: "insensitive" } }, { cuig: { contains: q, mode: "insensitive" } }, { caravanaRfid: { contains: q } }] } : {}
-const paginacion = (f: FiltrosReproduccion, total: number) => ({ page: f.page, limit: f.limit, total, totalPages: Math.max(1, Math.ceil(total / f.limit)) })
-const pagina = (f: FiltrosReproduccion) => ({ skip: (f.page - 1) * f.limit, take: f.limit })
+export const paginacion = (f: FiltrosReproduccion, total: number) => ({ page: f.page, limit: f.limit, total, totalPages: Math.max(1, Math.ceil(total / f.limit)) })
+export const pagina = (f: FiltrosReproduccion) => ({ skip: (f.page - 1) * f.limit, take: f.limit })
 const SEL_ID = { id: true, caravanaVisual: true, cuig: true } as const
 const SEL_ANULACION = { anuladoAt: true, motivoAnulacion: true } as const
 /** Por defecto solo los vigentes; con verAnulados, también los anulados. */
-const soloVigentes = (f: FiltrosReproduccion) => (f.verAnulados ? {} : vigente)
+export const soloVigentes = (f: FiltrosReproduccion) => (f.verAnulados ? {} : vigente)
 
 export async function listarServicios(ctx: AuthContext, raw: unknown) {
   const f = filtros(ctx, raw)

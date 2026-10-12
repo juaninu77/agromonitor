@@ -11,10 +11,10 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { AnimalCombobox, etiquetaAnimal, type AnimalOpcion } from "./animal-combobox"
 import { formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
-import { ETIQUETA_METODO_DESTETE, ETIQUETA_TIPO_PARTO, METODOS_DESTETE, TIPOS_PARTO, type TipoEvento } from "@/lib/reproduccion/validation"
+import { ETIQUETA_METODO_CELO, ETIQUETA_METODO_DESTETE, ETIQUETA_TIPO_PARTO, METODOS_CELO, METODOS_DESTETE, TIPOS_PARTO, type TipoEvento } from "@/lib/reproduccion/validation"
 
 const selectClass = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-const NOMBRE: Record<TipoEvento, string> = { servicio: "el servicio", tacto: "el tacto", paricion: "el parto", destete: "el destete", senalada: "la señalada" }
+const NOMBRE: Record<TipoEvento, string> = { servicio: "el servicio", tacto: "el tacto", paricion: "el parto", destete: "el destete", senalada: "la señalada", celo: "el celo" }
 
 export interface EventoAccion { tipo: TipoEvento; id: string; descripcion: string; valores: Record<string, unknown> }
 
@@ -86,6 +86,7 @@ const CAMPOS: Record<TipoEvento, CampoEdicion[]> = {
   ],
   destete: [{ clave: "metodo", etiqueta: "Método", tipo: { opciones: METODOS_DESTETE.map((m) => [m, ETIQUETA_METODO_DESTETE[m]]) } }, { clave: "observ", etiqueta: "Observaciones", tipo: "largo" }],
   senalada: [{ clave: "observ", etiqueta: "Observaciones", tipo: "largo" }],
+  celo: [{ clave: "metodo", etiqueta: "Detección", tipo: { opciones: METODOS_CELO.map((m) => [m, ETIQUETA_METODO_CELO[m]]) } }, { clave: "observ", etiqueta: "Observaciones", tipo: "largo" }],
 }
 
 /** Editar los datos no críticos de un evento (fecha, animal y resultado no se cambian: se anula y se vuelve a cargar). */

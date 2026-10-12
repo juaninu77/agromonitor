@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Activity, Baby, Ban, Users, ChevronLeft, ChevronRight, Heart, Loader2, MoreHorizontal, Pencil, Plus, Search, Syringe, TrendingUp } from "lucide-react"
+import { Activity, Baby, Ban, Users, ChevronLeft, ChevronRight, Flame, Heart, Loader2, MoreHorizontal, Pencil, Plus, ScanLine, Search, Syringe, TrendingUp } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AgendaTab, IndicadoresTab, type PendienteAgenda } from "@/components/reproduccion/agenda-indicadores"
 import { IatfTab } from "@/components/reproduccion/iatf"
+import { CargaRapidaCelosDialog, CeloDialog, CelosAnalisis, IntervaloBadge, textoInseminar } from "@/components/reproduccion/celos"
 import { ApartarVaciasDialog, MenuHoja, PronosticoCard, TorosCard, ZafraCard } from "@/components/reproduccion/informes"
 import { AnularEventoDialog, EditarEventoDialog, ToradaEditarDialog, type EventoAccion, type ToradaEditable } from "@/components/reproduccion/acciones"
 import { etiquetaAnimal, type AnimalOpcion } from "@/components/reproduccion/animal-combobox"
@@ -23,8 +24,8 @@ import { useTenant } from "@/lib/context/tenant-context"
 import { usePermissions } from "@/lib/hooks/use-permissions"
 import { formatoDia } from "@/lib/inventario/fechas"
 import {
-  ETIQUETA_METODO_DESTETE, ETIQUETA_METODO_TACTO, ETIQUETA_RESULTADO_TACTO, ETIQUETA_TIPO_PARTO, ETIQUETA_TIPO_SERVICIO, ROLES_ANULAR, ROLES_REPRODUCCION,
-  TERMINOS_GRUPO, type AccionReproduccion, type ResultadoTacto, type TipoEvento, type TipoGrupo,
+  ETIQUETA_METODO_CELO, ETIQUETA_MOMENTO_CELO, ETIQUETA_METODO_DESTETE, ETIQUETA_METODO_TACTO, ETIQUETA_RESULTADO_TACTO, ETIQUETA_TIPO_PARTO, ETIQUETA_TIPO_SERVICIO, ROLES_ANULAR, ROLES_REPRODUCCION,
+  TERMINOS_GRUPO, type AccionReproduccion, type CalificacionIntervalo, type MomentoCelo, type ResultadoTacto, type TipoEvento, type TipoGrupo,
 } from "@/lib/reproduccion/validation"
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
@@ -141,13 +142,27 @@ const COL_SENALADAS: Columna<Senalada>[] = [
   { titulo: "Vacuna", celda: (s) => guion(s.productoClostridial?.nombre) },
 ]
 
+interface Celo extends Anulable {
+  momento: MomentoCelo; metodo: string; hembra: Ident; intervaloDias: number | null; calificacion: CalificacionIntervalo | null
+  sugerencia: { fecha: string; momento: MomentoCelo; texto: string }; servicio: { id: string; fecha: string; tipo: string } | null
+}
+const COL_CELOS: Columna<Celo>[] = [
+  { titulo: "Fecha", celda: (c) => formatoDia(c.fecha) },
+  { titulo: "Turno", celda: (c) => ETIQUETA_MOMENTO_CELO[c.momento] ?? c.momento },
+  { titulo: "Hembra", celda: (c) => <Link href={`/ganado/${c.hembra.id}`} className="font-medium text-primary underline-offset-2 hover:underline">{etiquetaAnimal(c.hembra)}</Link> },
+  { titulo: "Detección", celda: (c) => ETIQUETA_METODO_CELO[c.metodo as keyof typeof ETIQUETA_METODO_CELO] ?? c.metodo },
+  { titulo: "Intervalo", celda: (c) => (c.intervaloDias != null && c.calificacion ? <IntervaloBadge dias={c.intervaloDias} calificacion={c.calificacion} /> : guion(null)) },
+  { titulo: "Inseminar", celda: (c) => (c.anuladoAt ? guion(null) : textoInseminar(c.sugerencia)) },
+  { titulo: "Servicio", celda: (c) => (c.servicio ? <span className="flex items-center gap-1.5"><TipoBadge tipo={c.servicio.tipo} />{formatoDia(c.servicio.fecha)}</span> : <span className="text-muted-foreground">Sin servicio</span>) },
+]
+
 // ─── Página ─────────────────────────────────────────────────────────────────
 
-type Pestania = "agenda" | "servicios" | "tactos" | "pariciones" | "destetes" | "toradas" | "senaladas" | "iatf" | "indicadores"
-const ACCION_DE: Record<Exclude<Pestania, "agenda" | "indicadores">, AccionReproduccion> = { servicios: "servicio", tactos: "tacto", pariciones: "paricion", destetes: "destete", toradas: "torada", senaladas: "senalada", iatf: "iatf" }
-const ACCION_PENDIENTE = { tacto: "tacto", parto: "paricion", senalada: "senalada", destete: "destete" } as const
-const PESTANIAS: Pestania[] = ["agenda", "servicios", "tactos", "pariciones", "destetes", "toradas", "senaladas", "iatf", "indicadores"]
-type PorGrupo = "servicio" | "tacto" | "destete" | null
+type Pestania = "agenda" | "servicios" | "tactos" | "pariciones" | "destetes" | "toradas" | "senaladas" | "celos" | "iatf" | "indicadores"
+const ACCION_DE: Record<Exclude<Pestania, "agenda" | "indicadores">, AccionReproduccion> = { servicios: "servicio", tactos: "tacto", pariciones: "paricion", destetes: "destete", toradas: "torada", senaladas: "senalada", celos: "celo", iatf: "iatf" }
+const ACCION_PENDIENTE = { tacto: "tacto", parto: "paricion", senalada: "senalada", destete: "destete", celo: "servicio" } as const
+const PESTANIAS: Pestania[] = ["agenda", "servicios", "tactos", "pariciones", "destetes", "toradas", "senaladas", "celos", "iatf", "indicadores"]
+type PorGrupo = "servicio" | "tacto" | "destete" | "celo" | null
 
 export default function ReproduccionPage() {
   const { establecimientoActivo, isLoading: tenantLoading } = useTenant()
@@ -161,11 +176,11 @@ export default function ReproduccionPage() {
   const [pestania, setPestania] = useState<Pestania>(() => (tabParam && PESTANIAS.includes(tabParam) ? tabParam : "agenda"))
   const [abierto, setAbierto] = useState<Pestania | null>(null)
   /** Lo que precarga la agenda (o la ficha del animal) en el diálogo que abre. */
-  const [preset, setPreset] = useState<{ toradaId?: string | null; loteId?: string | null; animalId?: string | null }>({})
-  // Desde la ficha del animal: /reproduccion?registrar=servicio|tacto|parto&animal=ID
+  const [preset, setPreset] = useState<{ toradaId?: string | null; loteId?: string | null; animalId?: string | null; tipo?: "ia" | null }>({})
+  // Desde la ficha del animal: /reproduccion?registrar=servicio|tacto|parto|celo&animal=ID
   useEffect(() => {
     const registrar = params.get("registrar"), animal = params.get("animal")
-    const destino = registrar === "servicio" ? "servicios" : registrar === "tacto" ? "tactos" : registrar === "parto" ? "pariciones" : null
+    const destino = registrar === "servicio" ? "servicios" : registrar === "tacto" ? "tactos" : registrar === "parto" ? "pariciones" : registrar === "celo" ? "celos" : null
     if (!destino || !animal) return
     setPreset({ animalId: animal }); setPestania(destino); setAbierto(destino)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -203,12 +218,15 @@ export default function ReproduccionPage() {
   })
   const invalidar = () => { queryClient.invalidateQueries({ queryKey: ["repro"] }); queryClient.invalidateQueries({ queryKey: ["tareas"] }) }
   const abrir = (p: Pestania) => { setPestania(p); setAbierto(p) }
+  /** Después de un celo: el servicio de esa hembra, como inseminación. */
+  const inseminar = (hembraId: string) => { setPreset({ animalId: hembraId, tipo: "ia" }); setAbierto("servicios") }
   /** Acción de un pendiente de la agenda: abre el registro que lo resuelve, ya precargado. */
   const resolver = (p: PendienteAgenda) => {
     setPreset({ toradaId: p.toradaId, loteId: p.loteId, animalId: p.animalId })
     if (p.tipo === "tacto") { if (p.toradaId) setPorGrupo("tacto"); else setAbierto("tactos") }
     else if (p.tipo === "parto") setAbierto("pariciones")
     else if (p.tipo === "senalada") setAbierto("senaladas")
+    else if (p.tipo === "celo" && p.animalId) inseminar(p.animalId)
     else setPorGrupo("destete")
   }
 
@@ -239,8 +257,9 @@ export default function ReproduccionPage() {
         <div className="flex flex-wrap gap-2">
           {puede("servicio") && <Button size="sm" variant="outline" onClick={() => abrir("servicios")}><Syringe className="mr-2 h-4 w-4" />Nuevo servicio</Button>}
           {puede("tacto") && <Button size="sm" variant="outline" onClick={() => abrir("tactos")}><Activity className="mr-2 h-4 w-4" />Registrar tacto</Button>}
+          {puede("celo") && <Button size="sm" variant="outline" onClick={() => abrir("celos")}><Flame className="mr-2 h-4 w-4" />Registrar celo</Button>}
           {puede("paricion") && <Button size="sm" onClick={() => abrir("pariciones")}><Baby className="mr-2 h-4 w-4" />Registrar parto</Button>}
-          {(puede("servicio") || puede("tacto") || puede("destete") || puede("senalada")) && (
+          {(puede("servicio") || puede("tacto") || puede("destete") || puede("senalada") || puede("celo")) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild><Button size="sm" variant="outline"><Users className="mr-2 h-4 w-4" />Por grupo</Button></DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -248,6 +267,7 @@ export default function ReproduccionPage() {
                 {puede("tacto") && <DropdownMenuItem onSelect={() => { setPestania("tactos"); setPorGrupo("tacto") }}>Planilla de tacto</DropdownMenuItem>}
                 {puede("destete") && <DropdownMenuItem onSelect={() => { setPestania("destetes"); setPorGrupo("destete") }}>Destete por grupo</DropdownMenuItem>}
                 {puede("senalada") && <DropdownMenuItem onSelect={() => abrir("senaladas")}>Señalada (ovinos)</DropdownMenuItem>}
+                {puede("celo") && <DropdownMenuItem onSelect={() => { setPestania("celos"); setPorGrupo("celo") }}>Carga rápida de celos</DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -267,7 +287,7 @@ export default function ReproduccionPage() {
       </div>
 
       <Tabs value={pestania} onValueChange={(v) => setPestania(v as Pestania)}>
-        <TabsList className="grid h-auto w-full grid-cols-4 lg:grid-cols-8">
+        <TabsList className="grid h-auto w-full grid-cols-4 sm:grid-cols-5 lg:grid-cols-10">
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
           <TabsTrigger value="servicios">Servicios</TabsTrigger>
           <TabsTrigger value="tactos">Tactos</TabsTrigger>
@@ -275,6 +295,7 @@ export default function ReproduccionPage() {
           <TabsTrigger value="destetes">Destetes</TabsTrigger>
           <TabsTrigger value="toradas">Toradas</TabsTrigger>
           <TabsTrigger value="senaladas">Señaladas</TabsTrigger>
+          <TabsTrigger value="celos">Celos</TabsTrigger>
           <TabsTrigger value="iatf">IATF</TabsTrigger>
           <TabsTrigger value="indicadores">Indicadores</TabsTrigger>
         </TabsList>
@@ -304,9 +325,18 @@ export default function ReproduccionPage() {
           acciones={puede("torada") ? (t: Torada) => <Button size="sm" variant="outline" onClick={() => setTorada(t)}>{t.fechaFin ? "Editar" : "Cerrar / toros"}</Button> : undefined} nuevo={puede("torada") ? { texto: "Nueva torada", onClick: () => setAbierto("toradas") } : undefined} /></TabsContent>
         <TabsContent value="senaladas"><ListaEventos<Senalada> titulo="Señaladas de corderos" ruta="senaladas" estId={estId} columnas={COL_SENALADAS} vacio="No hay señaladas registradas." sinBusqueda
           acciones={acciones("senalada", "senalada", (x: Senalada) => `Señalada de ${x.lote.nombre} del ${formatoDia(x.fecha)}`, (x: Senalada) => ({ observ: x.observ }))} nuevo={puede("senalada") ? { texto: "Nueva señalada", onClick: () => setAbierto("senaladas") } : undefined} /></TabsContent>
+        <TabsContent value="celos" className="space-y-4">
+          {pestania === "celos" && <CelosAnalisis estId={estId} puedeServicio={puede("servicio")} onInseminar={inseminar} />}
+          <ListaEventos<Celo> titulo="Celos detectados" ruta="celos" estId={estId} columnas={COL_CELOS} vacio="No hay celos registrados. Registrá los que veas en la recorrida: la app te dice cuándo inseminar."
+            acciones={acciones("celo", "celo", (c: Celo) => `Celo de ${etiquetaAnimal(c.hembra)} del ${formatoDia(c.fecha)}`, (c: Celo) => ({ metodo: c.metodo, observ: c.observ }))}
+            extra={puede("celo") ? <Button variant="outline" onClick={() => setPorGrupo("celo")}><ScanLine className="mr-2 h-4 w-4" />Carga rápida</Button> : undefined}
+            nuevo={puede("celo") ? { texto: "Registrar celo", onClick: () => setAbierto("celos") } : undefined} />
+        </TabsContent>
       </Tabs>
 
-      <ServicioDialog open={abierto === "servicios" && puede(ACCION_DE.servicios)} onOpenChange={(o) => { if (!o) { setAbierto(null); setPreset({}) } }} estId={estId} onSuccess={invalidar} hembraInicial={preset.animalId} />
+      <ServicioDialog open={abierto === "servicios" && puede(ACCION_DE.servicios)} onOpenChange={(o) => { if (!o) { setAbierto(null); setPreset({}) } }} estId={estId} onSuccess={invalidar} hembraInicial={preset.animalId} tipoInicial={preset.tipo} />
+      <CeloDialog open={abierto === "celos" && puede("celo")} onOpenChange={(o) => { if (!o) { setAbierto(null); setPreset({}) } }} estId={estId} onSuccess={invalidar} hembraInicial={preset.animalId} onInseminar={puede("servicio") ? inseminar : undefined} />
+      <CargaRapidaCelosDialog open={porGrupo === "celo" && puede("celo")} onOpenChange={(o) => !o && setPorGrupo(null)} estId={estId} onSuccess={invalidar} />
       <TactoDialog open={abierto === "tactos" && puede(ACCION_DE.tactos)} onOpenChange={(o) => { if (!o) { setAbierto(null); setPreset({}) } }} estId={estId} onSuccess={invalidar} hembraInicial={preset.animalId} />
       <ParicionDialog open={abierto === "pariciones" && puede(ACCION_DE.pariciones)} onOpenChange={(o) => { if (!o) { setAbierto(null); setPreset({}) } }} estId={estId} onSuccess={invalidar} madreInicial={preset.animalId} />
       <DesteteDialog open={abierto === "destetes" && puede(ACCION_DE.destetes)} onOpenChange={(o) => !o && setAbierto(null)} estId={estId} lotes={lotes.data ?? []} onSuccess={invalidar} />
@@ -344,9 +374,9 @@ function MenuFila({ children }: { children: ReactNode }) {
   )
 }
 
-function ListaEventos<T extends { id: string; anuladoAt?: string | null; motivoAnulacion?: string | null }>({ titulo, ruta, estId, columnas, vacio, nuevo, sinBusqueda, sinAnulados, acciones }: {
+function ListaEventos<T extends { id: string; anuladoAt?: string | null; motivoAnulacion?: string | null }>({ titulo, ruta, estId, columnas, vacio, nuevo, extra, sinBusqueda, sinAnulados, acciones }: {
   titulo: string; ruta: string; estId: string; columnas: Columna<T>[]; vacio: string
-  nuevo?: { texto: string; onClick: () => void }; sinBusqueda?: boolean; sinAnulados?: boolean
+  nuevo?: { texto: string; onClick: () => void }; extra?: ReactNode; sinBusqueda?: boolean; sinAnulados?: boolean
   acciones?: (fila: T) => ReactNode
 }) {
   const [verAnulados, setVerAnulados] = useState(false)
@@ -378,6 +408,7 @@ function ListaEventos<T extends { id: string; anuladoAt?: string | null; motivoA
           {!sinAnulados && (
             <label className="flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={verAnulados} onChange={(e) => { setVerAnulados(e.target.checked); setPage(1) }} />Ver anulados</label>
           )}
+          {extra}
           {nuevo && <Button onClick={nuevo.onClick}><Plus className="mr-2 h-4 w-4" />{nuevo.texto}</Button>}
         </div>
       </CardHeader>

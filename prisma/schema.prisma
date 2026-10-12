@@ -288,6 +288,11 @@ model Establecimiento {
   documentosArchivo      DocumentoArchivo[]
   miembrosConAcceso      MembresiaEstablecimiento[]
 
+  // Eventos reproductivos: campo donde ocurrieron (no cambia si el animal se mueve)
+  servicios  EvtServicio[]
+  tactos     EvtTacto[]
+  pariciones EvtParicion[]
+  destetes   EvtDestete[]
   @@unique([organizacionId, nombre])
   @@map("establecimientos")
 }
@@ -783,6 +788,11 @@ model EvtParicion {
   nacidoAnimalId String? @unique @map("nacido_animal_id") @db.Uuid
   nacido         Animal? @relation("ParicionCria", fields: [nacidoAnimalId], references: [id])
 
+  /// Campo donde ocurrió (el del animal al registrarlo; no cambia si el animal se mueve)
+  establecimientoId String          @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id])
+
+  @@index([establecimientoId, fecha])
   @@index([madreId])
   @@index([partoId])
   @@index([fecha])
@@ -816,6 +826,11 @@ model EvtDestete {
   pesadaId String?    @unique @map("pesada_id") @db.Uuid
   pesada   EvtPesada? @relation(fields: [pesadaId], references: [id], onDelete: SetNull)
 
+  /// Campo donde ocurrió (el del animal al registrarlo; no cambia si el animal se mueve)
+  establecimientoId String          @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id])
+
+  @@index([establecimientoId, fecha])
   @@index([animalId])
   @@index([fecha])
   @@index([loteDesteteId])
@@ -1042,6 +1057,11 @@ model EvtServicio {
   // Resultado
   tacto EvtTacto?
 
+  /// Campo donde ocurrió (el del animal al registrarlo; no cambia si el animal se mueve)
+  establecimientoId String          @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id])
+
+  @@index([establecimientoId, fecha])
   @@index([hembraId])
   @@index([machoId])
   @@index([toradaId])
@@ -1074,6 +1094,11 @@ model EvtTacto {
   servicioId String?      @unique @map("servicio_id") @db.Uuid
   servicio   EvtServicio? @relation(fields: [servicioId], references: [id])
 
+  /// Campo donde ocurrió (el del animal al registrarlo; no cambia si el animal se mueve)
+  establecimientoId String          @map("establecimiento_id") @db.Uuid
+  establecimiento   Establecimiento @relation(fields: [establecimientoId], references: [id])
+
+  @@index([establecimientoId, fecha])
   @@index([hembraId])
   @@index([fecha])
   @@index([resultado])

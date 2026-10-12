@@ -35,6 +35,8 @@ export const authConfig = {
       // Invitaciones: públicas (se aceptan con o sin sesión) y sin redirigir a quien ya entró
       const isInvitacion = nextUrl.pathname.startsWith('/invitacion/') || nextUrl.pathname.startsWith('/api/invitaciones/')
       if (isInvitacion) return true
+      // Tareas programadas (cron de Vercel): se autentican con CRON_SECRET en la propia ruta
+      if (nextUrl.pathname.startsWith('/api/cron/')) return true
 
       if (!isAuthPage && !isAuthApiRoute && !isLoggedIn) {
         if (isApiRoute) {

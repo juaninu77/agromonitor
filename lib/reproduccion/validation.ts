@@ -217,6 +217,10 @@ export const anulacionSchema = z.object({
   motivo: z.string({ required_error: "Indicá por qué se anula" }).trim().min(3, "Indicá por qué se anula").max(500),
   /** Confirmación para anular un parto cuya cría ya está dada de alta. */
   aceptarCria: z.boolean().default(false),
+  /** Destete: quitar también la pesada que se registró con él. */
+  quitarPesada: z.boolean().default(true),
+  /** Destete: volver el animal al grupo en el que estaba (si no se movió después). */
+  volverGrupo: z.boolean().default(true),
 })
 
 /** Edición de una torada: cerrar (fecha de fin), toros asignados y datos. */
@@ -307,8 +311,13 @@ export const senaladaSchema = z.object({
   machosCastrados: cantidad(),
   hembras: cantidad(),
   productoClostridialId: idOpcional,
+  /** Cuánto de la vacuna se usó (en la unidad del producto): se descuenta del stock */
+  descontarStock: numero(z.number({ invalid_type_error: "La cantidad a descontar no es válida" }).positive("La cantidad a descontar no es válida").max(10_000_000)),
+  loteProductoId: idOpcional,
+  aceptarVencido: z.boolean().default(false),
   observ: texto(1000),
-}).refine((v) => v.machosMantenidos + v.machosCastrados + v.hembras === 0 || v.machosMantenidos + v.machosCastrados + v.hembras === v.corderosSenalados, {
+}).refine((v) => v.descontarStock == null || v.productoClostridialId, { message: "Elegí la vacuna a descontar", path: ["productoClostridialId"] })
+  .refine((v) => v.machosMantenidos + v.machosCastrados + v.hembras === 0 || v.machosMantenidos + v.machosCastrados + v.hembras === v.corderosSenalados, {
   message: "Machos enteros + castrados + hembras tiene que sumar los corderos señalados", path: ["hembras"],
 })
 

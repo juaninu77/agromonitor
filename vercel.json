@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/cron/agenda-reproductiva", "schedule": "0 9 * * *" }
+  ]
+}

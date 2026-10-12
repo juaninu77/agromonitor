@@ -8,6 +8,7 @@ import type { AuthContext } from "@/lib/api/with-auth"
 import { diasEntre, formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import { estadosReproductivos } from "./estado"
 import { sincronizarTareasReproductivas } from "./agenda"
+import { descontarAplicacion } from "@/lib/inventario/aplicaciones"
 import {
   ReproduccionError, SEL_ANIMAL, auditar, avisoCaravana, diaDe, etiqueta, exigirRol, fechaDia, finDia, grupoDeDestete, inicioDia, moverAGrupo, vigente,
 } from "./service"
@@ -228,13 +229,13 @@ export async function desteteMasivo(ctx: AuthContext, raw: unknown) {
     let movidos = 0
     for (const f of v.filas) {
       const a = porId.get(f.animalId)!
+      const pesada = f.pesoKg ? await tx.evtPesada.create({ data: { animalId: a.id, fecha: fechaDia(v.fecha), pesoKg: f.pesoKg, observ: "Destete" } }) : null
       await tx.evtDestete.create({
         data: {
           fecha: fechaDia(v.fecha), animalId: a.id, pesoKg: f.pesoKg, metodo: v.metodo, loteDesteteId: v.loteDesteteId, observ: v.observ, operacionId: v.clave,
-          edadDias: a.fechaNacimiento ? diasEntre(diaDe(a.fechaNacimiento), v.fecha) : null,
+          edadDias: a.fechaNacimiento ? diasEntre(diaDe(a.fechaNacimiento), v.fecha) : null, pesadaId: pesada?.id ?? null,
         },
       })
-      if (f.pesoKg) await tx.evtPesada.create({ data: { animalId: a.id, fecha: fechaDia(v.fecha), pesoKg: f.pesoKg, observ: "Destete" } })
       if (v.loteDesteteId && await moverAGrupo(tx, a.id, v.loteDesteteId, v.fecha, "destete")) movidos++
     }
     await auditar(tx, ctx, est, "evt_destete", v.clave, { masivo: true, fecha: v.fecha, cantidad: v.filas.length, loteDesteteId: v.loteDesteteId })
@@ -266,8 +267,10 @@ export async function registrarSenalada(ctx: AuthContext, raw: unknown) {
   }
   if (v.productoClostridialId) {
     const org = ctx.organizacionDeEstablecimiento[lote.establecimientoId]
-    const ok = await prisma.producto.count({ where: { id: v.productoClostridialId, activo: true, OR: [{ organizacionId: org }, { organizacionId: null }] } })
-    if (!ok) throw new ReproduccionError("El producto no es de la organización", 400)
+    const producto = await prisma.producto.findFirst({ where: { id: v.productoClostridialId, activo: true, OR: [{ organizacionId: org }, { organizacionId: null }] }, select: { organizacionId: true } })
+    if (!producto) throw new ReproduccionError("El producto no es de la organización", 400)
+    // Un producto del catálogo global no tiene stock: nunca se descuenta
+    if (v.descontarStock != null && !producto.organizacionId) throw new ReproduccionError("Es un producto del catálogo general, sin stock: no se puede descontar", 400)
   }
   const resultado = await prisma.$transaction(async (tx) => {
     const s = await tx.evtSenalada.create({
@@ -276,8 +279,15 @@ export async function registrarSenalada(ctx: AuthContext, raw: unknown) {
         corderosSenalados: v.corderosSenalados, corderosMuertos: v.corderosMuertos, machosMantenidos: v.machosMantenidos, machosCastrados: v.machosCastrados, hembras: v.hembras,
       },
     })
-    await auditar(tx, ctx, lote.establecimientoId, "evt_senalada", s.id, { loteId: v.loteId, toradaId: v.toradaId, fecha: v.fecha, corderosSenalados: v.corderosSenalados })
-    return { ...s, repetido: false }
+    // La vacuna sale del stock en la misma transacción (como en Sanidad: si no alcanza, 409)
+    const stock = v.productoClostridialId && v.descontarStock != null
+      ? await descontarAplicacion(tx, {
+        productoId: v.productoClostridialId, cantidad: v.descontarStock, loteProductoId: v.loteProductoId, fecha: new Date(`${v.fecha}T12:00:00-03:00`),
+        motivo: `Señalada · ${v.corderosSenalados} corderos`, origenTipo: "senalada", origenId: s.id,
+      }, { establecimientoIds: ctx.establecimientoIds, establecimientoId: lote.establecimientoId, estricto: true, aceptarVencido: v.aceptarVencido })
+      : null
+    await auditar(tx, ctx, lote.establecimientoId, "evt_senalada", s.id, { loteId: v.loteId, toradaId: v.toradaId, fecha: v.fecha, corderosSenalados: v.corderosSenalados, stock: stock ? { descontado: stock.descontado, unidad: stock.unidad } : undefined })
+    return { ...s, repetido: false, stock: stock && { descontado: stock.descontado, unidad: stock.unidad, ubicacion: stock.ubicacion } }
   })
   await sincronizarTareasReproductivas(lote.establecimientoId)
   return resultado

@@ -199,7 +199,7 @@ describe("destete", () => {
     await expect(registrarDestete(vet, { animalId: VACA, fecha: "2026-05-01" })).rejects.toMatchObject({ status: 403 })
     animales({ [VACA]: { fechaNacimiento: new Date("2025-11-02") } })
     const r = await registrarDestete(operario, { animalId: VACA, fecha: "2026-05-01", pesoKg: "180", edadDias: "1" })
-    expect(m.crear.mock.calls[0][1].data).toMatchObject({ edadDias: 180, pesoKg: 180 })
+    expect(m.crear.mock.calls.find((c) => c[0] === "destete")![1].data).toMatchObject({ edadDias: 180, pesoKg: 180 })
     // La pesada del destete y el aviso de caravana electrónica (bovino sin EID)
     expect(m.crear.mock.calls.find((c) => c[0] === "pesada")![1].data).toMatchObject({ animalId: VACA, pesoKg: 180 })
     expect(r.aviso).toMatch(/caravana electrónica/)

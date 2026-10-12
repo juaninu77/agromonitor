@@ -14,6 +14,7 @@ import {
   Sprout,
   Wallet,
   Users,
+  BookOpen,
 } from "lucide-react"
 import type { NavItem } from "@/lib/types"
 
@@ -33,4 +34,5 @@ export const navItems: NavItem[] = [
   { title: "Tareas", href: "/tareas", icon: ClipboardList },
   { title: "Equipo", href: "/configuracion/equipo", icon: Users },
   { title: "Configuración", href: "/configuracion/establecimientos", icon: Settings },
+  { title: "Ayuda", href: "/ayuda", icon: BookOpen },
 ]

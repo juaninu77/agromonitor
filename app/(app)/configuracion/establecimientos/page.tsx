@@ -16,6 +16,7 @@ interface Establecimiento {
   renspa?: string | null
   provincia?: string | null
   localidad?: string | null
+  ubicacion?: string | null
 }
 
 export default function EstablecimientosPage() {
@@ -77,6 +78,24 @@ export default function EstablecimientosPage() {
       setError(err instanceof Error ? err.message : "Error al crear establecimiento")
       throw err
     }
+  }
+
+  // Editar usa PATCH (antes el formulario creaba un establecimiento nuevo)
+  const handleUpdate = async (data: object) => {
+    if (!organizacionActiva || !editingEstablecimiento) return
+    setError(null)
+    const response = await fetch(`/api/organizaciones/${organizacionActiva.id}/establecimientos/${editingEstablecimiento.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error || "Error al guardar el establecimiento")
+    }
+    await loadEstablecimientos()
+    setEditingEstablecimiento(null)
+    setShowForm(false)
   }
 
   const handleEdit = (establecimiento: Establecimiento) => {
@@ -184,7 +203,8 @@ export default function EstablecimientosPage() {
         <EstablecimientoForm
           open={showForm}
           onOpenChange={setShowForm}
-          onSubmit={handleCreate}
+          key={editingEstablecimiento?.id ?? "nuevo"}
+          onSubmit={editingEstablecimiento ? handleUpdate : handleCreate}
           initialData={
             editingEstablecimiento
               ? {
@@ -193,6 +213,7 @@ export default function EstablecimientosPage() {
                   renspa: editingEstablecimiento.renspa ?? "",
                   provincia: editingEstablecimiento.provincia ?? "",
                   localidad: editingEstablecimiento.localidad ?? "",
+                  ubicacion: editingEstablecimiento.ubicacion ?? "",
                 }
               : undefined
           }

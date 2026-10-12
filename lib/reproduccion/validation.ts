@@ -51,6 +51,8 @@ export const ROLES_REPRODUCCION = {
   destete: ["admin", "encargado", "operario"],
   torada: ["admin", "encargado"],
   senalada: ["admin", "encargado", "operario"],
+  /** Protocolos IATF: armarlos y registrar sus pasos (hormonas e inseminación) */
+  iatf: ["admin", "encargado", "vet"],
 } as const
 export type AccionReproduccion = keyof typeof ROLES_REPRODUCCION
 
@@ -375,3 +377,40 @@ export function derivarEstado(h: HechosReproductivos, hoy: string, especie?: str
   if (p.resultado === "vivo" && !h.criaDestetada && dias <= lactancia) return { estado: "lactancia", desde: p.fecha, fechaProbableParto: null }
   return { estado: "vacia", desde: p.fecha, fechaProbableParto: null }
 }
+
+// ─── Protocolos IATF (Fase E3) ──────────────────────────────────────────────
+
+/** Aplicar una plantilla IATF a hembras de una torada desde el día 0. */
+export const protocoloIatfSchema = z.object({
+  toradaId: z.string({ required_error: "Elegí la torada" }).uuid("Elegí la torada"),
+  plantilla: z.string({ required_error: "Elegí el protocolo" }).min(1, "Elegí el protocolo").max(40),
+  nombre: texto(120),
+  /** Día 0 (puede ser futuro: el protocolo se planifica antes) */
+  fechaD0: dia,
+  hembraIds: z.array(uuid).min(1, "Elegí al menos una hembra").max(MAX_GRUPO),
+  inseminador: texto(120),
+  observ: texto(1000),
+  /** Confirmación para incluir hembras que figuran preñadas */
+  aceptarPrenadas: z.boolean().default(false),
+})
+
+/** Registrar un paso del protocolo: sus tratamientos (con producto) y, si es el último, la inseminación. */
+export const pasoIatfSchema = z.object({
+  clave,
+  fecha: diaEvento,
+  /** Hembras que recibieron el paso (por defecto, todas las del protocolo) */
+  hembraIds: z.array(uuid).min(1, "Elegí al menos una hembra").max(MAX_GRUPO).optional(),
+  tratamientos: z.array(z.object({
+    /** Cuál de los tratamientos con producto del paso (orden de la plantilla) */
+    indice: z.number().int().min(0).max(9),
+    productoId: z.string({ required_error: "Elegí el producto" }).uuid("Elegí el producto"),
+    dosis: numero(z.number().positive("La dosis debe ser mayor a 0").max(100_000)),
+    unidad: texto(20),
+    via: z.string().trim().max(30).nullish().transform((v) => v || null),
+    /** Cantidad del stock por hembra (en la unidad del producto); vacío = no descontar */
+    descontarPorAnimal: numero(z.number().positive("La cantidad a descontar no es válida").max(1_000_000)),
+  })).max(10).default([]),
+  inseminador: texto(120),
+  productoSemenId: idOpcional,
+  loteProductoId: idOpcional,
+})

@@ -12,6 +12,7 @@ import { sincronizarTareasReproductivas } from "./agenda"
 import { normalizeEID } from "@/lib/hardware/eid"
 import { diasEntre, formatoDia, hoyArgentina } from "@/lib/inventario/fechas"
 import { InventarioError } from "@/lib/inventario/service"
+import { SanidadError } from "@/lib/sanidad/errores"
 import { descontarAplicacion, revertirAplicaciones } from "@/lib/inventario/aplicaciones"
 import {
   ROLES_ANULAR, ROLES_REPRODUCCION, EDICION_POR_TIPO, anulacionSchema, busquedaAnimalesSchema, calcularParto, desteteSchema, edicionToradaSchema,
@@ -35,7 +36,7 @@ export const finDia = (d: string) => new Date(`${d}T23:59:59.999-03:00`)
 export const instanteDe = (d: string) => new Date(Math.min(Date.parse(`${d}T12:00:00-03:00`), Date.now()))
 export const vigente = { anuladoAt: null }
 
-const NOMBRE_ACCION: Record<AccionReproduccion, string> = { servicio: "servicios", tacto: "tactos", paricion: "partos", destete: "destetes", torada: "toradas", senalada: "señaladas" }
+const NOMBRE_ACCION: Record<AccionReproduccion, string> = { servicio: "servicios", tacto: "tactos", paricion: "partos", destete: "destetes", torada: "toradas", senalada: "señaladas", iatf: "protocolos IATF" }
 export const SEL_ANIMAL = {
   id: true, sexo: true, estadoVital: true, especieId: true, razaId: true, establecimientoId: true, fechaNacimiento: true, caravanaVisual: true, cuig: true, caravanaRfid: true,
   especie: { select: { nombre: true } },
@@ -705,6 +706,8 @@ export function errorReproduccion(error: unknown) {
   if (error instanceof ReproduccionError) return { body: { success: false, error: error.message, codigo: error.codigo }, status: error.status }
   // Descuento de stock (vacuna de la señalada): 409 si no alcanza o el lote está vencido
   if (error instanceof InventarioError) return { body: { success: false, error: error.message, codigo: error.codigo }, status: error.status }
+  // Pasos hormonales de un protocolo IATF (se registran como aplicaciones de Sanidad)
+  if (error instanceof SanidadError) return { body: { success: false, error: error.message, codigo: error.codigo }, status: error.status }
   if (error instanceof z.ZodError) return { body: { success: false, error: error.issues[0]?.message ?? "Datos inválidos", errores: error.issues.map((i) => i.message) }, status: 400 }
   if (error instanceof SyntaxError) return { body: { success: false, error: "Datos inválidos" }, status: 400 }
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

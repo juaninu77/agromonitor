@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AgendaTab, IndicadoresTab, type PendienteAgenda } from "@/components/reproduccion/agenda-indicadores"
+import { IatfTab } from "@/components/reproduccion/iatf"
 import { ApartarVaciasDialog, MenuHoja, PronosticoCard, TorosCard, ZafraCard } from "@/components/reproduccion/informes"
 import { AnularEventoDialog, EditarEventoDialog, ToradaEditarDialog, type EventoAccion, type ToradaEditable } from "@/components/reproduccion/acciones"
 import { etiquetaAnimal, type AnimalOpcion } from "@/components/reproduccion/animal-combobox"
@@ -142,10 +143,10 @@ const COL_SENALADAS: Columna<Senalada>[] = [
 
 // ─── Página ─────────────────────────────────────────────────────────────────
 
-type Pestania = "agenda" | "servicios" | "tactos" | "pariciones" | "destetes" | "toradas" | "senaladas" | "indicadores"
-const ACCION_DE: Record<Exclude<Pestania, "agenda" | "indicadores">, AccionReproduccion> = { servicios: "servicio", tactos: "tacto", pariciones: "paricion", destetes: "destete", toradas: "torada", senaladas: "senalada" }
+type Pestania = "agenda" | "servicios" | "tactos" | "pariciones" | "destetes" | "toradas" | "senaladas" | "iatf" | "indicadores"
+const ACCION_DE: Record<Exclude<Pestania, "agenda" | "indicadores">, AccionReproduccion> = { servicios: "servicio", tactos: "tacto", pariciones: "paricion", destetes: "destete", toradas: "torada", senaladas: "senalada", iatf: "iatf" }
 const ACCION_PENDIENTE = { tacto: "tacto", parto: "paricion", senalada: "senalada", destete: "destete" } as const
-const PESTANIAS: Pestania[] = ["agenda", "servicios", "tactos", "pariciones", "destetes", "toradas", "senaladas", "indicadores"]
+const PESTANIAS: Pestania[] = ["agenda", "servicios", "tactos", "pariciones", "destetes", "toradas", "senaladas", "iatf", "indicadores"]
 type PorGrupo = "servicio" | "tacto" | "destete" | null
 
 export default function ReproduccionPage() {
@@ -274,9 +275,11 @@ export default function ReproduccionPage() {
           <TabsTrigger value="destetes">Destetes</TabsTrigger>
           <TabsTrigger value="toradas">Toradas</TabsTrigger>
           <TabsTrigger value="senaladas">Señaladas</TabsTrigger>
+          <TabsTrigger value="iatf">IATF</TabsTrigger>
           <TabsTrigger value="indicadores">Indicadores</TabsTrigger>
         </TabsList>
         <TabsContent value="agenda"><AgendaTab estId={estId} puede={(t) => puede(ACCION_PENDIENTE[t])} onAccion={resolver} /></TabsContent>
+        <TabsContent value="iatf">{pestania === "iatf" && <IatfTab estId={estId} puede={puede("iatf")} />}</TabsContent>
         <TabsContent value="indicadores">
           {pestania === "indicadores" && (
             <IndicadoresTab estId={estId}

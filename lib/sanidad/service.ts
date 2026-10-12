@@ -287,6 +287,7 @@ async function animalesDestino(db: Tx | typeof prisma, d: DestinoMasivo) {
       ...(d.categoriaId ? { categoriaId: d.categoriaId } : {}),
       ...(d.loteId ? { loteHist: { some: { loteId: d.loteId, hasta: null } } } : {}),
       ...(d.sectorId ? { ubicacionHist: { some: { sectorId: d.sectorId, hasta: null } } } : {}),
+      ...(d.animalIds ? { id: { in: d.animalIds } } : {}),
     },
     select: { id: true },
     orderBy: { id: "asc" },

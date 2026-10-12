@@ -289,10 +289,11 @@ model Establecimiento {
   miembrosConAcceso      MembresiaEstablecimiento[]
 
   // Eventos reproductivos: campo donde ocurrieron (no cambia si el animal se mueve)
-  servicios  EvtServicio[]
-  tactos     EvtTacto[]
-  pariciones EvtParicion[]
-  destetes   EvtDestete[]
+  servicios      EvtServicio[]
+  tactos         EvtTacto[]
+  pariciones     EvtParicion[]
+  destetes       EvtDestete[]
+  protocolosIatf ProtocoloIatf[]
 
   @@unique([organizacionId, nombre])
   @@map("establecimientos")
@@ -670,6 +671,8 @@ model Animal {
   // Lecturas en manga
   sesionMangaItems SesionMangaItem[]
 
+  protocolosIatf ProtocoloIatfHembra[]
+
   @@unique([establecimientoId, caravanaVisual])
   @@index([especieId])
   @@index([estadoVital])
@@ -977,9 +980,10 @@ model Torada {
   loteId String @map("lote_id") @db.Uuid
   lote   Lote   @relation(fields: [loteId], references: [id])
 
-  servicios EvtServicio[]
-  machos    ToradaMacho[]
-  senaladas EvtSenalada[]
+  servicios      EvtServicio[]
+  machos         ToradaMacho[]
+  senaladas      EvtSenalada[]
+  protocolosIatf ProtocoloIatf[]
 
   @@index([loteId])
   @@map("toradas")
@@ -1361,6 +1365,11 @@ model Tarea {
   itemProtocolo         ItemProtocolo?       @relation(fields: [itemProtocoloId], references: [id], onDelete: SetNull)
   eventosSanidad        EvtSanidad[]
 
+  /// Paso de un protocolo IATF (Fase E3): índice del paso en la plantilla
+  protocoloIatfId String?        @map("protocolo_iatf_id") @db.Uuid
+  protocoloIatf   ProtocoloIatf? @relation(fields: [protocoloIatfId], references: [id], onDelete: SetNull)
+  pasoIatf        Int?           @map("paso_iatf")
+
   /// Tarea generada por la agenda reproductiva (spec 03 §3.10): clave estable del pendiente
   /// (ej. "tacto:torada:<id>"); se completa sola cuando el pendiente deja de existir
   claveReproduccion String? @unique @map("clave_reproduccion")
@@ -1372,6 +1381,7 @@ model Tarea {
   @@index([establecimientoId])
   @@index([fechaLimite])
   @@index([calendarioSanitarioId])
+  @@index([protocoloIatfId])
   @@map("tareas")
 }
 
@@ -1903,4 +1913,43 @@ model CalendarioSanitario {
   @@index([establecimientoId, anio])
   @@index([protocoloId])
   @@map("calendarios_sanitarios")
+}
+
+/// Protocolo IATF aplicado a hembras de una torada (Fase E3): plantilla en código
+/// (lib/reproduccion/iatf.ts), un paso por tarea; la inseminación lo cierra con el servicio IATF por grupo
+model ProtocoloIatf {
+  id          String   @id @default(uuid()) @db.Uuid
+  nombre      String
+  plantilla   String
+  fechaD0     DateTime @map("fecha_d0") @db.Date
+  estado      String   @default("activo") // activo | cerrado | cancelado
+  inseminador String?
+  observ      String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  creadoPorId String?  @map("creado_por_id") @db.Uuid
+
+  establecimientoId   String          @map("establecimiento_id") @db.Uuid
+  establecimiento     Establecimiento @relation(fields: [establecimientoId], references: [id])
+  toradaId            String          @map("torada_id") @db.Uuid
+  torada              Torada          @relation(fields: [toradaId], references: [id])
+  /// Servicio IATF con el que se cerró (operacionId de sus EvtServicio)
+  operacionServicioId String?         @unique @map("operacion_servicio_id") @db.Uuid
+
+  hembras ProtocoloIatfHembra[]
+  tareas  Tarea[]
+
+  @@index([establecimientoId, fechaD0])
+  @@index([toradaId])
+  @@map("protocolos_iatf")
+}
+
+model ProtocoloIatfHembra {
+  protocoloId String        @map("protocolo_id") @db.Uuid
+  protocolo   ProtocoloIatf @relation(fields: [protocoloId], references: [id], onDelete: Cascade)
+  animalId    String        @map("animal_id") @db.Uuid
+  animal      Animal        @relation(fields: [animalId], references: [id])
+
+  @@id([protocoloId, animalId])
+  @@index([animalId])
+  @@map("protocolos_iatf_hembras")
 }

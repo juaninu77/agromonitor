@@ -69,6 +69,8 @@ export const destinoMasivoSchema = z.object({
   especie: z.string().trim().toLowerCase().max(30).nullish().transform((v) => v || null),
   categoriaId: uuid.nullish().transform((v) => v || null),
   sectorId: uuid.nullish().transform((v) => v || null),
+  /** Animales elegidos uno por uno (p. ej. las hembras de un protocolo IATF); se combinan con los filtros */
+  animalIds: z.array(uuid).min(1).max(5000).optional(),
 })
 export type DestinoMasivo = z.output<typeof destinoMasivoSchema>
 

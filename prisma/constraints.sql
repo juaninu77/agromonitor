@@ -126,6 +126,10 @@ BEGIN
       CHECK (estado IN ('pendiente', 'en_progreso', 'completada', 'cancelada')) NOT VALID;
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'protocolos_iatf_estado_chk') THEN
+    ALTER TABLE protocolos_iatf ADD CONSTRAINT protocolos_iatf_estado_chk CHECK (estado IN ('activo', 'cerrado', 'cancelado'));
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tareas_prioridad_chk') THEN
     ALTER TABLE tareas ADD CONSTRAINT tareas_prioridad_chk
       CHECK (prioridad IN ('baja', 'media', 'alta', 'urgente')) NOT VALID;

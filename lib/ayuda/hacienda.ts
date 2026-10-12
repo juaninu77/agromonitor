@@ -429,6 +429,25 @@ export const REPRODUCCION: SeccionAyuda = {
       ],
     },
     {
+      id: "iatf",
+      titulo: "Protocolos IATF",
+      quien: "Administrador, encargado o veterinario.",
+      resumen: "Arma el calendario de un protocolo de inseminación a tiempo fijo y registra cada paso: las hormonas quedan en Sanidad y la inseminación como servicios IATF.",
+      pasos: [
+        "Creá una torada de tipo IATF (o IA) con el grupo de vacas o vaquillonas.",
+        "En la pestaña «IATF» tocá «Nuevo protocolo IATF». Elegí la plantilla (Convencional 8 días, Convencional 7 días o J-Synch 6 días), la torada, el «Día 0» y las hembras (por defecto, todas menos las preñadas; las terneras no entran).",
+        "Tocá «Armar protocolo»: cada paso queda como tarea con su fecha (D0, D8, D10…).",
+        "El día de cada paso tocá «Registrar D…»: elegí el producto de cada tratamiento (dispositivo, benzoato, prostaglandina, eCG…), revisá la dosis y cuánto descontar del stock por hembra, y desmarcá las que no lo recibieron.",
+        "En el último paso cargá el inseminador y, si querés, la pajuela: se registran los servicios IATF y el protocolo queda cerrado.",
+      ],
+      notas: [
+        "Los tratamientos quedan en el libro sanitario con su carencia y descuentan stock; se anulan desde Sanidad como una aplicación masiva.",
+        "Cuando tactes a esas hembras, la pestaña muestra la concepción del protocolo y la tabla «Concepción por inseminador».",
+        "«Cancelar» un protocolo cancela sus pasos pendientes (lo registrado no cambia).",
+        "Para cargar las hormonas en Inventario usá el tipo «Hormona / dispositivo (IATF)».",
+      ],
+    },
+    {
       id: "agenda",
       titulo: "La agenda: qué hay que hacer",
       resumen: "La pestaña «Agenda» calcula sola los pendientes a partir de lo registrado: tactos, partos previstos, señaladas y destetes.",

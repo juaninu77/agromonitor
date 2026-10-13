@@ -89,6 +89,12 @@ export const PATCH = withAuth(async (request, ctx) => {
 
     const data = parsed.data
 
+    // Cancelar es lo mismo que la papelera: solo administrador o encargado de ese campo
+    if (data.estado === "cancelada" && existingTarea.estado !== "cancelada"
+      && !ctx.establecimientoIdsConRol(["admin", "encargado"]).includes(existingTarea.establecimientoId)) {
+      return NextResponse.json({ error: "Solo un administrador o encargado del campo puede cancelar tareas" }, { status: 403 })
+    }
+
     // Solo se asigna a alguien del equipo con acceso a ese campo
     if (data.asignadoAId && !(await usuarioConAccesoACampo(data.asignadoAId, existingTarea.establecimientoId))) {
       return NextResponse.json({ error: "La persona asignada no tiene acceso a este campo" }, { status: 400 })
@@ -146,7 +152,7 @@ export const PATCH = withAuth(async (request, ctx) => {
 })
 
 // ============================================
-// DELETE /api/tareas/[id]
+// DELETE /api/tareas/[id] — cancela la tarea (nunca la borra)
 // ============================================
 
 export const DELETE = withAuth(
@@ -165,27 +171,29 @@ export const DELETE = withAuth(
         )
       }
 
-      // Las tareas generadas por el plan sanitario o la agenda reproductiva no se borran: se cancelan
-      // (quedan vinculadas a su plan y una cancelada de la agenda no se vuelve a crear)
-      const generada = !!(existingTarea.calendarioSanitarioId || existingTarea.itemProtocoloId || existingTarea.claveReproduccion || existingTarea.protocoloIatfId)
-      if (generada) {
-        await prisma.tarea.update({ where: { id }, data: { estado: "cancelada" } })
-      } else {
-        await prisma.tarea.delete({ where: { id } })
+      // Las tareas no se borran: se cancelan y quedan en «Canceladas». Las del plan sanitario o la agenda
+      // reproductiva siguen vinculadas a su plan, y una cancelada de la agenda no se vuelve a crear.
+      if (existingTarea.estado === "cancelada") {
+        return NextResponse.json({ success: true, cancelada: true, message: "La tarea ya estaba cancelada" })
       }
+      if (existingTarea.estado === "completada") {
+        return NextResponse.json({ error: "Una tarea completada no se cancela" }, { status: 409 })
+      }
+
+      await prisma.tarea.update({ where: { id }, data: { estado: "cancelada", fechaCompletada: null } })
 
       await logAudit({
         userId: ctx.userId,
         tabla: "tareas",
         rowPk: id,
-        accion: generada ? "UPDATE" : "DELETE",
-        detalle: { titulo: existingTarea.titulo, ...(generada ? { cancelada: true } : {}) },
+        accion: "UPDATE",
+        detalle: { titulo: existingTarea.titulo, cancelada: true, estadoAnterior: existingTarea.estado },
         organizacionId: ctx.organizacionDeEstablecimiento[existingTarea.establecimientoId] ?? null,
       })
 
-      return NextResponse.json({ success: true, cancelada: generada, message: generada ? "Tarea cancelada" : "Tarea eliminada" })
+      return NextResponse.json({ success: true, cancelada: true, message: "Tarea cancelada" })
     } catch (error) {
-      console.error("Error al eliminar tarea:", error)
+      console.error("Error al cancelar tarea:", error)
       return NextResponse.json(
         { success: false, error: "Error interno del servidor" },
         { status: 500 }

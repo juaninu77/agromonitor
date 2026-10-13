@@ -1,4 +1,4 @@
-import { getPendingItems, syncPendingItems } from "./offline-queue"
+import { esConflicto, getPendingItems, syncPendingItems } from "./offline-queue"
 
 export interface ResultadoFinalizacion {
   totalSanidad?: number
@@ -10,11 +10,20 @@ export interface ResultadoFinalizacion {
 }
 
 export async function finalizeSession(sessionId: string): Promise<ResultadoFinalizacion> {
-  if ((await getPendingItems(sessionId)).length > 0) {
+  let locales = await getPendingItems(sessionId)
+  if (locales.some((i) => !esConflicto(i))) {
     await syncPendingItems(sessionId)
-    if ((await getPendingItems(sessionId)).length > 0) {
-      throw new Error("Hay lecturas pendientes de sincronizar. Recuperá la conexión antes de finalizar.")
-    }
+    locales = await getPendingItems(sessionId)
+  }
+  if (locales.some((i) => !esConflicto(i))) {
+    throw new Error("Hay lecturas pendientes de sincronizar. Recuperá la conexión antes de finalizar.")
+  }
+  const rechazadas = locales.length
+  if (rechazadas > 0) {
+    throw new Error(
+      `${rechazadas === 1 ? "Hay 1 lectura rechazada" : `Hay ${rechazadas} lecturas rechazadas`} por el sistema. ` +
+      `${rechazadas === 1 ? "Revisala" : "Revisalas"} en «Para revisar» (reintentar, guardar como lectura o descartar) antes de finalizar.`,
+    )
   }
   const response = await fetch(`/api/manga/${sessionId}/finalizar`, { method: "POST" })
   if (!response.ok) {

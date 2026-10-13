@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({ getPendingItems: vi.fn(), syncPendingItems: vi.fn() }))
-vi.mock("@/lib/hardware/offline-queue", () => mocks)
+vi.mock("@/lib/hardware/offline-queue", () => ({ ...mocks, esConflicto: (i: { estado?: string }) => i.estado === "conflicto" }))
 import { finalizeSession } from "@/lib/hardware/finalize-session"
 
 const fetchMock = vi.fn()
@@ -27,6 +27,13 @@ describe("finalizar desde la interfaz", () => {
     await finalizeSession("session")
     expect(mocks.syncPendingItems).toHaveBeenCalledWith("session")
     expect(fetchMock).toHaveBeenCalledOnce()
+  })
+  it("con lecturas rechazadas no cierra y pide revisarlas (no se queda trabada como pendiente)", async () => {
+    mocks.getPendingItems.mockResolvedValue([{ id: 1, estado: "conflicto" }, { id: 2, estado: "conflicto" }])
+    await expect(finalizeSession("session")).rejects.toThrow("Hay 2 lecturas rechazadas por el sistema. Revisalas en «Para revisar»")
+    // Las rechazadas no se reenvían solas
+    expect(mocks.syncPendingItems).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
   it("muestra errores del servidor", async () => {
     fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "Sesión ya finalizada" }) })

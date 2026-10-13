@@ -227,8 +227,9 @@ export const MANGA: SeccionAyuda = {
       titulo: "Trabajar sin señal en la manga",
       notas: [
         "Sin conexión, las búsquedas se hacen en la copia del rodeo guardada en el dispositivo y cada «Confirmar y Siguiente» queda guardado ahí.",
-        "El indicador muestra «N pendientes». Al volver la señal se sincroniza solo, o tocá «Sincronizar».",
-        "No se puede finalizar la sesión con lecturas pendientes: primero recuperá la conexión.",
+        "El indicador muestra «N pendientes». Al volver la señal se sincroniza solo (y vuelve a intentar cada minuto), o tocá «Sincronizar». Una lectura nunca se registra dos veces aunque el envío se repita.",
+        "Si el sistema rechaza una lectura (por ejemplo, el EID ya se dio de alta desde otro equipo, o era un macho con tacto), aparece «N para revisar». Tocalo y elegí: «Reintentar» (si ya corregiste el dato), «Guardar como lectura» (la registra sin el alta: si el EID ya está en el rodeo se vincula con ese animal y conserva el peso y lo demás) o «Descartar».",
+        "No se puede finalizar la sesión con lecturas pendientes (primero recuperá la conexión) ni con lecturas para revisar (resolvelas antes).",
       ],
     },
     {

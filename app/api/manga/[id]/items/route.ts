@@ -8,6 +8,10 @@ import { prisma } from "@/lib/prisma"
 import { RESULTADOS_TACTO } from "@/lib/reproduccion/validation"
 import { especieDelCampo, insertarAltas, prepararAltas } from "@/lib/ganado/alta"
 import { especieParaAlta, faltaParaAlta } from "@/lib/hardware/manga-config"
+import { conClave } from "@/lib/mapa/idempotencia"
+import { MapError } from "@/lib/mapa/api"
+
+const RUTA_IDEMPOTENCIA = "/api/manga/items"
 
 const crearItemSchema = z.object({
   eidLeido: z.string().min(1, "El EID es requerido"),
@@ -28,6 +32,8 @@ const crearItemSchema = z.object({
   especieId: z.string().uuid().optional().nullable(),
   razaId: z.string().uuid().optional().nullable(),
   categoriaId: z.string().uuid().optional().nullable(),
+  /** Clave generada por el dispositivo: un reenvío desde la cola sin conexión no se registra dos veces */
+  clave: z.string().uuid().optional().nullable(),
 })
   .refine((data) => !data.esNuevoRegistro || !data.animalId, { message: "Un alta nueva no puede referenciar un animal existente" })
   // Mismo mensaje que muestra la manga antes de enviar (también para lo cargado sin señal)
@@ -83,6 +89,19 @@ export const POST = withAuth(async (request, ctx) => {
       )
     }
 
+    // Reenvío de una lectura ya registrada (la respuesta anterior se perdió): devuelve lo mismo,
+    // aunque la sesión se haya finalizado después
+    const clave = parsed.data.clave ?? null
+    if (clave) {
+      const previa = await prisma.operacionIdempotente.findUnique({ where: { clave } })
+      if (previa) {
+        if (previa.usuarioId !== ctx.userId || previa.ruta !== RUTA_IDEMPOTENCIA) {
+          return NextResponse.json({ error: "La clave de la lectura ya fue utilizada en otra operación" }, { status: 409 })
+        }
+        return NextResponse.json({ success: true, data: previa.resultado, repetida: true }, { status: 201 })
+      }
+    }
+
     return await withMangaSession(id, ctx.establecimientoIds, async (tx) => {
       const sesion = await tx.sesionManga.findFirst({
         where: { id, ...scopeEstablecimiento(ctx.establecimientoIds) },
@@ -120,6 +139,17 @@ export const POST = withAuth(async (request, ctx) => {
         if (parsed.data.resultadoTacto && animal.sexo !== "F") {
           return NextResponse.json({ error: "Solo se puede tactar a una hembra" }, { status: 400 })
         }
+      } else if (!parsed.data.esNuevoRegistro) {
+        // Lectura sin animal elegido (cargada sin señal, o un alta guardada como lectura): se
+        // vincula con el animal activo del campo que tenga ese EID, como en la importación CSV
+        const porEid = await tx.animal.findFirst({
+          where: { caravanaRfid: eidNormalizado, establecimientoId: sesion.establecimientoId, estadoVital: "activo" },
+          select: { id: true, sexo: true },
+        })
+        if (porEid && parsed.data.resultadoTacto && porEid.sexo !== "F") {
+          return NextResponse.json({ error: "Solo se puede tactar a una hembra" }, { status: 400 })
+        }
+        animalId = porEid?.id ?? null
       }
       if (parsed.data.resultadoTacto && parsed.data.esNuevoRegistro && parsed.data.sexo !== "F") {
         return NextResponse.json({ error: "Solo se puede tactar a una hembra" }, { status: 400 })
@@ -165,7 +195,7 @@ export const POST = withAuth(async (request, ctx) => {
         }
       }
 
-      const item = await tx.sesionMangaItem.create({
+      const item = await conClave(tx, { clave, usuarioId: ctx.userId, ruta: RUTA_IDEMPOTENCIA }, () => tx.sesionMangaItem.create({
         data: {
           sesionId: id,
           orden: nuevoOrden,
@@ -184,7 +214,7 @@ export const POST = withAuth(async (request, ctx) => {
           sexo: parsed.data.sexo ?? null,
           categoria: categoriaNombre,
         },
-      })
+      }))
       await tx.sesionManga.update({
         where: { id },
         data: { totalAnimales: { increment: 1 } },
@@ -193,7 +223,7 @@ export const POST = withAuth(async (request, ctx) => {
       return NextResponse.json({ success: true, data: item }, { status: 201 })
     })
   } catch (error) {
-    if (error instanceof MangaSessionError) {
+    if (error instanceof MangaSessionError || error instanceof MapError) {
       return NextResponse.json({ error: error.message }, { status: error.status })
     }
     console.error("Error al agregar item a sesión:", error)

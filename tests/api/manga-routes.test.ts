@@ -5,14 +5,14 @@ const mocks = vi.hoisted(() => ({
   animal: vi.fn(), animals: vi.fn(), createAnimal: vi.fn(), especie: vi.fn(), aggregate: vi.fn(),
   item: vi.fn(), createMany: vi.fn(), lastItem: vi.fn(), pesada: vi.fn(), sanidad: vi.fn(), tacto: vi.fn(),
   producto: vi.fn(), descontar: vi.fn(), preparar: vi.fn(), insertar: vi.fn(), lote: vi.fn(), categoria: vi.fn(),
-  especieCampo: vi.fn(), audit: vi.fn(), lotesProducto: vi.fn(),
+  especieCampo: vi.fn(), audit: vi.fn(), lotesProducto: vi.fn(), idemPrevia: vi.fn(), idemTx: vi.fn(), idemCrear: vi.fn(),
 }))
 vi.mock("@/lib/ganado/alta", () => ({ prepararAltas: mocks.preparar, insertarAltas: mocks.insertar, especieDelCampo: mocks.especieCampo }))
 vi.mock("@/lib/api/with-auth", () => ({ withAuth: (handler: Function) => (request: unknown) => handler(request, {
-  params: { id: "00000000-0000-4000-8000-000000000001" }, establecimientoIds: ["est1", "est2"],
+  params: { id: "00000000-0000-4000-8000-000000000001" }, establecimientoIds: ["est1", "est2"], userId: "u1",
   organizacionDeEstablecimiento: { est1: "org1" },
 }) }))
-vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: mocks.transaction } }))
+vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: mocks.transaction, operacionIdempotente: { findUnique: mocks.idemPrevia } } }))
 vi.mock("@/lib/api/audit-log", () => ({ logAudit: vi.fn() }))
 vi.mock("@/lib/inventario/aplicaciones", async () => ({ consumoSugerido: (await import("@/lib/inventario/consumo")).consumoSugerido, descontarAplicacion: mocks.descontar, revertirAplicaciones: vi.fn() }))
 import { POST as addItemRoute } from "@/app/api/manga/[id]/items/route"
@@ -33,6 +33,7 @@ const tx = {
   evtPesada: { create: mocks.pesada }, evtSanidad: { createMany: mocks.sanidad }, evtTacto: { create: mocks.tacto },
   producto: { findUnique: mocks.producto }, lote: { findFirst: mocks.lote }, categoria: { findUnique: mocks.categoria },
   auditLog: { create: mocks.audit }, loteProducto: { findMany: mocks.lotesProducto },
+  operacionIdempotente: { findUnique: mocks.idemTx, create: mocks.idemCrear },
 }
 /** Animales activos del campo (finalizar solo trata a estos) */
 const activos = (...ids: string[]) => mocks.animals.mockResolvedValue(ids.map((id) => ({ id })))
@@ -139,6 +140,36 @@ describe("rutas de manga", () => {
     expect((await addItem(request({ eidLeido: "123", cc: 10 }))).status).toBe(400)
     expect((await addItem(request({ eidLeido: "123", cc: 0 }))).status).toBe(400)
     expect(mocks.transaction).not.toHaveBeenCalled()
+  })
+  it("una lectura repetida desde la cola sin conexión no se registra dos veces", async () => {
+    const CLAVE = "00000000-0000-4000-8000-0000000000c1"
+    // Primer envío: se registra y guarda la clave en la misma transacción
+    expect((await addItem(request({ eidLeido: "123", pesoKg: 300, clave: CLAVE }))).status).toBe(201)
+    expect(mocks.idemCrear).toHaveBeenCalledWith({ data: expect.objectContaining({ clave: CLAVE, usuarioId: "u1", ruta: "/api/manga/items" }) })
+    // Reenvío (la respuesta anterior se perdió): devuelve lo mismo sin tocar la sesión, aunque esté finalizada
+    vi.clearAllMocks()
+    mocks.idemPrevia.mockResolvedValue({ clave: CLAVE, usuarioId: "u1", ruta: "/api/manga/items", resultado: { id: "item" } })
+    const r = await addItem(request({ eidLeido: "123", pesoKg: 300, clave: CLAVE, ...alta }))
+    expect(r.status).toBe(201)
+    expect(await r.json()).toMatchObject({ data: { id: "item" }, repetida: true })
+    expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(mocks.insertar).not.toHaveBeenCalled()
+  })
+  it("una clave usada por otro usuario o en otra operación se rechaza", async () => {
+    mocks.idemPrevia.mockResolvedValue({ clave: "x", usuarioId: "otro", ruta: "/api/manga/items", resultado: {} })
+    expect((await addItem(request({ eidLeido: "123", clave: "00000000-0000-4000-8000-0000000000c2" }))).status).toBe(409)
+    expect(mocks.transaction).not.toHaveBeenCalled()
+  })
+  it("una lectura sin animal elegido se vincula con el animal activo del campo que tiene ese EID", async () => {
+    mocks.animal.mockResolvedValue({ id: "animal-eid", sexo: "F" })
+    expect((await addItem(request({ eidLeido: "982 000123456789", pesoKg: 300, resultadoTacto: "preñada" }))).status).toBe(201)
+    expect(mocks.animal).toHaveBeenCalledWith({ where: { caravanaRfid: "982000123456789", establecimientoId: "est1", estadoVital: "activo" }, select: { id: true, sexo: true } })
+    expect(mocks.item).toHaveBeenCalledWith({ data: expect.objectContaining({ animalId: "animal-eid", esNuevoRegistro: false }) })
+    // Un macho con tacto se rechaza con el motivo (queda para revisar en el dispositivo)
+    mocks.animal.mockResolvedValue({ id: "toro", sexo: "M" })
+    const r = await addItem(request({ eidLeido: "982000123456789", resultadoTacto: "vacia" }))
+    expect(r.status).toBe(400)
+    expect((await r.json()).error).toMatch(/hembra/)
   })
   it("genera eventos al finalizar", async () => {
     activos("animal")

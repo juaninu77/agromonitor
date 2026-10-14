@@ -9,7 +9,7 @@ export function mapField(ctx: AuthContext, id: string, write = false) {
   if (!ids.includes(id)) throw new MapError("No tenés permisos para este campo", 403)
   return id
 }
-export async function mapBody(request: NextRequest) {
+export async function mapBody(request: NextRequest, maxBytes = 60000) {
   const origin = request.headers.get("origin")
   if (origin && new URL(origin).host !== request.headers.get("host")) throw new MapError("Origen no permitido", 403)
   const reader = request.body?.getReader()
@@ -18,7 +18,7 @@ export async function mapBody(request: NextRequest) {
   while (true) {
     const { value, done } = await reader.read(); if (done) break
     size += value.length
-    if (size > 60000) { await reader.cancel(); throw new MapError("El dibujo es demasiado grande", 413) }
+    if (size > maxBytes) { await reader.cancel(); throw new MapError("El dibujo es demasiado grande", 413) }
     chunks.push(value)
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"))

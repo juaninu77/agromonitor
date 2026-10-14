@@ -176,7 +176,7 @@ export const TAREAS: SeccionAyuda = {
         "Pestañas «Todas», «Pendientes», «En Progreso», «Completadas» y «Canceladas», con filtros por prioridad y tipo. «Total» y los contadores de arriba cuentan todas las tareas con esos filtros (de todas las páginas, sin importar la pestaña). Las fechas vencidas se ven en rojo.",
         "El tilde «Marcar como completada» la cierra.",
         "Las tareas del plan sanitario tienen «Registrar en Sanidad», y las de reproducción, «Registrar en Reproducción». Se completan solas al registrar el evento.",
-        "La papelera (administrador o encargado) pide confirmación. Una tarea cargada a mano se elimina definitivamente. Una del plan sanitario o de la agenda reproductiva no se borra: se cancela y pasa a «Canceladas» (no se vuelve a crear).",
+        "Las tareas no se borran. «Cancelar tarea» (administrador o encargado, en tareas pendientes o en progreso) pide confirmación y la pasa a «Canceladas». Una del plan sanitario o de la agenda reproductiva cancelada no se vuelve a crear. Una tarea completada no se cancela.",
       ],
     },
   ],

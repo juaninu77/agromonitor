@@ -31,7 +31,7 @@ import {
   CheckCircle,
   Clock,
   AlertCircle,
-  Trash2,
+  Ban,
   Flag,
   Loader2,
 } from "lucide-react"
@@ -100,8 +100,12 @@ const TIPO_CONFIG: Record<string, string> = {
   reproduccion: "Reproducción",
 }
 
-/** Generada por el plan sanitario, la agenda reproductiva o un protocolo IATF: se cancela, no se borra. */
-const esGenerada = (t: Tarea) => !!(t.calendarioSanitarioId || t.itemProtocoloId || t.claveReproduccion || t.protocoloIatfId)
+/** Quién generó la tarea (plan sanitario, protocolo IATF o agenda reproductiva); null si se cargó a mano. */
+const origenTarea = (t: Tarea) =>
+  t.calendarioSanitarioId || t.itemProtocoloId ? "el plan sanitario"
+    : t.protocoloIatfId ? "un protocolo IATF"
+      : t.claveReproduccion ? "la agenda reproductiva"
+        : null
 
 // ============================================
 // COMPONENTE PRINCIPAL
@@ -112,7 +116,7 @@ export default function TareasPage() {
 
   const [tareas, setTareas] = useState<Tarea[]>([])
   const [pagination, setPagination] = useState<Pagination | null>(null)
-  // Eliminar/cancelar: administrador o encargado (el servidor lo vuelve a verificar por campo)
+  // Cancelar: administrador o encargado (el servidor lo vuelve a verificar por campo)
   const { canDeleteData } = usePermissions()
   // Cantidad por estado con los filtros actuales (de todas las páginas)
   const [conteos, setConteos] = useState<Record<string, number>>({})
@@ -267,15 +271,14 @@ export default function TareasPage() {
   }
 
   // ============================================
-  // ELIMINAR TAREA
+  // CANCELAR TAREA (las tareas no se borran)
   // ============================================
 
-  const handleDelete = async (tarea: Tarea) => {
-    // Las del plan sanitario o la agenda reproductiva se cancelan; las demás se borran (no se puede deshacer)
-    const generada = esGenerada(tarea)
-    const pregunta = generada
-      ? `«${tarea.titulo}» la generó ${tarea.calendarioSanitarioId || tarea.itemProtocoloId ? "el plan sanitario" : tarea.protocoloIatfId ? "un protocolo IATF" : "la agenda reproductiva"}: se cancela (queda en «Canceladas» y no se vuelve a crear). ¿Cancelarla?`
-      : `¿Eliminar «${tarea.titulo}»? Se borra definitivamente.`
+  const handleCancel = async (tarea: Tarea) => {
+    const origen = origenTarea(tarea)
+    const pregunta = origen
+      ? `«${tarea.titulo}» la generó ${origen}: se cancela, queda en «Canceladas» y no se vuelve a crear. ¿Cancelarla?`
+      : `¿Cancelar «${tarea.titulo}»? Queda en «Canceladas».`
     if (!window.confirm(pregunta)) return
     try {
       const response = await fetch(`/api/tareas/${tarea.id}`, {
@@ -285,10 +288,10 @@ export default function TareasPage() {
       const result = await response.json()
 
       if (result.success) {
-        toast.success(result.cancelada ? "Tarea cancelada" : "Tarea eliminada")
+        toast.success("Tarea cancelada")
         fetchTareas()
       } else {
-        toast.error(result.error || "Error al eliminar tarea")
+        toast.error(result.error || "Error al cancelar tarea")
       }
     } catch {
       toast.error("Error de conexión")
@@ -415,19 +418,19 @@ export default function TareasPage() {
               <CheckCircle className="h-4 w-4" />
             </Button>
           )}
-          {canDeleteData && row.estado !== "cancelada" && (
+          {canDeleteData && (row.estado === "pendiente" || row.estado === "en_progreso") && (
             <Button
               variant="ghost"
               size="icon"
               className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
               onClick={(e) => {
                 e.stopPropagation()
-                handleDelete(row)
+                handleCancel(row)
               }}
-              title={esGenerada(row) ? "Cancelar tarea" : "Eliminar tarea"}
-              aria-label={esGenerada(row) ? "Cancelar tarea" : "Eliminar tarea"}
+              title="Cancelar tarea"
+              aria-label="Cancelar tarea"
             >
-              <Trash2 className="h-4 w-4" />
+              <Ban className="h-4 w-4" />
             </Button>
           )}
         </div>

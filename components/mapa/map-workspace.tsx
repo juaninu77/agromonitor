@@ -13,7 +13,7 @@ import { SectorPanel } from "./sector-panel"
 import { CapasMapa, LeyendaMapa, LugaresArchivados, ResumenCampo } from "./map-overlays"
 import { ColaMapa } from "./cola-mapa"
 import { colorDeLugar, type ModoColor } from "@/lib/mapa/capas"
-import { importarArchivoMapa, type ImportedPlace } from "@/lib/mapa/import"
+import { ImportarLugares, type FiguraImportada } from "./importar-lugares"
 import { grazingTypes, livestockTypes } from "@/lib/mapa/sector-state"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -73,7 +73,8 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
   const [eligiendo, setEligiendo] = useState<((id: string) => void) | null>(null)
   const [limiteAnterior, setLimiteAnterior] = useState<{ vertices: Position[]; etiqueta: string } | null>(null)
   useEffect(() => { setLimiteAnterior(null) }, [selected])
-  const [imports, setImports] = useState<ImportedPlace[]>([]), [importError, setImportError] = useState(""), [importAvisos, setImportAvisos] = useState<string[]>([])
+  // Figuras de un archivo importado, en revisión (se ven punteadas en el mapa)
+  const [figuras, setFiguras] = useState<FiguraImportada[]>([]), [importacionKey, setImportacionKey] = useState(0)
   const [undoStack, setUndoStack] = useState<Position[][]>([]), [redoStack, setRedoStack] = useState<Position[][]>([])
   function changeVertices(vertices: Position[], terminar = false) { if (!draft) return; setUndoStack(v => [...v.slice(-49), draft.vertices]); setRedoStack([]); setDraft({ ...draft, vertices, ...(terminar ? { drawing: false } : {}) }) }
   function undo() { if (!draft || !undoStack.length) return; setRedoStack(v => [...v, draft.vertices]); setDraft({ ...draft, vertices: undoStack[undoStack.length - 1] }); setUndoStack(v => v.slice(0, -1)) }
@@ -198,7 +199,8 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
   return <div className="field-workspace" data-expanded={expanded} data-panel={panel} data-picking={eligiendo ? "true" : undefined} aria-label="Espacio de trabajo del mapa">
     <FieldMap sectors={visible} selected={selected} draft={saving ? null : draft} focus={focus} satellite={satellite} fitKey={fitKey}
       panelRef={panelRef} onSelect={(id, tab) => { if (eligiendo) { eligiendo(id); setEligiendo(null); return } if (!panelEditing) { setTabInicial(tab); setSelected(id); setPanel(true); setShowLocation(false) } }}
-      onVertices={changeVertices} modoColor={modoColor} capasOcultas={capasOcultas} etiquetas={etiquetas} onFinish={terminar} snap={snap} preview={corte?.partes ?? null} limiteAnterior={draft ? null : limiteAnterior} />
+      onVertices={changeVertices} modoColor={modoColor} capasOcultas={capasOcultas} etiquetas={etiquetas} onFinish={terminar} snap={snap} preview={corte?.partes ?? null} limiteAnterior={draft ? null : limiteAnterior}
+      importacion={draft ? null : figuras} importacionKey={importacionKey} />
 
     <div className="map-topbar">
       <div className="map-floating flex min-w-0 max-w-full items-center gap-1 py-1 pl-1 pr-3">
@@ -283,7 +285,11 @@ export default function MapWorkspace({ fieldId, onList }: { fieldId: string; onL
           <div className="space-y-1" aria-label="Lugares del campo">{visible.map(s => <button key={s.id} type="button" onClick={() => setSelected(s.id)} className="flex w-full items-center gap-3 rounded-lg border border-transparent p-3 text-left text-sm hover:border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span className="h-3 w-3 shrink-0 rounded-full ring-1 ring-border" style={{ backgroundColor: colorDeLugar(s, modoColor, satellite) }}/><span className="min-w-0 flex-1"><span className="block font-medium">{s.nombre}</span><span className="block text-xs text-muted-foreground">{sectorLabel(s.tipo)}{!s.geometria ? " · Sin ubicar" : ""}{s.pendientes ? " · " + s.pendientes + (s.pendientes === 1 ? " tarea" : " tareas") : ""}</span>{livestockTypes.has(s.tipo) && s.animales > 0 && <span className="block text-xs text-muted-foreground">{textoEspecies(s.porEspecie)} · {formatearEv(s.ev)} EV</span>}</span></button>)}</div>
           {!visible.length && <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">{sectors.length ? "No hay lugares que coincidan con estos filtros. Probá otra combinación o limpiá los filtros." : "Todavía no hay lugares. Usá Agregar para dibujar el primero."}</p>}
           <LugaresArchivados fieldId={fieldId} canEdit={canEdit}/>
-          {canEdit && <details className="border-t pt-3"><summary className="cursor-pointer text-sm font-medium">Importar límites de Google Earth</summary><label className="mt-3 block text-xs text-muted-foreground">KMZ, KML o GeoJSON · máximo 5 MB · multipolígonos se separan en varios lugares<Input type="file" accept=".kmz,.kml,.geojson,.json" disabled={!!draft || panelEditing} onChange={async e => { const file = e.target.files?.[0]; if (!file) return; setImportError(""); setImportAvisos([]); try { const r = await importarArchivoMapa(file); setImports(r.lugares); setImportAvisos(r.avisos) } catch (err) { setImportError(err instanceof Error ? err.message : "No se pudo leer el archivo") } e.target.value = "" }}/></label>{importError && <p role="alert" className="text-sm text-destructive">{importError}</p>}{importAvisos.length > 0 && <ul className="mt-1 list-disc pl-4 text-xs text-amber-800">{importAvisos.map(a => <li key={a}>{a}</li>)}</ul>}{imports.map((item, i) => <Button key={i} variant="ghost" className="mt-1 h-auto w-full whitespace-normal justify-start" onClick={() => { const g = item.geometry; const vertices = g.type === "Point" ? [g.coordinates] : g.type === "Polygon" ? g.coordinates[0].slice(0, -1) : g.coordinates; setDraft({ nombre: item.nombre, tipo: g.type === "Point" ? "otro" : g.type === "LineString" ? "camino" : "potrero", descripcion: "", kind: g.type, vertices, drawing: false }); setFocus({ lat: vertices[0][1], lon: vertices[0][0], zoom: 15, key: Date.now() }); setImports(v => v.filter((_, index) => index !== i)) }}>{item.nombre} · Revisar</Button>)}<p className="mt-2 text-xs text-muted-foreground">Revisá cada figura en el mapa y guardala. Importar no crea lugares automáticamente.</p></details>}
+          {canEdit && <details className="border-t pt-3" open={figuras.length > 0 || undefined}><summary className="cursor-pointer text-sm font-medium">Importar de Google Earth (KMZ/KML)</summary>
+            <ImportarLugares fieldId={fieldId} nombresExistentes={sectors.map(s => s.nombre)} disabled={!!draft || panelEditing} figuras={figuras}
+              onFiguras={(lista, nuevo) => { setFiguras(lista); if (nuevo) setImportacionKey(Date.now()) }}
+              onEditar={item => { const g = item.geometry; const vertices = g.type === "Point" ? [g.coordinates] : g.type === "Polygon" ? g.coordinates[0].slice(0, -1) : g.coordinates; setDraft({ nombre: item.nombre, tipo: item.tipo, descripcion: item.descripcion ?? "", kind: g.type, vertices, drawing: false }); setFocus({ lat: vertices[0][1], lon: vertices[0][0], zoom: 15, key: Date.now() }); setFiguras(v => v.filter(f => f.key !== item.key)) }} />
+          </details>}
 
           </div>
         </div>}

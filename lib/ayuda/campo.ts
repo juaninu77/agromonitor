@@ -48,12 +48,21 @@ export const POTREROS: SeccionAyuda = {
     },
     {
       id: "importar",
-      titulo: "Importar límites de Google Earth (KML/KMZ)",
+      titulo: "Importar los lugares de Google Earth (KMZ/KML)",
       pasos: [
-        "En «Lugares», abrí «Importar límites de Google Earth» y elegí el archivo KMZ, KML o GeoJSON (hasta 5 MB).",
-        "Cada figura aparece en la lista: tocala, revisala en el mapa, ajustá nombre y tipo y tocá «Guardar lugar».",
+        "En «Lugares», abrí «Importar de Google Earth (KMZ/KML)» y elegí el archivo KMZ, KML o GeoJSON (hasta 5 MB y 100 figuras).",
+        "Las figuras del archivo aparecen punteadas en el mapa y en una lista, cada una con su nombre y el tipo de lugar que se dedujo (potrero, aguada, corral, camino, alambrado…).",
+        "Revisá la lista: cambiá el nombre o el tipo donde haga falta y destildá las que no quieras. Con «Todos» y «Ninguno» marcás o desmarcás todas.",
+        "Tocá «Crear N lugares»: se crean todos juntos en el campo.",
       ],
-      notas: ["Importar no crea lugares solo: cada figura se revisa y se guarda. Los multipolígonos se separan en varios lugares."],
+      notas: [
+        "El tipo sale del dato «tipo» del archivo, del nombre («Aguada norte», «Potrero del molino» es un potrero) o de la carpeta de Google Earth (todo lo que está en la carpeta «Corrales» es corral). Si no hay pistas, un área es potrero, una línea alambrado y un punto «Otro sector»: la lista avisa «tipo según la forma, revisalo».",
+        "Un área grande sin tipo que encierra a los demás potreros se toma como «Límite del campo».",
+        "Se arreglan solos los contornos sin cerrar y los puntos repetidos; los trazos de más de 500 puntos se simplifican. Una figura que no se puede arreglar (por ejemplo, un contorno que se cruza) aparece en «figuras no se pudieron importar» con el motivo, y el resto se importa igual.",
+        "Si un nombre ya existe en el campo, se guarda numerado («Potrero 1 (2)») y la lista te lo avisa antes.",
+        "Con el lápiz podés abrir una figura en el editor del mapa, ajustarla y guardarla sola.",
+        "Los multipolígonos se separan en varios lugares; los huecos de un polígono y los recorridos GPS no se importan (la app avisa).",
+      ],
     },
     {
       id: "ver-distribucion",

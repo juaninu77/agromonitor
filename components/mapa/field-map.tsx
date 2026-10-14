@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type RefObject } from "react"
 import * as L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import type { MapDraft, MapSector, MapFocus } from "@/lib/mapa/types"
-import { areaHa, polygonFrom, type Geometry, type Position } from "@/lib/mapa/geometry"
+import { areaHa, polygonFrom, sectorColor, type Geometry, type Position } from "@/lib/mapa/geometry"
 import { colorDeLugar, grupoDeTipo, indicadorDeModo, type ModoColor } from "@/lib/mapa/capas"
 import { formatearEv, textoEspecies } from "@/lib/mapa/carga"
 import { bindVertexDrag } from "@/lib/mapa/live-edit"
@@ -31,6 +31,10 @@ interface Props {
   preview?: Position[][] | null;
   /** Límite anterior a mostrar en línea punteada (historial), con su etiqueta. */
   limiteAnterior?: { vertices: Position[]; etiqueta: string } | null;
+  /** Figuras de un archivo importado, todavía sin guardar (punteadas, con el color de su tipo). */
+  importacion?: { nombre: string; tipo: string; geometry: Geometry; incluido: boolean }[] | null;
+  /** Cambia cuando se carga otro archivo: centra el mapa en sus figuras. */
+  importacionKey?: number;
   panelRef?: RefObject<HTMLElement | null>;
 }
 
@@ -295,6 +299,17 @@ export default function FieldMap(props: Props) {
       if (ha != null) poly.bindTooltip(`Parte ${i + 1} · ${fmtHa(ha)}`, { permanent: true, direction: "center", className: "map-measure" })
     })
 
+    // Figuras del archivo importado (sin guardar): punteadas; las no elegidas, apagadas
+    props.importacion?.forEach((f) => {
+      const color = sectorColor(f.tipo)
+      const capa = L.geoJSON(f.geometry as never, {
+        interactive: false,
+        style: { color, weight: f.incluido ? 3 : 1, dashArray: "6 4", fillOpacity: f.incluido ? 0.25 : 0.05, opacity: f.incluido ? 1 : 0.5 },
+        pointToLayer: (_f, point) => L.circleMarker(point, { radius: 8, color: "white", weight: 2, dashArray: "3 3", fillColor: color, fillOpacity: f.incluido ? 0.9 : 0.3, interactive: false }),
+      }).addTo(group)
+      if (f.incluido) capa.bindTooltip(f.nombre, { permanent: props.etiquetas, direction: "center", className: "map-measure" })
+    })
+
     if (props.limiteAnterior) {
       const prev = L.polygon(props.limiteAnterior.vertices.map(ll), { color: "#db2777", weight: 3, dashArray: "6 4", fillOpacity: 0.12, interactive: false }).addTo(group)
       prev.bindTooltip(props.limiteAnterior.etiqueta, { permanent: true, direction: "center", className: "map-measure" })
@@ -352,7 +367,7 @@ export default function FieldMap(props: Props) {
         if (vertices.length > minimo && latest.current.draft) latest.current.onVertices(vertices.filter((_, i) => i !== index))
       })
     })
-  }, [props.sectors, props.draft, props.selected, props.modoColor, props.capasOcultas, props.etiquetas, props.satellite, props.preview, props.limiteAnterior, zoomActual])
+  }, [props.sectors, props.draft, props.selected, props.modoColor, props.capasOcultas, props.etiquetas, props.satellite, props.preview, props.limiteAnterior, props.importacion, zoomActual])
 
   useEffect(() => {
     const selected = props.sectors.find(s => s.id === props.selected)
@@ -368,6 +383,15 @@ export default function FieldMap(props: Props) {
     if (bounds.isValid()) fitVisibleArea(bounds, 16)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.fitKey])
+  // Al cargar un archivo, el mapa muestra todas sus figuras
+  useEffect(() => {
+    const figuras = latest.current.importacion
+    if (!props.importacionKey || !figuras?.length) return
+    const bounds = L.latLngBounds([])
+    for (const f of figuras) bounds.extend(L.geoJSON(f.geometry as never).getBounds())
+    if (bounds.isValid()) { fitVisibleArea(bounds, 16); fitted.current = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.importacionKey])
   // Leaflet adds classes to its host; keep that className stable when resizing.
   return <div className="relative isolate h-full min-h-0 overflow-hidden rounded-xl border bg-muted">
     <div ref={host} role="region" aria-label="Mapa del campo. Usá los controles para dibujar áreas, líneas o marcar instalaciones." className="h-full w-full font-sans" data-drawing={props.draft?.drawing ? "true" : undefined} />

@@ -37,6 +37,8 @@ export const authConfig = {
       if (isInvitacion) return true
       // Tareas programadas (cron de Vercel): se autentican con CRON_SECRET en la propia ruta
       if (nextUrl.pathname.startsWith('/api/cron/')) return true
+      // Webhook de WhatsApp: Meta lo llama sin sesión; se autentica con la firma HMAC en la ruta
+      if (nextUrl.pathname === '/api/whatsapp/webhook') return true
 
       if (!isAuthPage && !isAuthApiRoute && !isLoggedIn) {
         if (isApiRoute) {

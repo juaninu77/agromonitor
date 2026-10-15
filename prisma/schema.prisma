@@ -39,12 +39,13 @@ model Usuario {
 
   sessions             Session[]
   accounts             Account[]
-  invitacionesEnviadas Invitacion[]   @relation("InvitacionesEnviadas")
+  invitacionesEnviadas Invitacion[]     @relation("InvitacionesEnviadas")
   membresias           Membresia[]
   auditLogs            AuditLog[]
   tareas               Tarea[]
   notificaciones       Notificacion[]
   sesionesManga        SesionManga[]
+  whatsapp             WhatsappVinculo?
 
   @@map("usuarios")
 }
@@ -289,12 +290,13 @@ model Establecimiento {
   miembrosConAcceso      MembresiaEstablecimiento[]
 
   // Eventos reproductivos: campo donde ocurrieron (no cambia si el animal se mueve)
-  servicios      EvtServicio[]
-  tactos         EvtTacto[]
-  pariciones     EvtParicion[]
-  destetes       EvtDestete[]
-  celos          EvtCelo[]
-  protocolosIatf ProtocoloIatf[]
+  servicios        EvtServicio[]
+  tactos           EvtTacto[]
+  pariciones       EvtParicion[]
+  destetes         EvtDestete[]
+  celos            EvtCelo[]
+  protocolosIatf   ProtocoloIatf[]
+  vinculosWhatsapp WhatsappVinculo[]
 
   @@unique([organizacionId, nombre])
   @@map("establecimientos")
@@ -1987,4 +1989,56 @@ model ProtocoloIatfHembra {
   @@id([protocoloId, animalId])
   @@index([animalId])
   @@map("protocolos_iatf_hembras")
+}
+
+// ============================================
+// WHATSAPP (asistente por mensajes)
+// ============================================
+
+// Número de WhatsApp vinculado a un usuario. Se vincula desde «Mi cuenta»: se
+// genera un código (se guarda solo su SHA-256) y el usuario lo manda desde su
+// teléfono; así queda probado que el número es suyo. El bot actúa con los
+// permisos del usuario (contextoDeUsuario), recalculados en cada mensaje.
+model WhatsappVinculo {
+  id                      String    @id @default(uuid()) @db.Uuid
+  usuarioId               String    @unique @map("usuario_id") @db.Uuid
+  waId                    String?   @unique @map("wa_id") // número en dígitos, como lo manda Meta
+  codigoHash              String?   @unique @map("codigo_hash")
+  codigoExpira            DateTime? @map("codigo_expira")
+  verificadoAt            DateTime? @map("verificado_at")
+  establecimientoActivoId String?   @map("establecimiento_activo_id") @db.Uuid
+  recordatorios           Boolean   @default(false)
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  usuario               Usuario           @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  establecimientoActivo Establecimiento?  @relation(fields: [establecimientoActivoId], references: [id], onDelete: SetNull)
+  mensajes              WhatsappMensaje[]
+
+  @@map("whatsapp_vinculos")
+}
+
+// Mensajes entrantes y salientes. `wamid` (id de Meta) es único: un reintento
+// del webhook no se procesa dos veces. Sirve también de historial para el
+// asistente y para limitar la cantidad de mensajes por número.
+model WhatsappMensaje {
+  id          String   @id @default(uuid()) @db.Uuid
+  wamid       String?  @unique
+  vinculoId   String?  @map("vinculo_id") @db.Uuid
+  waId        String   @map("wa_id")
+  sentido     String // 'entrante' | 'saliente'
+  tipo        String // 'texto' | 'boton' | 'lista' | 'imagen' | 'documento' | 'audio' | 'otro'
+  texto       String?
+  // id del botón o de la fila elegida (mensajes interactivos)
+  respuestaId String?  @map("respuesta_id")
+  mediaId     String?  @map("media_id")
+  estado      String   @default("recibido") // 'recibido' | 'procesado' | 'ignorado' | 'error' | 'enviado'
+  error       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  vinculo WhatsappVinculo? @relation(fields: [vinculoId], references: [id], onDelete: SetNull)
+
+  @@index([waId, createdAt])
+  @@index([vinculoId, createdAt])
+  @@map("whatsapp_mensajes")
 }

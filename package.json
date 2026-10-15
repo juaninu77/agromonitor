@@ -64,6 +64,7 @@
     "pnpm": ">=9.0.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "@hookform/resolvers": "^3.9.1",
     "@next/env": "15.5.19",
     "@prisma/client": "^6.4.1",

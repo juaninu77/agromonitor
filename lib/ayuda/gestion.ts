@@ -256,6 +256,22 @@ export const CUENTA: SeccionAyuda = {
         "«Crear un espacio nuevo» arma una organización propia donde sos propietario, y te lleva a cargar su primer campo.",
       ],
     },
+    {
+      id: "whatsapp",
+      titulo: "Consultar por WhatsApp",
+      pasos: [
+        "En «Mi cuenta», tarjeta «WhatsApp», tocá «Vincular WhatsApp».",
+        "Aparece un mensaje como «VINCULAR K7Q2MZ»: tocá «Abrir WhatsApp» (o «Copiar mensaje») y mandalo al número del asistente desde tu teléfono. El código vence a los 10 minutos.",
+        "Cuando llega, la tarjeta muestra tu número como vinculado y el asistente te saluda. Si tenés más de un campo, te pregunta con cuál trabajar (escribí «campo» para cambiarlo).",
+        "Escribile como hablás: «¿Cuánta ivermectina queda?», «¿qué vacas paren este mes?», «buscame la caravana 1234», «¿qué tareas tengo?», «¿cuánto gastamos este mes?». «ayuda» muestra ejemplos.",
+      ],
+      notas: [
+        "El asistente usa tus mismos permisos y campos que en la app; por ejemplo, las finanzas solo las ve un administrador o encargado. Si te quitan el acceso a un campo, deja de mostrarte sus datos en el momento.",
+        "Por ahora solo responde consultas de texto. Registrar eventos, facturas, audios y tareas por WhatsApp llega en las próximas versiones.",
+        "«Desvincular» corta el acceso de ese número. Con «Vincular otro número» lo cambiás; si un número estaba en otra cuenta, se pasa a la tuya.",
+        "Para cuidar el costo, responde hasta 30 mensajes cada 10 minutos por número.",
+      ],
+    },
   ],
 }
 

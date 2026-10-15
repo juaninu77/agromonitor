@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 
-type AppRole = "admin" | "encargado" | "vet" | "operario"
+export type AppRole = "admin" | "encargado" | "vet" | "operario"
 
 interface AuthOptions {
   /**
@@ -63,6 +63,85 @@ function normalizarRol(rol: string | undefined | null): AppRole | null {
   return null
 }
 
+/**
+ * Arma el contexto de permisos de un usuario a partir de sus Membresias activas.
+ * Lo usa `withAuth` con la sesión y también los canales sin sesión web (WhatsApp),
+ * así cualquier canal tiene exactamente los mismos permisos que la app.
+ * `rolGlobal` es `Usuario.rol` (solo decide `esAdminPlataforma`).
+ */
+export async function contextoDeUsuario(
+  userId: string,
+  rolGlobal: string | null | undefined,
+  params: Record<string, string> = {}
+): Promise<AuthContext> {
+  const membresias = await prisma.membresia.findMany({
+    where: { usuarioId: userId, esActivo: true, usuario: { esActivo: true }, organizacion: { esActivo: true } },
+    include: {
+      organizacion: {
+        include: { establecimientos: { select: { id: true } } },
+      },
+      establecimientosAcceso: { select: { establecimientoId: true } },
+    },
+  })
+
+  // Campos accesibles por membresía: todos los de la org, o solo los asignados
+  // cuando accesoTotal = false (propietarios y administradores siempre ven todos).
+  const camposDe = (m: (typeof membresias)[number]) => {
+    if (m.accesoTotal !== false || normalizarRol(m.rol) === "admin") return m.organizacion.establecimientos
+    const permitidos = new Set((m.establecimientosAcceso ?? []).map((a) => a.establecimientoId))
+    return m.organizacion.establecimientos.filter((e) => permitidos.has(e.id))
+  }
+
+  const organizacionIds = membresias.map((m) => m.organizacionId)
+  const establecimientoIds = membresias.flatMap((m) => camposDe(m).map((e) => e.id))
+
+  // Rol POR organización/establecimiento (fuente de verdad multi-tenant):
+  // nunca se colapsa a un rol global entre orgs, para que un rol alto en
+  // una org no otorgue permisos en otra donde el usuario es operario.
+  const rolPorOrganizacion: Record<string, AppRole> = {}
+  const rolPorEstablecimiento: Record<string, AppRole> = {}
+  const organizacionDeEstablecimiento: Record<string, string> = {}
+  for (const m of membresias) {
+    const rol = normalizarRol(m.rol) ?? "operario"
+    rolPorOrganizacion[m.organizacionId] = rol
+    for (const e of camposDe(m)) {
+      rolPorEstablecimiento[e.id] = rol
+      organizacionDeEstablecimiento[e.id] = m.organizacionId
+    }
+  }
+
+  const establecimientoIdsConRol = (roles: AppRole[]) =>
+    establecimientoIds.filter((id) => roles.includes(rolPorEstablecimiento[id]))
+  const organizacionIdsConRol = (roles: AppRole[]) =>
+    organizacionIds.filter((id) => roles.includes(rolPorOrganizacion[id]))
+
+  // Admin de plataforma: SOLO el rol global del Usuario, nunca derivado de
+  // una Membresia (crear una org no debe volver admin de plataforma).
+  const esAdminPlataforma = rolGlobal === "admin"
+
+  // userRole de referencia (máximo entre orgs) — para UI/fallback, no gating por recurso.
+  const rolesMembresia = Object.values(rolPorOrganizacion)
+  const rolSesion = normalizarRol(rolGlobal) ?? "operario"
+  const userRole = rolesMembresia.reduce<AppRole>(
+    (max, rol) => (JERARQUIA_ROLES[rol] > JERARQUIA_ROLES[max] ? rol : max),
+    rolesMembresia.length > 0 ? rolesMembresia[0] : rolSesion
+  )
+
+  return {
+    userId,
+    userRole,
+    esAdminPlataforma,
+    establecimientoIds,
+    organizacionIds,
+    rolPorEstablecimiento,
+    rolPorOrganizacion,
+    organizacionDeEstablecimiento,
+    establecimientoIdsConRol,
+    organizacionIdsConRol,
+    params,
+  }
+}
+
 export function withAuth(handler: AuthHandler, options: AuthOptions = {}) {
   return async (
     request: NextRequest,
@@ -78,64 +157,14 @@ export function withAuth(handler: AuthHandler, options: AuthOptions = {}) {
         )
       }
 
-      const membresias = await prisma.membresia.findMany({
-        where: { usuarioId: session.user.id, esActivo: true, usuario: { esActivo: true }, organizacion: { esActivo: true } },
-        include: {
-          organizacion: {
-            include: { establecimientos: { select: { id: true } } },
-          },
-          establecimientosAcceso: { select: { establecimientoId: true } },
-        },
-      })
-
-      // Campos accesibles por membresía: todos los de la org, o solo los asignados
-      // cuando accesoTotal = false (propietarios y administradores siempre ven todos).
-      const camposDe = (m: (typeof membresias)[number]) => {
-        if (m.accesoTotal !== false || normalizarRol(m.rol) === "admin") return m.organizacion.establecimientos
-        const permitidos = new Set((m.establecimientosAcceso ?? []).map((a) => a.establecimientoId))
-        return m.organizacion.establecimientos.filter((e) => permitidos.has(e.id))
-      }
-
-      const organizacionIds = membresias.map((m) => m.organizacionId)
-      const establecimientoIds = membresias.flatMap((m) => camposDe(m).map((e) => e.id))
-
-      // Rol POR organización/establecimiento (fuente de verdad multi-tenant):
-      // nunca se colapsa a un rol global entre orgs, para que un rol alto en
-      // una org no otorgue permisos en otra donde el usuario es operario.
-      const rolPorOrganizacion: Record<string, AppRole> = {}
-      const rolPorEstablecimiento: Record<string, AppRole> = {}
-      const organizacionDeEstablecimiento: Record<string, string> = {}
-      for (const m of membresias) {
-        const rol = normalizarRol(m.rol) ?? "operario"
-        rolPorOrganizacion[m.organizacionId] = rol
-        for (const e of camposDe(m)) {
-          rolPorEstablecimiento[e.id] = rol
-          organizacionDeEstablecimiento[e.id] = m.organizacionId
-        }
-      }
-
-      const establecimientoIdsConRol = (roles: AppRole[]) =>
-        establecimientoIds.filter((id) => roles.includes(rolPorEstablecimiento[id]))
-      const organizacionIdsConRol = (roles: AppRole[]) =>
-        organizacionIds.filter((id) => roles.includes(rolPorOrganizacion[id]))
-
-      // Admin de plataforma: SOLO el rol global del Usuario, nunca derivado de
-      // una Membresia (crear una org no debe volver admin de plataforma).
-      const esAdminPlataforma = session.user.rol === "admin"
-
-      // userRole de referencia (máximo entre orgs) — para UI/fallback, no gating por recurso.
-      const rolesMembresia = Object.values(rolPorOrganizacion)
-      const rolSesion = normalizarRol(session.user.rol) ?? "operario"
-      const userRole = rolesMembresia.reduce<AppRole>(
-        (max, rol) => (JERARQUIA_ROLES[rol] > JERARQUIA_ROLES[max] ? rol : max),
-        rolesMembresia.length > 0 ? rolesMembresia[0] : rolSesion
-      )
+      const params = (await routeContext?.params) ?? {}
+      const ctx = await contextoDeUsuario(session.user.id, session.user.rol, params)
 
       // Gate grueso: al menos una org con el rol requerido (o admin de plataforma).
       if (options.roles) {
         const cumpleEnAlgunaOrg =
-          esAdminPlataforma ||
-          organizacionIdsConRol(options.roles).length > 0
+          ctx.esAdminPlataforma ||
+          ctx.organizacionIdsConRol(options.roles).length > 0
         if (!cumpleEnAlgunaOrg) {
           return NextResponse.json(
             { error: "No tienes permisos para esta accion" },
@@ -144,21 +173,7 @@ export function withAuth(handler: AuthHandler, options: AuthOptions = {}) {
         }
       }
 
-      const params = (await routeContext?.params) ?? {}
-
-      return await handler(request, {
-        userId: session.user.id,
-        userRole,
-        esAdminPlataforma,
-        establecimientoIds,
-        organizacionIds,
-        rolPorEstablecimiento,
-        rolPorOrganizacion,
-        organizacionDeEstablecimiento,
-        establecimientoIdsConRol,
-        organizacionIdsConRol,
-        params,
-      })
+      return await handler(request, ctx)
     } catch (error) {
       console.error("Error en withAuth:", error)
       return NextResponse.json(

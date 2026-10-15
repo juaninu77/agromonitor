@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { PageHeading } from "@/components/ui/page-heading"
 import { PasswordInput } from "@/components/auth/password-input"
+import { WhatsappCard } from "@/components/equipo/whatsapp-card"
 import { useTenant } from "@/lib/context/tenant-context"
 import { ROL_INFO, type RolOrg } from "@/lib/equipo/roles"
 
@@ -148,6 +149,7 @@ export function CuentaWorkspace() {
             </form>
           </CardContent>
         </Card>
+        <WhatsappCard />
       </div>
     </div>
   )

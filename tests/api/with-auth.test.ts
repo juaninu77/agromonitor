@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server"
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), findMany: vi.fn() }))
 vi.mock("@/auth", () => ({ auth: mocks.auth }))
 vi.mock("@/lib/prisma", () => ({ prisma: { membresia: { findMany: mocks.findMany } } }))
-import { withAuth } from "@/lib/api/with-auth"
+import { contextoDeUsuario, withAuth } from "@/lib/api/with-auth"
 const context = { params: Promise.resolve({}) }
 
 beforeEach(() => {
@@ -35,5 +35,17 @@ describe("withAuth", () => {
     ])
     const route = withAuth(async (_, ctx) => NextResponse.json(ctx.establecimientoIdsConRol(["admin"])))
     expect(await (await route(new NextRequest("http://localhost"), context)).json()).toEqual(["est1"])
+  })
+
+  it("arma el mismo contexto sin sesión web (canales como WhatsApp)", async () => {
+    mocks.findMany.mockResolvedValue([
+      { organizacionId: "org1", rol: "encargado", accesoTotal: false, establecimientosAcceso: [{ establecimientoId: "est2" }], organizacion: { establecimientos: [{ id: "est1" }, { id: "est2" }] } },
+    ])
+    const ctx = await contextoDeUsuario("user", "operario")
+    expect(ctx.establecimientoIds).toEqual(["est2"])
+    expect(ctx.establecimientoIdsConRol(["encargado"])).toEqual(["est2"])
+    expect(ctx.esAdminPlataforma).toBe(false)
+    expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ usuarioId: "user", esActivo: true }) }))
+    expect((await contextoDeUsuario("user", "admin")).esAdminPlataforma).toBe(true)
   })
 })

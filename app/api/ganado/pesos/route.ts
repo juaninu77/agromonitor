@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 import { withAuth } from "@/lib/api/with-auth"
-import { animalDelTenant, scopeEventoAnimal } from "@/lib/api/tenant"
-import { logAudit } from "@/lib/api/audit-log"
+import { scopeEventoAnimal } from "@/lib/api/tenant"
 import { prisma } from "@/lib/prisma"
 import { erroresZod, mapearErrorPrisma } from "@/lib/ganado/alta"
+import { EventoGanadoError, registrarPesadas } from "@/lib/ganado/eventos"
 import { pesadaSchema } from "@/lib/validations/eventos-schema"
 
 // ============================================
@@ -20,44 +20,13 @@ export const POST = withAuth(async (req, ctx) => {
       const errores = erroresZod(parsed.error)
       return NextResponse.json({ success: false, error: errores[0], errores }, { status: 400 })
     }
-    const { animalId, peso, cc, fecha, notas, balanza } = parsed.data
-
-    const animal = await animalDelTenant(animalId, ctx.establecimientoIds)
-    if (!animal) {
-      return NextResponse.json({ success: false, error: "Animal no encontrado" }, { status: 404 })
-    }
-    if (animal.estadoVital !== "activo") {
-      return NextResponse.json(
-        { success: false, error: "No se pueden registrar pesadas de un animal dado de baja" },
-        { status: 400 }
-      )
-    }
-
-    const pesada = await prisma.evtPesada.create({
-      data: {
-        animalId,
-        pesoKg: peso,
-        cc: cc ?? null,
-        fecha,
-        observ: notas ?? null,
-        balanza: balanza ?? null,
-      },
-    })
-
-    await logAudit({
-      userId: ctx.userId,
-      tabla: "evt_pesada",
-      rowPk: pesada.id,
-      accion: "INSERT",
-      detalle: { animalId, pesoKg: peso, cc: cc ?? null },
-      organizacionId: animal.establecimientoId ? ctx.organizacionDeEstablecimiento[animal.establecimientoId] : null,
-    })
-
+    const [pesada] = await registrarPesadas(ctx, [parsed.data])
     return NextResponse.json(
       { success: true, data: pesada, message: "Pesada registrada exitosamente" },
       { status: 201 }
     )
   } catch (error) {
+    if (error instanceof EventoGanadoError) return NextResponse.json({ success: false, error: error.message }, { status: error.status })
     const conocido = mapearErrorPrisma(error)
     if (conocido) return NextResponse.json({ success: false, error: conocido.error }, { status: conocido.status })
     console.error("Error al crear pesada:", error)

@@ -20,6 +20,9 @@ export interface MetricasWhatsapp {
     usuariosActivos: number
     vinculados: number
     costoIaUsd: number
+    /** Notas de voz transcriptas y su costo estimado en OpenAI */
+    audios: number
+    costoAudioUsd: number
     tokensEntrada: number
     tokensSalida: number
     tokensCacheLeidos: number
@@ -69,6 +72,8 @@ export async function metricasWhatsapp(dias: DiasMetricas): Promise<MetricasWhat
         count(*) FILTER (WHERE m.estado = 'error') AS errores,
         count(DISTINCT m.vinculo_id) FILTER (WHERE m.sentido = 'entrante') AS usuarios,
         coalesce(sum(m.costo_usd), 0) AS costo,
+        count(*) FILTER (WHERE m.costo_audio_usd IS NOT NULL) AS audios,
+        coalesce(sum(m.costo_audio_usd), 0) AS costo_audio,
         coalesce(sum(m.tokens_entrada), 0) AS entrada,
         coalesce(sum(m.tokens_salida), 0) AS salida,
         coalesce(sum(m.tokens_cache_leidos), 0) AS cache_leidos,
@@ -137,6 +142,8 @@ export async function metricasWhatsapp(dias: DiasMetricas): Promise<MetricasWhat
       usuariosActivos: n(t.usuarios),
       vinculados,
       costoIaUsd: n(t.costo),
+      audios: n(t.audios),
+      costoAudioUsd: n(t.costo_audio),
       tokensEntrada: entrada,
       tokensSalida: n(t.salida),
       tokensCacheLeidos: leidos,

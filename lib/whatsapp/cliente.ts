@@ -93,3 +93,18 @@ export async function marcarLeido(wamid: string) {
     // No es crítico: si falla, igual se responde
   }
 }
+
+/** Descarga un archivo recibido (audio, imagen, documento): primero su URL temporal, después los bytes. */
+export async function descargarMedia(mediaId: string, maxBytes: number): Promise<{ bytes: Uint8Array<ArrayBuffer>; mime: string }> {
+  const c = whatsappConfig()
+  const headers = { Authorization: `Bearer ${c.token}` }
+  const meta = await fetch(`https://graph.facebook.com/${c.graphVersion}/${mediaId}`, { headers, signal: AbortSignal.timeout(15_000) })
+  const info = (await meta.json().catch(() => ({}))) as { url?: string; mime_type?: string; file_size?: number; error?: { message?: string; code?: number } }
+  if (!meta.ok || !info.url) throw new WhatsappError(info.error?.message ?? `Error ${meta.status} al pedir el archivo`, meta.status, info.error?.code)
+  if (info.file_size && info.file_size > maxBytes) throw new WhatsappError("El archivo es demasiado grande", 413)
+  const res = await fetch(info.url, { headers, signal: AbortSignal.timeout(30_000) })
+  if (!res.ok) throw new WhatsappError(`Error ${res.status} al descargar el archivo`, res.status)
+  const bytes = new Uint8Array(await res.arrayBuffer())
+  if (bytes.byteLength > maxBytes) throw new WhatsappError("El archivo es demasiado grande", 413)
+  return { bytes, mime: info.mime_type ?? res.headers.get("content-type") ?? "application/octet-stream" }
+}

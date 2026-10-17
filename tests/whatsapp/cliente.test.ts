@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { enviarTexto, WhatsappError } from "@/lib/whatsapp/cliente"
+import { descargarMedia, enviarTexto, WhatsappError } from "@/lib/whatsapp/cliente"
 
 const respuesta = (status: number, body: unknown) => new Response(JSON.stringify(body), { status })
 const destinos = (f: ReturnType<typeof vi.fn>) => f.mock.calls.map((c) => JSON.parse(c[1].body).to)
@@ -30,6 +30,24 @@ describe("envío por la Graph API", () => {
     // Un número que no es un celular argentino no se toca
     fetchMock.mockClear()
     await expect(enviarTexto("15551234567", "hola")).rejects.toThrow()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("descarga de archivos", () => {
+  it("pide la URL temporal y baja los bytes con el token", async () => {
+    fetchMock
+      .mockResolvedValueOnce(respuesta(200, { url: "https://lookaside.fbsbx.com/x", mime_type: "audio/ogg; codecs=opus", file_size: 3 }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3])))
+    const r = await descargarMedia("M1", 1000)
+    expect(Array.from(r.bytes)).toEqual([1, 2, 3])
+    expect(r.mime).toBe("audio/ogg; codecs=opus")
+    expect(fetchMock.mock.calls[0][0]).toMatch(/graph\.facebook\.com\/v\d+\.\d+\/M1$/)
+    expect(fetchMock.mock.calls[1][1].headers).toEqual({ Authorization: "Bearer t" })
+  })
+  it("un archivo más grande que el límite no se descarga", async () => {
+    fetchMock.mockResolvedValueOnce(respuesta(200, { url: "https://x", file_size: 5_000_000 }))
+    await expect(descargarMedia("M1", 1000)).rejects.toMatchObject({ status: 413 })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

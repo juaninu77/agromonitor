@@ -53,7 +53,7 @@ export interface Herramienta {
 
 const texto = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 120) : undefined)
 
-function herramienta(d: { name: string; description: string; inputSchema: BetaTool["input_schema"]; run: (input: Record<string, unknown>) => Promise<string> }): Herramienta {
+export function herramienta(d: { name: string; description: string; inputSchema: BetaTool["input_schema"]; run: (input: Record<string, unknown>) => Promise<string> }): Herramienta {
   return { definicion: { name: d.name, description: d.description, input_schema: d.inputSchema }, run: d.run }
 }
 

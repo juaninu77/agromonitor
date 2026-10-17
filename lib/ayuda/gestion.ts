@@ -182,6 +182,47 @@ export const TAREAS: SeccionAyuda = {
   ],
 }
 
+export const CARGAS_WHATSAPP: SeccionAyuda = {
+  id: "whatsapp",
+  titulo: "Cargas por WhatsApp",
+  ruta: "/whatsapp",
+  descripcion: "Registrar lo que hiciste en el campo desde WhatsApp, escrito o con un audio, y validar lo que cargan los operarios.",
+  guias: [
+    {
+      id: "cargar",
+      titulo: "Cargar un evento por WhatsApp",
+      pasos: [
+        "Con tu número vinculado (ver «Mi cuenta» → «Consultar por WhatsApp»), escribile al asistente lo que hiciste, o mandá un audio: «vacuné el grupo Terneros con Ivomec, 5 ml subcutánea», «la 1234 pesó 380 kg», «se murió la vaca 567», «tacto: 1201 preñada, 1202 vacía», «pasé la 1201 y la 1202 al grupo Vacas», «la 880 parió un macho de 32 kilos», «celo a la mañana en la 1201».",
+        "Si mandás un audio, primero te contesta «🎙️ Entendí: …» con lo que escuchó.",
+        "Te muestra un resumen (animales, producto, dosis, stock que descuenta, fecha) con los botones «Confirmar» y «Cancelar». No se registra nada hasta que tocás «Confirmar».",
+        "Al confirmar, contesta «✅ …» si quedó registrado, o «📨 Listo, lo mandé a validar» si tiene que aprobarlo un encargado.",
+      ],
+      notas: [
+        "Se puede cargar: sanidad (a animales por caravana o a un grupo entero), pesadas, cambio de grupo, bajas (una por animal), servicios, tactos, partos y celos. Los animales se buscan por caravana visual, CUIG, número interno o caravana electrónica, solo entre los activos del campo activo.",
+        "Un administrador o encargado registra todo al confirmar; un veterinario, la sanidad y la reproducción. Lo que manda un operario (y las pesadas, cambios de grupo y bajas de un veterinario) queda «Por validar».",
+        "Si al registrar aparece un aviso (lote vencido, sin stock, venta de un animal en retiro, hembra preñada, mellizo, cambió la cantidad de animales) el asistente pregunta de nuevo con los botones. Una faena de un animal en retiro no se registra.",
+        "El resumen vence a los 30 minutos: si no lo confirmaste, mandalo de nuevo. Si algo salió mal, tocá «Cancelar» y repetilo corregido.",
+        "Los audios pueden durar hasta unos 3 minutos. El audio no se guarda: solo el texto que entendió.",
+      ],
+    },
+    {
+      id: "validar",
+      titulo: "Validar lo que cargan los operarios",
+      pasos: [
+        "Cuando un operario confirma una carga, te llega una notificación y el Panel muestra «N cargas por WhatsApp esperan tu validación».",
+        "Entrá a «Cargas por WhatsApp». En «Por validar» ves cada carga con quién la mandó, cuándo, el campo, el resumen y el mensaje original (el texto o lo que se entendió del audio).",
+        "«Aprobar» la registra con tus permisos, revisando de nuevo todo (stock, retiro, animales activos). Si aparece un aviso, «Aprobar igual» lo acepta.",
+        "«Rechazar» pide un motivo y no registra nada.",
+      ],
+      notas: [
+        "Validan los administradores y encargados de ESE campo. A quien la mandó le llega el resultado en la app y, si escribió al asistente en las últimas 24 horas, también por WhatsApp.",
+        "Lo que nadie revisa en 7 días vence y no se registra.",
+        "«Últimos 30 días» muestra lo registrado, rechazado o vencido de tus campos y lo que mandaste vos. Cada carga registrada queda en la auditoría con quién la mandó y quién la aprobó.",
+      ],
+    },
+  ],
+}
+
 export const EQUIPO: SeccionAyuda = {
   id: "equipo",
   titulo: "Equipo y permisos",
@@ -267,7 +308,7 @@ export const CUENTA: SeccionAyuda = {
       ],
       notas: [
         "El asistente usa tus mismos permisos y campos que en la app; por ejemplo, las finanzas solo las ve un administrador o encargado. Si te quitan el acceso a un campo, deja de mostrarte sus datos en el momento.",
-        "Por ahora solo responde consultas de texto. Registrar eventos, facturas, audios y tareas por WhatsApp llega en las próximas versiones.",
+        "También podés cargar eventos de hacienda y mandar audios: ver la sección «Cargas por WhatsApp». Facturas y tareas por WhatsApp llegan en las próximas versiones.",
         "«Desvincular» corta el acceso de ese número. Con «Vincular otro número» lo cambiás; si un número estaba en otra cuenta, se pasa a la tuya.",
         "Para cuidar el costo, responde hasta 30 mensajes cada 10 minutos por número.",
       ],

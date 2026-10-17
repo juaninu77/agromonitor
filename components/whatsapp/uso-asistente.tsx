@@ -36,6 +36,14 @@ const HERRAMIENTA: Record<string, string> = {
   potreros: "Potreros y carga",
   tareas_pendientes: "Tareas pendientes",
   finanzas_resumen: "Finanzas",
+  proponer_sanidad: "Cargar sanidad",
+  proponer_pesadas: "Cargar pesadas",
+  proponer_movimiento: "Cambiar de grupo",
+  proponer_baja: "Cargar una baja",
+  proponer_servicio: "Cargar un servicio",
+  proponer_tactos: "Cargar tactos",
+  proponer_parto: "Cargar un parto",
+  proponer_celos: "Cargar celos",
 }
 
 const chartConsultas = { recibidos: { label: "Mensajes recibidos", color: "hsl(var(--chart-1))" } } satisfies ChartConfig
@@ -297,6 +305,7 @@ function Contenido({ d }: { d: Datos }) {
               <Dato titulo="Entrada leída de caché" valor={t.aciertoCache == null ? "—" : porcentaje(t.aciertoCache)} nota="más alto, más barato" />
               <Dato titulo="Tokens de entrada" valor={entero(t.tokensEntrada + t.tokensCacheLeidos + t.tokensCacheEscritos)} nota={`${entero(t.tokensCacheLeidos)} desde caché`} />
               <Dato titulo="Tokens de salida" valor={entero(t.tokensSalida)} nota={t.consultasIa ? `${entero(t.tokensSalida / t.consultasIa)} por consulta` : "—"} />
+              <Dato titulo="Audios transcriptos" valor={entero(t.audios)} nota={`${dinero(t.costoAudioUsd)} estimado en OpenAI`} />
             </dl>
           </CardContent>
         </Card>

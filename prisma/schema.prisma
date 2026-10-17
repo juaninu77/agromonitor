@@ -39,13 +39,15 @@ model Usuario {
 
   sessions             Session[]
   accounts             Account[]
-  invitacionesEnviadas Invitacion[]     @relation("InvitacionesEnviadas")
+  invitacionesEnviadas Invitacion[]       @relation("InvitacionesEnviadas")
   membresias           Membresia[]
   auditLogs            AuditLog[]
   tareas               Tarea[]
   notificaciones       Notificacion[]
   sesionesManga        SesionManga[]
   whatsapp             WhatsappVinculo?
+  borradoresWhatsapp   WhatsappBorrador[] @relation("BorradorAutor")
+  validacionesWhatsapp WhatsappBorrador[] @relation("BorradorValidador")
 
   @@map("usuarios")
 }
@@ -290,13 +292,14 @@ model Establecimiento {
   miembrosConAcceso      MembresiaEstablecimiento[]
 
   // Eventos reproductivos: campo donde ocurrieron (no cambia si el animal se mueve)
-  servicios        EvtServicio[]
-  tactos           EvtTacto[]
-  pariciones       EvtParicion[]
-  destetes         EvtDestete[]
-  celos            EvtCelo[]
-  protocolosIatf   ProtocoloIatf[]
-  vinculosWhatsapp WhatsappVinculo[]
+  servicios          EvtServicio[]
+  tactos             EvtTacto[]
+  pariciones         EvtParicion[]
+  destetes           EvtDestete[]
+  celos              EvtCelo[]
+  protocolosIatf     ProtocoloIatf[]
+  vinculosWhatsapp   WhatsappVinculo[]
+  borradoresWhatsapp WhatsappBorrador[]
 
   @@unique([organizacionId, nombre])
   @@map("establecimientos")
@@ -2011,9 +2014,10 @@ model WhatsappVinculo {
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt @map("updated_at")
 
-  usuario               Usuario           @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  establecimientoActivo Establecimiento?  @relation(fields: [establecimientoActivoId], references: [id], onDelete: SetNull)
+  usuario               Usuario            @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  establecimientoActivo Establecimiento?   @relation(fields: [establecimientoActivoId], references: [id], onDelete: SetNull)
   mensajes              WhatsappMensaje[]
+  borradores            WhatsappBorrador[]
 
   @@map("whatsapp_vinculos")
 }
@@ -2048,6 +2052,7 @@ model WhatsappMensaje {
   llamadasIa          Int?     @map("llamadas_ia")
   herramientas        String[] @default([])
   duracionMs          Int?     @map("duracion_ms")
+  costoAudioUsd       Decimal? @map("costo_audio_usd") @db.Decimal(12, 6) // transcripción de la nota de voz (OpenAI)
 
   vinculo WhatsappVinculo? @relation(fields: [vinculoId], references: [id], onDelete: SetNull)
 
@@ -2055,4 +2060,38 @@ model WhatsappMensaje {
   @@index([vinculoId, createdAt])
   @@index([createdAt])
   @@map("whatsapp_mensajes")
+}
+
+// Evento de hacienda propuesto por WhatsApp (lib/whatsapp/borradores.ts). Nunca se escribe
+// sin confirmación: «pendiente» espera el «Confirmar» de quien lo mandó (30 min); si su rol
+// en el campo no alcanza para aplicarlo queda «por_validar» (7 días) hasta que un admin o
+// encargado de ESE campo lo apruebe o rechace. `payload` son los datos del servicio real.
+model WhatsappBorrador {
+  id                String    @id @default(uuid()) @db.Uuid
+  vinculoId         String?   @map("vinculo_id") @db.Uuid
+  usuarioId         String    @map("usuario_id") @db.Uuid // quien lo mandó (autor)
+  establecimientoId String    @map("establecimiento_id") @db.Uuid
+  accion            String // 'sanidad' | 'pesada' | 'movimiento' | 'baja' | 'servicio' | 'tacto' | 'parto' | 'celo'
+  payload           Json
+  resumen           String
+  origen            String? // texto del mensaje o transcripción del audio
+  estado            String    @default("pendiente") // 'pendiente' | 'procesando' | 'por_validar' | 'aplicado' | 'rechazado' | 'cancelado' | 'vencido' | 'error'
+  expira            DateTime
+  error             String?
+  resultado         Json?
+  validadoPorId     String?   @map("validado_por_id") @db.Uuid
+  validadoAt        DateTime? @map("validado_at")
+  motivoRechazo     String?   @map("motivo_rechazo")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  vinculo         WhatsappVinculo? @relation(fields: [vinculoId], references: [id], onDelete: SetNull)
+  usuario         Usuario          @relation("BorradorAutor", fields: [usuarioId], references: [id], onDelete: Cascade)
+  validadoPor     Usuario?         @relation("BorradorValidador", fields: [validadoPorId], references: [id], onDelete: SetNull)
+  establecimiento Establecimiento  @relation(fields: [establecimientoId], references: [id], onDelete: Cascade)
+
+  @@index([establecimientoId, estado])
+  @@index([usuarioId, createdAt])
+  @@index([vinculoId, estado])
+  @@map("whatsapp_borradores")
 }

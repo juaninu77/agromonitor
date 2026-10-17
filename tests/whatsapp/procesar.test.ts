@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const m = vi.hoisted(() => ({
   msgFind: vi.fn(), msgUpdate: vi.fn(), msgCreate: vi.fn(), msgCount: vi.fn(), msgFindMany: vi.fn(), msgCreateMany: vi.fn(),
   vincFind: vi.fn(), vincUpdate: vi.fn(), estFindMany: vi.fn(),
-  enviarTexto: vi.fn(), enviarLista: vi.fn(), marcarLeido: vi.fn(),
+  enviarTexto: vi.fn(), enviarLista: vi.fn(), enviarBotones: vi.fn(), marcarLeido: vi.fn(), descargar: vi.fn(),
   responder: vi.fn(), contexto: vi.fn(), vincular: vi.fn(),
+  confirmar: vi.fn(), cancelar: vi.fn(), transcribir: vi.fn(), vocabulario: vi.fn(),
 }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -13,7 +14,11 @@ vi.mock("@/lib/prisma", () => ({
     establecimiento: { findMany: m.estFindMany },
   },
 }))
-vi.mock("@/lib/whatsapp/cliente", () => ({ enviarTexto: m.enviarTexto, enviarLista: m.enviarLista, marcarLeido: m.marcarLeido }))
+vi.mock("@/lib/whatsapp/cliente", () => ({ enviarTexto: m.enviarTexto, enviarLista: m.enviarLista, enviarBotones: m.enviarBotones, marcarLeido: m.marcarLeido, descargarMedia: m.descargar }))
+vi.mock("@/lib/whatsapp/borradores", () => ({ confirmarBorrador: m.confirmar, cancelarBorrador: m.cancelar }))
+vi.mock("@/lib/whatsapp/transcripcion", () => ({
+  MAX_AUDIO_BYTES: 1000, transcripcionConfigurada: () => !!process.env.OPENAI_API_KEY, transcribirAudio: m.transcribir, vocabularioDelCampo: m.vocabulario,
+}))
 vi.mock("@/lib/whatsapp/agente", () => ({ responderConsulta: m.responder }))
 vi.mock("@/lib/api/with-auth", () => ({ contextoDeUsuario: m.contexto }))
 vi.mock("@/lib/whatsapp/vinculo", async (orig) => ({ ...(await orig<typeof import("@/lib/whatsapp/vinculo")>()), vincularNumero: m.vincular }))
@@ -32,6 +37,7 @@ const estadoFinal = () => m.msgUpdate.mock.calls.at(-1)?.[0].data.estado
 beforeEach(() => {
   vi.resetAllMocks()
   process.env.ANTHROPIC_API_KEY = "test"
+  delete process.env.OPENAI_API_KEY
   m.msgFind.mockResolvedValue(mensaje())
   m.msgCount.mockResolvedValue(1)
   m.msgFindMany.mockResolvedValue([])
@@ -39,7 +45,8 @@ beforeEach(() => {
   m.contexto.mockResolvedValue(ctx([EST1]))
   m.estFindMany.mockResolvedValue([{ id: EST1, nombre: "La Esperanza" }])
   m.enviarTexto.mockResolvedValue("wout")
-  m.responder.mockResolvedValue({ texto: "Quedan *12 frascos* de Ivomec.", uso: { modelo: "claude-opus-5-5", tokensEntrada: 900, tokensSalida: 120, tokensCacheLeidos: 6000, tokensCacheEscritos: 0, llamadasIa: 2, herramientas: ["stock_insumos"], costoUsd: 0.0072 } })
+  m.responder.mockResolvedValue({ texto: "Quedan *12 frascos* de Ivomec.", uso: { modelo: "claude-opus-5-5", tokensEntrada: 900, tokensSalida: 120, tokensCacheLeidos: 6000, tokensCacheEscritos: 0, llamadasIa: 2, herramientas: ["stock_insumos"], costoUsd: 0.0072 }, borradores: [] })
+  m.enviarBotones.mockResolvedValue("wbot")
 })
 
 describe("guardar el mensaje entrante", () => {
@@ -163,10 +170,10 @@ describe("consultas", () => {
     expect(m.enviarTexto).not.toHaveBeenCalled()
     expect(m.responder).not.toHaveBeenCalled()
   })
-  it("fotos y audios todavía no se procesan", async () => {
-    m.msgFind.mockResolvedValue(mensaje({ tipo: "audio", texto: null, mediaId: "M1" }))
+  it("fotos y documentos todavía no se procesan", async () => {
+    m.msgFind.mockResolvedValue(mensaje({ tipo: "imagen", texto: null, mediaId: "M1" }))
     await procesarMensaje("m1")
-    expect(textosEnviados()[0]).toMatch(/solo mensajes de texto/)
+    expect(textosEnviados()[0]).toMatch(/facturas/)
     expect(m.responder).not.toHaveBeenCalled()
   })
   it("sin la clave de Anthropic avisa en lugar de fallar", async () => {
@@ -181,6 +188,86 @@ describe("consultas", () => {
     await procesarMensaje("m1")
     expect(m.msgUpdate).toHaveBeenCalledWith({ where: { id: "m1" }, data: { estado: "error", error: "timeout" } })
     expect(textosEnviados().at(-1)).toMatch(/Tuve un problema/)
+    log.mockRestore()
+  })
+})
+
+describe("cargas con confirmación", () => {
+  const B = "00000000-0000-4000-8000-0000000000b1"
+  it("la carga propuesta se manda con los botones Confirmar y Cancelar", async () => {
+    m.msgFind.mockResolvedValue(mensaje({ texto: "vacuné el grupo terneros con aftosa" }))
+    m.responder.mockResolvedValue({ texto: "Revisalo y confirmá 👇", uso: { modelo: "m", tokensEntrada: 1, tokensSalida: 1, tokensCacheLeidos: 0, tokensCacheEscritos: 0, llamadasIa: 1, herramientas: ["proponer_sanidad"], costoUsd: 0 }, borradores: [{ id: B, resumen: "💉 *Sanidad* · 17/10" }] })
+    await procesarMensaje("m1")
+    expect(m.responder.mock.calls[0][0]).toMatchObject({ vinculoId: "v1" })
+    expect(textosEnviados()).toEqual(["Revisalo y confirmá 👇"])
+    expect(m.enviarBotones).toHaveBeenCalledWith("549111", "💉 *Sanidad* · 17/10", [{ id: `conf:${B}`, titulo: "Confirmar" }, { id: `canc:${B}`, titulo: "Cancelar" }])
+    // El resumen queda en el historial como texto, para que el asistente sepa qué se propuso
+    expect(m.msgCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ wamid: "wbot", tipo: "texto", texto: "💉 *Sanidad* · 17/10" }) })
+  })
+  it("«Confirmar» ejecuta el borrador sin pasar por la IA", async () => {
+    m.msgFind.mockResolvedValue(mensaje({ tipo: "boton", texto: "Confirmar", respuestaId: `conf:${B}` }))
+    m.confirmar.mockResolvedValue({ tipo: "aplicado", texto: "✅ Sanidad registrada a 40 animales." })
+    await procesarMensaje("m1")
+    expect(m.confirmar).toHaveBeenCalledWith(expect.objectContaining({ userId: "u1" }), "v1", B)
+    expect(textosEnviados()).toEqual(["✅ Sanidad registrada a 40 animales."])
+    expect(m.responder).not.toHaveBeenCalled()
+  })
+  it("si hay que aceptar un aviso, vuelve a preguntar con los botones", async () => {
+    m.msgFind.mockResolvedValue(mensaje({ tipo: "boton", texto: "Confirmar", respuestaId: `conf:${B}` }))
+    m.confirmar.mockResolvedValue({ tipo: "confirmar", texto: "⚠️ El lote está vencido.\n¿Lo registro igual con el lote vencido?" })
+    await procesarMensaje("m1")
+    expect(m.enviarBotones).toHaveBeenCalledWith("549111", expect.stringMatching(/vencido/), expect.arrayContaining([{ id: `conf:${B}`, titulo: "Confirmar" }]))
+  })
+  it("«Cancelar» cancela el borrador de ese número", async () => {
+    m.msgFind.mockResolvedValue(mensaje({ tipo: "boton", texto: "Cancelar", respuestaId: `canc:${B}` }))
+    m.cancelar.mockResolvedValue({ tipo: "nada", texto: "Listo, lo cancelé." })
+    await procesarMensaje("m1")
+    expect(m.cancelar).toHaveBeenCalledWith("v1", B)
+    expect(m.confirmar).not.toHaveBeenCalled()
+  })
+})
+
+describe("notas de voz", () => {
+  const audio = () => mensaje({ tipo: "audio", texto: null, mediaId: "M1" })
+  it("sin la clave de OpenAI pide que lo escriba", async () => {
+    m.msgFind.mockResolvedValue(audio())
+    await procesarMensaje("m1")
+    expect(textosEnviados()[0]).toMatch(/no puedo escuchar audios/)
+    expect(m.descargar).not.toHaveBeenCalled()
+  })
+  it("transcribe con el vocabulario del campo, muestra lo que entendió y sigue como un texto", async () => {
+    process.env.OPENAI_API_KEY = "sk-test"
+    m.msgFind.mockResolvedValue(audio())
+    m.descargar.mockResolvedValue({ bytes: new Uint8Array([1, 2]), mime: "audio/ogg; codecs=opus" })
+    m.vocabulario.mockResolvedValue("Terneros, Ivomec")
+    m.transcribir.mockResolvedValue({ texto: "la 1234 pesó 380 kilos", costoUsd: 0.0012 })
+    await procesarMensaje("m1")
+    expect(m.descargar).toHaveBeenCalledWith("M1", 1000)
+    expect(m.vocabulario).toHaveBeenCalledWith(EST1, "o1")
+    expect(m.transcribir).toHaveBeenCalledWith(expect.any(Uint8Array), "audio/ogg; codecs=opus", "Terneros, Ivomec")
+    // Solo se guarda la transcripción y su costo
+    expect(m.msgUpdate).toHaveBeenCalledWith({ where: { id: "m1" }, data: { texto: "la 1234 pesó 380 kilos", costoAudioUsd: "0.001200", establecimientoId: EST1 } })
+    expect(textosEnviados()[0]).toBe("🎙️ Entendí: «la 1234 pesó 380 kilos»")
+    expect(m.responder.mock.calls[0][0]).toMatchObject({ texto: "la 1234 pesó 380 kilos" })
+  })
+  it("un audio demasiado largo se rechaza con aviso", async () => {
+    process.env.OPENAI_API_KEY = "sk-test"
+    m.msgFind.mockResolvedValue(audio())
+    m.descargar.mockRejectedValue(Object.assign(new Error("grande"), { status: 413 }))
+    await procesarMensaje("m1")
+    expect(textosEnviados()[0]).toMatch(/hasta 3 minutos/)
+    expect(m.responder).not.toHaveBeenCalled()
+  })
+  it("si falla la transcripción, avisa y registra el error", async () => {
+    process.env.OPENAI_API_KEY = "sk-test"
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    m.msgFind.mockResolvedValue(audio())
+    m.descargar.mockResolvedValue({ bytes: new Uint8Array([1]), mime: "audio/ogg" })
+    m.vocabulario.mockResolvedValue("")
+    m.transcribir.mockRejectedValue(new Error("OpenAI respondió 500"))
+    await procesarMensaje("m1")
+    expect(textosEnviados()[0]).toMatch(/No pude escuchar el audio/)
+    expect(estadoFinal()).toBe("error")
     log.mockRestore()
   })
 })

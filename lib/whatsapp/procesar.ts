@@ -1,12 +1,15 @@
 // Procesa un mensaje entrante ya guardado (lo llama el webhook con after(), después
-// de responderle 200 a Meta): vinculación, elección de campo, límite de mensajes y
-// respuesta del asistente con los permisos del usuario.
+// de responderle 200 a Meta): vinculación, elección de campo, límite de mensajes,
+// botones de confirmación de cargas, notas de voz y respuesta del asistente con los
+// permisos del usuario.
 
 import { contextoDeUsuario, type AuthContext } from "@/lib/api/with-auth"
 import { prisma } from "@/lib/prisma"
 import { asistenteConfigurado, LIMITE_MENSAJES, LIMITE_SIN_VINCULAR } from "./config"
-import { enviarLista, enviarTexto, marcarLeido } from "./cliente"
+import { descargarMedia, enviarBotones, enviarLista, enviarTexto, marcarLeido } from "./cliente"
 import { responderConsulta, type TurnoHistorial } from "./agente"
+import { cancelarBorrador, confirmarBorrador } from "./borradores"
+import { MAX_AUDIO_BYTES, transcribirAudio, transcripcionConfigurada, vocabularioDelCampo } from "./transcripcion"
 import { leerCodigo, vincularNumero } from "./vinculo"
 import type { MensajeEntrante } from "./webhook"
 
@@ -22,6 +25,8 @@ export const TEXTO_AYUDA =
   "Escribí *campo* para cambiar de campo."
 
 export const PREFIJO_CAMPO = "campo:"
+export const PREFIJO_CONFIRMAR = "conf:"
+export const PREFIJO_CANCELAR = "canc:"
 
 /** Guarda el mensaje entrante; devuelve su id o null si ya estaba (reintento de Meta). */
 export async function guardarEntrante(m: MensajeEntrante): Promise<string | null> {
@@ -39,6 +44,12 @@ async function responder(waId: string, vinculoId: string | null, texto: string) 
   await prisma.whatsappMensaje.create({ data: { wamid, vinculoId, waId, sentido: "saliente", tipo: "texto", texto, estado: "enviado" } })
 }
 
+/** Resumen de una carga con los botones «Confirmar» y «Cancelar» (queda en el historial como texto). */
+async function pedirConfirmacion(waId: string, vinculoId: string, id: string, texto: string) {
+  const wamid = await enviarBotones(waId, texto, [{ id: `${PREFIJO_CONFIRMAR}${id}`, titulo: "Confirmar" }, { id: `${PREFIJO_CANCELAR}${id}`, titulo: "Cancelar" }])
+  await prisma.whatsappMensaje.create({ data: { wamid, vinculoId, waId, sentido: "saliente", tipo: "texto", texto, estado: "enviado" } })
+}
+
 async function contarEntrantes(where: { waId: string; vinculoId?: null }, minutos: number) {
   return prisma.whatsappMensaje.count({ where: { ...where, sentido: "entrante", createdAt: { gte: new Date(Date.now() - minutos * 60_000) } } })
 }
@@ -51,7 +62,7 @@ async function ofrecerCampos(waId: string, vinculoId: string, campos: { id: stri
 /** Últimos intercambios de texto de las últimas 24 h, para que el asistente tenga contexto. */
 async function historial(vinculoId: string, antesDe: Date): Promise<TurnoHistorial[]> {
   const filas = await prisma.whatsappMensaje.findMany({
-    where: { vinculoId, tipo: "texto", texto: { not: null }, estado: { in: ["procesado", "enviado"] }, createdAt: { gte: new Date(antesDe.getTime() - 86_400_000), lt: antesDe } },
+    where: { vinculoId, tipo: { in: ["texto", "audio"] }, texto: { not: null }, estado: { in: ["procesado", "enviado"] }, createdAt: { gte: new Date(antesDe.getTime() - 86_400_000), lt: antesDe } },
     orderBy: { createdAt: "desc" },
     take: 20,
     select: { sentido: true, texto: true },
@@ -104,6 +115,15 @@ export async function procesarMensaje(mensajeId: string): Promise<void> {
 
     // 4. Permisos del usuario, recalculados en cada mensaje
     const ctx: AuthContext = await contextoDeUsuario(vinculo.usuario.id, vinculo.usuario.rol)
+
+    // Botones de una carga propuesta: no pasan por la IA
+    if (respuestaId?.startsWith(PREFIJO_CONFIRMAR) || respuestaId?.startsWith(PREFIJO_CANCELAR)) {
+      const id = respuestaId.slice(PREFIJO_CONFIRMAR.length)
+      const r = respuestaId.startsWith(PREFIJO_CONFIRMAR) ? await confirmarBorrador(ctx, vinculo.id, id) : await cancelarBorrador(vinculo.id, id)
+      if (r.tipo === "confirmar") await pedirConfirmacion(m.waId, vinculo.id, id, r.texto)
+      else await responder(m.waId, vinculo.id, r.texto)
+      return void (await terminar("procesado"))
+    }
     const campos = ctx.establecimientoIds.length
       ? await prisma.establecimiento.findMany({ where: { id: { in: ctx.establecimientoIds } }, select: { id: true, nombre: true }, orderBy: { nombre: "asc" } })
       : []
@@ -137,11 +157,38 @@ export async function procesarMensaje(mensajeId: string): Promise<void> {
       await responder(m.waId, vinculo.id, TEXTO_AYUDA)
       return void (await terminar("procesado"))
     }
-    if (m.tipo === "imagen" || m.tipo === "documento" || m.tipo === "audio") {
-      await responder(m.waId, vinculo.id, "Por ahora leo solo mensajes de texto. Muy pronto vas a poder mandar audios y fotos o PDF de facturas.")
+    if (m.tipo === "imagen" || m.tipo === "documento") {
+      await responder(m.waId, vinculo.id, "Por ahora leo mensajes de texto y audios. Muy pronto vas a poder mandar fotos o PDF de facturas.")
       return void (await terminar("procesado"))
     }
-    if (!texto?.trim()) {
+    const organizacionId = ctx.organizacionDeEstablecimiento[campo.id]
+    let consulta = texto
+    let costoAudioUsd: number | null = null
+    if (m.tipo === "audio") {
+      if (!transcripcionConfigurada() || !m.mediaId) {
+        await responder(m.waId, vinculo.id, "Todavía no puedo escuchar audios. Escribime el mensaje, por favor.")
+        return void (await terminar("procesado", m.mediaId ? "falta OPENAI_API_KEY" : undefined))
+      }
+      try {
+        const audio = await descargarMedia(m.mediaId, MAX_AUDIO_BYTES)
+        const t = await transcribirAudio(audio.bytes, audio.mime, await vocabularioDelCampo(campo.id, organizacionId))
+        consulta = t.texto
+        costoAudioUsd = t.costoUsd
+      } catch (e) {
+        const largo = (e as { status?: number }).status === 413
+        if (!largo) console.error("[whatsapp] No se pudo transcribir un audio", e)
+        await responder(m.waId, vinculo.id, largo ? "El audio es muy largo: mandá audios de hasta 3 minutos o escribilo." : "No pude escuchar el audio. Mandalo de nuevo o escribilo.")
+        return void (await terminar(largo ? "procesado" : "error", largo ? undefined : e instanceof Error ? e.message.slice(0, 500) : "audio"))
+      }
+      // Solo se guarda la transcripción (el audio no)
+      await prisma.whatsappMensaje.update({ where: { id: m.id }, data: { texto: consulta, costoAudioUsd: costoAudioUsd.toFixed(6), establecimientoId: campo.id } })
+      if (!consulta?.trim()) {
+        await responder(m.waId, vinculo.id, "No escuché nada en el audio. ¿Me lo mandás de nuevo?")
+        return void (await terminar("procesado"))
+      }
+      await responder(m.waId, vinculo.id, `🎙️ Entendí: «${consulta}»`)
+    }
+    if (!consulta?.trim()) {
       await responder(m.waId, vinculo.id, "No entendí el mensaje. Escribime tu consulta o *ayuda* para ver ejemplos.")
       return void (await terminar("procesado"))
     }
@@ -150,9 +197,9 @@ export async function procesarMensaje(mensajeId: string): Promise<void> {
       return void (await terminar("error", "falta ANTHROPIC_API_KEY"))
     }
     const inicio = Date.now()
-    const { texto: respuesta, uso } = await responderConsulta({
-      ctx, establecimientoId: campo.id, organizacionId: ctx.organizacionDeEstablecimiento[campo.id],
-      texto, historial: await historial(vinculo.id, m.createdAt),
+    const { texto: respuesta, uso, borradores } = await responderConsulta({
+      ctx, establecimientoId: campo.id, organizacionId, vinculoId: vinculo.id,
+      texto: consulta, historial: await historial(vinculo.id, m.createdAt),
       usuarioNombre: vinculo.usuario.nombre, campoNombre: campo.nombre, rol: ETIQUETA_ROL[ctx.rolPorEstablecimiento[campo.id]] ?? "operario",
     })
     // El consumo se guarda antes de enviar: si el envío falla, igual se pagó la consulta
@@ -164,7 +211,8 @@ export async function procesarMensaje(mensajeId: string): Promise<void> {
         llamadasIa: uso.llamadasIa, herramientas: uso.herramientas, duracionMs: Date.now() - inicio,
       },
     })
-    await responder(m.waId, vinculo.id, respuesta)
+    if (respuesta.trim()) await responder(m.waId, vinculo.id, respuesta)
+    for (const b of borradores) await pedirConfirmacion(m.waId, vinculo.id, b.id, b.resumen)
     await terminar("procesado")
   } catch (e) {
     console.error("Error procesando un mensaje de WhatsApp", e)

@@ -1,7 +1,7 @@
 import { after, NextRequest, NextResponse } from "next/server"
 import { whatsappConfig, whatsappConfigurado } from "@/lib/whatsapp/config"
 import { verificarFirma } from "@/lib/whatsapp/firma"
-import { mensajesDelWebhook } from "@/lib/whatsapp/webhook"
+import { mensajesDelWebhook, numerosConMensajes } from "@/lib/whatsapp/webhook"
 import { guardarEntrante, procesarMensaje } from "@/lib/whatsapp/procesar"
 
 export const runtime = "nodejs"
@@ -22,21 +22,32 @@ export async function GET(request: NextRequest) {
 // POST /api/whatsapp/webhook — mensajes entrantes (firmados por Meta). Se guardan, se responde
 // 200 enseguida (si no, Meta reintenta) y se procesan en segundo plano.
 export async function POST(request: NextRequest) {
-  if (!whatsappConfigurado()) return NextResponse.json({ error: "WhatsApp no configurado" }, { status: 503 })
+  // Los rechazos quedan en los logs: Meta no muestra por qué no llega un mensaje
+  if (!whatsappConfigurado()) {
+    console.error("[whatsapp] Llegó un webhook pero faltan variables de WhatsApp")
+    return NextResponse.json({ error: "WhatsApp no configurado" }, { status: 503 })
+  }
   const cuerpo = await request.text()
   const c = whatsappConfig()
-  if (!verificarFirma(cuerpo, request.headers.get("x-hub-signature-256"), c.appSecret)) return NextResponse.json({ error: "Firma inválida" }, { status: 401 })
+  if (!verificarFirma(cuerpo, request.headers.get("x-hub-signature-256"), c.appSecret)) {
+    console.warn("[whatsapp] Firma inválida: WHATSAPP_APP_SECRET no coincide con la clave secreta de la app de Meta")
+    return NextResponse.json({ error: "Firma inválida" }, { status: 401 })
+  }
   let payload: unknown
   try {
     payload = JSON.parse(cuerpo)
   } catch {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 })
   }
+  const mensajes = mensajesDelWebhook(payload, c.phoneNumberId)
+  const otros = numerosConMensajes(payload).filter((n) => n !== c.phoneNumberId)
+  if (otros.length) console.warn(`[whatsapp] Mensajes para otro número (phone_number_id ${otros.join(", ")}): revisar WHATSAPP_PHONE_NUMBER_ID`)
   const ids: string[] = []
-  for (const m of mensajesDelWebhook(payload, c.phoneNumberId)) {
+  for (const m of mensajes) {
     const id = await guardarEntrante(m)
     if (id) ids.push(id)
   }
+  if (mensajes.length) console.info(`[whatsapp] Webhook: ${mensajes.length} mensaje(s), ${ids.length} nuevo(s)`)
   if (ids.length) {
     after(async () => {
       for (const id of ids) await procesarMensaje(id)

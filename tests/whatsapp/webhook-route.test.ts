@@ -32,8 +32,11 @@ describe("webhook de WhatsApp", () => {
     expect((await GET(new NextRequest("http://localhost/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=otro&hub.challenge=123"))).status).toBe(403)
   })
 
-  it("rechaza cuerpos sin firma o con firma de otro secreto", async () => {
+  it("rechaza cuerpos sin firma o con firma de otro secreto, y lo deja en los logs", async () => {
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {})
     expect((await POST(post(cuerpo))).status).toBe(401)
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/WHATSAPP_APP_SECRET/))
+    log.mockRestore()
     expect((await POST(post(cuerpo, `sha256=${createHmac("sha256", "x").update(cuerpo).digest("hex")}`))).status).toBe(401)
     expect(m.guardar).not.toHaveBeenCalled()
   })
@@ -47,8 +50,20 @@ describe("webhook de WhatsApp", () => {
     expect(m.procesar.mock.calls).toEqual([["id1"]])
   })
 
+  it("mensajes para otro número no se guardan y avisan en los logs", async () => {
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const otro = cuerpo.replace('"PHONE"', '"OTRO"')
+    const r = await POST(post(otro, firmar(otro)))
+    expect(r.status).toBe(200)
+    expect(m.guardar).not.toHaveBeenCalled()
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/OTRO.*WHATSAPP_PHONE_NUMBER_ID/))
+    log.mockRestore()
+  })
+
   it("sin configurar responde 503", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
     delete process.env.WHATSAPP_APP_SECRET
     expect((await POST(post(cuerpo, firmar(cuerpo)))).status).toBe(503)
+    log.mockRestore()
   })
 })

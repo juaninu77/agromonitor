@@ -325,5 +325,20 @@ export const CONFIGURACION: SeccionAyuda = {
         "Mientras el espacio no tenga ningún campo, la app lleva a ese asistente.",
       ],
     },
+    {
+      id: "whatsapp-uso",
+      titulo: "Ver el uso y el gasto del asistente de WhatsApp",
+      quien: "Administrador de la plataforma.",
+      pasos: [
+        "En «Configuración», tocá la tarjeta «Asistente de WhatsApp».",
+        "Elegí el período («7 días», «30 días» o «90 días»): arriba ves las consultas respondidas, las personas que lo usaron y el gasto en Claude y en WhatsApp.",
+        "Los gráficos muestran los mensajes y el costo estimado por día; abajo, quién lo usa, qué le preguntan, el gasto por campo y los errores recientes.",
+        "En «Anthropic (Claude)» y «Meta (WhatsApp)» está el gasto que informa cada proveedor. Si dice «Sin conectar», la tarjeta explica qué variable falta cargar en Vercel.",
+      ],
+      notas: [
+        "El costo «estimado» lo calcula AgroMonitor con los tokens de cada consulta; el «real» lo informa Anthropic con unos minutos de demora y abarca toda la cuenta de Anthropic.",
+        "Las respuestas que el bot manda dentro de las 24 horas de que la persona le escribe son de categoría «Servicio» y Meta no las cobra hasta cierto volumen mensual.",
+      ],
+    },
   ],
 }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Plus, MapPin, Settings, Loader2 } from "lucide-react"
@@ -21,6 +22,7 @@ interface Establecimiento {
 
 export default function EstablecimientosPage() {
   const router = useRouter()
+  const { data: session } = useSession()
   const searchParams = useSearchParams()
   const { organizacionActiva, establecimientos, fetchEstablecimientos } = useTenant()
   const [loading, setLoading] = useState(true)
@@ -251,6 +253,17 @@ export default function EstablecimientosPage() {
               <CardDescription>Registro de actividad del sistema</CardDescription>
             </CardHeader>
           </Card>
+          {session?.user?.rol === "admin" && (
+            <Card
+              className="cursor-pointer hover:bg-accent/50 transition-colors"
+              onClick={() => router.push("/configuracion/whatsapp")}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Asistente de WhatsApp</CardTitle>
+                <CardDescription>Uso, consultas y gasto en Claude y WhatsApp</CardDescription>
+              </CardHeader>
+            </Card>
+          )}
         </div>
       </div>
     </div>

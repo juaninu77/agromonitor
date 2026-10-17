@@ -20,6 +20,7 @@ const EST = "00000000-0000-4000-8000-000000000001"
 const ctx = { userId: "u1", establecimientoIds: [EST] } as unknown as AuthContext
 const herramientas = () => Object.fromEntries(herramientasConsulta({ ctx, establecimientoId: EST, organizacionId: "o1" }).map((t) => [t.definicion.name, t]))
 const correr = async (nombre: string, input: unknown) => JSON.parse(await herramientas()[nombre].run(input as Record<string, unknown>))
+const usage = (o: Record<string, number> = {}) => ({ input_tokens: 1000, output_tokens: 100, cache_read_input_tokens: 5000, cache_creation_input_tokens: 0, ...o })
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -41,11 +42,14 @@ describe("mensajes para Claude", () => {
   it("usa el modelo con caché del prompt y respaldo ante rechazos, ejecuta las herramientas y devuelve el texto final", async () => {
     m.queryRaw.mockResolvedValue([{ especie: "bovino", categoria: "Vaca", sexo: "F", cantidad: 120 }])
     const create = vi.fn()
-      .mockResolvedValueOnce({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "resumen_rodeo", input: {} }, { type: "tool_use", id: "t2", name: "inventada", input: {} }] })
-      .mockResolvedValueOnce({ stop_reason: "end_turn", content: [{ type: "thinking", thinking: "" }, { type: "text", text: "Hay 120 vacas." }] })
+      .mockResolvedValueOnce({ model: "claude-opus-5-5", usage: usage({ cache_read_input_tokens: 0, cache_creation_input_tokens: 4000 }), stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "resumen_rodeo", input: {} }, { type: "tool_use", id: "t2", name: "inventada", input: {} }] })
+      .mockResolvedValueOnce({ model: "claude-opus-5-5", usage: usage(), stop_reason: "end_turn", content: [{ type: "thinking", thinking: "" }, { type: "text", text: "Hay 120 vacas." }] })
     const client = { beta: { messages: { create } } } as never
     const r = await responderConsulta({ ctx, establecimientoId: EST, organizacionId: "o1", texto: "¿cuántas vacas?", historial: [], usuarioNombre: "Ana", campoNombre: "X", rol: "operario" }, client)
-    expect(r).toBe("Hay 120 vacas.")
+    expect(r.texto).toBe("Hay 120 vacas.")
+    // Suma de las dos llamadas: 2000 entrada × $4 + 200 salida × $20 + 4000 escritura × $5 + 5000 lectura × $0,20 por millón
+    expect(r.uso).toMatchObject({ modelo: "claude-opus-5-5", tokensEntrada: 2000, tokensSalida: 200, tokensCacheEscritos: 4000, tokensCacheLeidos: 5000, llamadasIa: 2, herramientas: ["resumen_rodeo", "inventada"] })
+    expect(r.uso.costoUsd).toBeCloseTo(0.033, 6)
     const p = create.mock.calls[0][0]
     expect(p).toMatchObject({ model: "claude-opus-5-5", fallbacks: "default", betas: ["server-side-fallback-2026-07-01"], output_config: { effort: "low" } })
     expect(p.system[0].cache_control).toEqual({ type: "ephemeral" })
@@ -59,15 +63,17 @@ describe("mensajes para Claude", () => {
   })
 
   it("si el modelo se niega, contesta con un mensaje amable", async () => {
-    const client = { beta: { messages: { create: vi.fn().mockResolvedValue({ stop_reason: "refusal", content: [] }) } } } as never
-    expect(await responderConsulta({ ctx, establecimientoId: EST, organizacionId: "o1", texto: "x", historial: [], usuarioNombre: "A", campoNombre: "X", rol: "operario" }, client)).toMatch(/No puedo ayudarte/)
+    const client = { beta: { messages: { create: vi.fn().mockResolvedValue({ model: "claude-opus-5-5", usage: usage(), stop_reason: "refusal", content: [] }) } } } as never
+    expect((await responderConsulta({ ctx, establecimientoId: EST, organizacionId: "o1", texto: "x", historial: [], usuarioNombre: "A", campoNombre: "X", rol: "operario" }, client)).texto).toMatch(/No puedo ayudarte/)
   })
 
   it("corta si la consulta da demasiadas vueltas", async () => {
     m.queryRaw.mockResolvedValue([])
-    const create = vi.fn().mockResolvedValue({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t", name: "resumen_rodeo", input: {} }] })
+    const create = vi.fn().mockResolvedValue({ model: "claude-opus-5-5", usage: usage(), stop_reason: "tool_use", content: [{ type: "tool_use", id: "t", name: "resumen_rodeo", input: {} }] })
     const client = { beta: { messages: { create } } } as never
-    expect(await responderConsulta({ ctx, establecimientoId: EST, organizacionId: "o1", texto: "x", historial: [], usuarioNombre: "A", campoNombre: "X", rol: "operario" }, client)).toMatch(/demasiados pasos/)
+    const r = await responderConsulta({ ctx, establecimientoId: EST, organizacionId: "o1", texto: "x", historial: [], usuarioNombre: "A", campoNombre: "X", rol: "operario" }, client)
+    expect(r.texto).toMatch(/demasiados pasos/)
+    expect(r.uso.llamadasIa).toBe(8)
     expect(create).toHaveBeenCalledTimes(8)
   })
 })

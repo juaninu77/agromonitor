@@ -149,10 +149,20 @@ export async function procesarMensaje(mensajeId: string): Promise<void> {
       await responder(m.waId, vinculo.id, "El asistente todavía no está configurado. Avisale al administrador de AgroMonitor.")
       return void (await terminar("error", "falta ANTHROPIC_API_KEY"))
     }
-    const respuesta = await responderConsulta({
+    const inicio = Date.now()
+    const { texto: respuesta, uso } = await responderConsulta({
       ctx, establecimientoId: campo.id, organizacionId: ctx.organizacionDeEstablecimiento[campo.id],
       texto, historial: await historial(vinculo.id, m.createdAt),
       usuarioNombre: vinculo.usuario.nombre, campoNombre: campo.nombre, rol: ETIQUETA_ROL[ctx.rolPorEstablecimiento[campo.id]] ?? "operario",
+    })
+    // El consumo se guarda antes de enviar: si el envío falla, igual se pagó la consulta
+    await prisma.whatsappMensaje.update({
+      where: { id: m.id },
+      data: {
+        establecimientoId: campo.id, modelo: uso.modelo, tokensEntrada: uso.tokensEntrada, tokensSalida: uso.tokensSalida,
+        tokensCacheLeidos: uso.tokensCacheLeidos, tokensCacheEscritos: uso.tokensCacheEscritos, costoUsd: uso.costoUsd.toFixed(6),
+        llamadasIa: uso.llamadasIa, herramientas: uso.herramientas, duracionMs: Date.now() - inicio,
+      },
     })
     await responder(m.waId, vinculo.id, respuesta)
     await terminar("procesado")

@@ -52,6 +52,19 @@ function leerMensaje(m: Record<string, unknown>, nombres: Map<string, string>): 
   }
 }
 
+/** phone_number_id de los cambios que traen mensajes (para diagnosticar un número mal configurado). */
+export function numerosConMensajes(payload: unknown): string[] {
+  const ids = new Set<string>()
+  for (const entry of (obj(payload).entry as unknown[]) ?? []) {
+    for (const change of (obj(entry).changes as unknown[]) ?? []) {
+      const c = obj(change)
+      const v = obj(c.value) as Valor
+      if (c.field === "messages" && v.messages?.length) ids.add(v.metadata?.phone_number_id ?? "?")
+    }
+  }
+  return [...ids]
+}
+
 /** Mensajes entrantes dirigidos a nuestro número (si se indica `phoneNumberId`). */
 export function mensajesDelWebhook(payload: unknown, phoneNumberId?: string): MensajeEntrante[] {
   const res: MensajeEntrante[] = []

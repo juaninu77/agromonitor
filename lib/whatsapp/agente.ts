@@ -6,6 +6,7 @@ import type { BetaContentBlockParam, BetaMessageParam, BetaToolResultBlockParam,
 import { hoyArgentina } from "@/lib/inventario/fechas"
 import { MODELO_ASISTENTE } from "./config"
 import { herramientasConsulta, type ContextoConsulta } from "./herramientas/consultas"
+import { costoEstimadoUsd } from "./precios"
 
 // Estable entre mensajes para que quede en caché junto con las herramientas
 const SISTEMA = `Sos el asistente de AgroMonitor por WhatsApp: un sistema de gestión de campos ganaderos de Argentina.
@@ -44,14 +45,30 @@ export function armarMensajes(e: Pick<EntradaConsulta, "texto" | "historial" | "
 
 const MAX_VUELTAS = 8
 
+/** Tokens y costo estimado de una consulta: la suma de todas sus llamadas a Claude. */
+export interface UsoConsulta {
+  modelo: string | null
+  tokensEntrada: number
+  tokensSalida: number
+  tokensCacheLeidos: number
+  tokensCacheEscritos: number
+  llamadasIa: number
+  herramientas: string[]
+  costoUsd: number
+}
+
+export interface Respuesta { texto: string; uso: UsoConsulta }
+
 /**
  * Bucle de herramientas: Claude pide consultas, se ejecutan (en paralelo) y se le devuelven
  * todas juntas, hasta que responde con texto.
  */
-export async function responderConsulta(e: EntradaConsulta, client = new Anthropic()): Promise<string> {
+export async function responderConsulta(e: EntradaConsulta, client = new Anthropic()): Promise<Respuesta> {
   const herramientas = herramientasConsulta(e)
   const porNombre = new Map(herramientas.map((h) => [h.definicion.name, h]))
   const messages = armarMensajes(e)
+  const uso: UsoConsulta = { modelo: null, tokensEntrada: 0, tokensSalida: 0, tokensCacheLeidos: 0, tokensCacheEscritos: 0, llamadasIa: 0, herramientas: [], costoUsd: 0 }
+  const fin = (texto: string): Respuesta => ({ texto, uso })
   for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
     const r = await client.beta.messages.create({
       model: MODELO_ASISTENTE,
@@ -63,12 +80,22 @@ export async function responderConsulta(e: EntradaConsulta, client = new Anthrop
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
     })
-    if (r.stop_reason === "refusal") return "No puedo ayudarte con eso. Probá preguntarlo de otra manera."
+    // Cada llamada se suma con el modelo que la sirvió (con un respaldo puede no ser el pedido)
+    const t = { entrada: r.usage.input_tokens, salida: r.usage.output_tokens, cacheLeidos: r.usage.cache_read_input_tokens ?? 0, cacheEscritos: r.usage.cache_creation_input_tokens ?? 0 }
+    uso.modelo = r.model
+    uso.llamadasIa++
+    uso.tokensEntrada += t.entrada
+    uso.tokensSalida += t.salida
+    uso.tokensCacheLeidos += t.cacheLeidos
+    uso.tokensCacheEscritos += t.cacheEscritos
+    uso.costoUsd += costoEstimadoUsd(r.model, t)
+    if (r.stop_reason === "refusal") return fin("No puedo ayudarte con eso. Probá preguntarlo de otra manera.")
     const usos = r.content.filter((b): b is BetaToolUseBlock => b.type === "tool_use")
     if (r.stop_reason !== "tool_use" || !usos.length) {
       const texto = r.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("\n").trim()
-      return texto || "No encontré una respuesta. ¿Me lo preguntás de otra forma?"
+      return fin(texto || "No encontré una respuesta. ¿Me lo preguntás de otra forma?")
     }
+    for (const u of usos) if (!uso.herramientas.includes(u.name)) uso.herramientas.push(u.name)
     messages.push({ role: "assistant", content: r.content as BetaContentBlockParam[] })
     const resultados = await Promise.all(usos.map(async (u): Promise<BetaToolResultBlockParam> => {
       const h = porNombre.get(u.name)
@@ -78,5 +105,5 @@ export async function responderConsulta(e: EntradaConsulta, client = new Anthrop
     }))
     messages.push({ role: "user", content: resultados })
   }
-  return "La consulta llevó demasiados pasos. ¿Me la hacés más concreta?"
+  return fin("La consulta llevó demasiados pasos. ¿Me la hacés más concreta?")
 }

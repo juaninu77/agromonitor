@@ -2036,9 +2036,23 @@ model WhatsappMensaje {
   error       String?
   createdAt   DateTime @default(now()) @map("created_at")
 
+  // Uso del asistente: solo en los entrantes que respondió Claude (suma de todas las vueltas).
+  // El costo se estima al responder con los precios de lib/whatsapp/precios.ts.
+  establecimientoId   String?  @map("establecimiento_id") @db.Uuid // campo activo al responder
+  modelo              String?
+  tokensEntrada       Int?     @map("tokens_entrada") // sin caché
+  tokensSalida        Int?     @map("tokens_salida")
+  tokensCacheLeidos   Int?     @map("tokens_cache_leidos")
+  tokensCacheEscritos Int?     @map("tokens_cache_escritos")
+  costoUsd            Decimal? @map("costo_usd") @db.Decimal(12, 6)
+  llamadasIa          Int?     @map("llamadas_ia")
+  herramientas        String[] @default([])
+  duracionMs          Int?     @map("duracion_ms")
+
   vinculo WhatsappVinculo? @relation(fields: [vinculoId], references: [id], onDelete: SetNull)
 
   @@index([waId, createdAt])
   @@index([vinculoId, createdAt])
+  @@index([createdAt])
   @@map("whatsapp_mensajes")
 }

@@ -39,7 +39,7 @@ beforeEach(() => {
   m.contexto.mockResolvedValue(ctx([EST1]))
   m.estFindMany.mockResolvedValue([{ id: EST1, nombre: "La Esperanza" }])
   m.enviarTexto.mockResolvedValue("wout")
-  m.responder.mockResolvedValue("Quedan *12 frascos* de Ivomec.")
+  m.responder.mockResolvedValue({ texto: "Quedan *12 frascos* de Ivomec.", uso: { modelo: "claude-opus-5-5", tokensEntrada: 900, tokensSalida: 120, tokensCacheLeidos: 6000, tokensCacheEscritos: 0, llamadasIa: 2, herramientas: ["stock_insumos"], costoUsd: 0.0072 } })
 })
 
 describe("guardar el mensaje entrante", () => {
@@ -148,6 +148,8 @@ describe("consultas", () => {
       historial: [{ rol: "user", texto: "hola" }, { rol: "assistant", texto: "¡Hola!" }],
     }))
     expect(textosEnviados()).toEqual(["Quedan *12 frascos* de Ivomec."])
+    // El consumo queda en el mensaje entrante, con el campo de la consulta
+    expect(m.msgUpdate).toHaveBeenCalledWith({ where: { id: "m1" }, data: expect.objectContaining({ establecimientoId: EST1, modelo: "claude-opus-5-5", tokensCacheLeidos: 6000, costoUsd: "0.007200", herramientas: ["stock_insumos"], duracionMs: expect.any(Number) }) })
     expect(m.msgCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ sentido: "saliente", wamid: "wout", vinculoId: "v1" }) })
     expect(estadoFinal()).toBe("procesado")
   })
